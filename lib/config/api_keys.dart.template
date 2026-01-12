@@ -1,0 +1,5 @@
+/// API Keys for external services
+/// Copy this file to api_keys.dart and add your actual keys
+class ApiKeys {
+  static const String googlePlaces = 'YOUR_GOOGLE_PLACES_API_KEY_HERE';
+}

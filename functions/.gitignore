@@ -1,0 +1,28 @@
+# Compiled JavaScript files
+lib/
+*.js
+*.js.map
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Node modules
+node_modules/
+
+# Environment variables (contains API keys - NEVER commit!)
+.env
+.env.local
+.env.production
+
+# Firebase config
+.runtimeconfig.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+firebase-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

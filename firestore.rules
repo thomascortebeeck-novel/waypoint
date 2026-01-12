@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    // Users collection - private data
+    match /users/{userId} {
+      // Users can read their own data
+      allow read: if isOwner(userId);
+      
+      // Users can create their own profile
+      allow create: if isSignedIn() && 
+                      request.auth.uid == request.resource.data.id;
+      
+      // Users can update their own profile
+      allow update: if isOwner(userId);
+      
+      // Users can delete their own profile
+      allow delete: if isOwner(userId);
+      
+      // Favorites subcollection - user can manage their own favorites
+      match /favorites/{favoriteId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // Purchased plans subcollection - user can read their purchases, system can create
+      match /purchasedPlans/{purchasedPlanId} {
+        allow read: if isOwner(userId);
+        allow create: if isSignedIn();
+      }
+    }
+    
+    // Plans collection - public read, owner write
+    match /plans/{planId} {
+      // Anyone can read published plans
+      allow read: if resource.data.is_published == true;
+      
+      // Creators can read their own unpublished plans
+      allow read: if isSignedIn() && 
+                    request.auth.uid == resource.data.creator_id;
+      
+      // Only signed-in users can create plans
+      // Must set creator_id to their own UID
+      allow create: if isSignedIn() && 
+                      request.auth.uid == request.resource.data.creator_id;
+      
+      // Creator can update their own plans
+      // Also allow signed-in users to update only favorite_count and sales_count
+      allow update: if isSignedIn() && (
+                      request.auth.uid == resource.data.creator_id ||
+                      (request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['favorite_count', 'sales_count']))
+                    );
+      
+      // Only the creator can delete their own plans
+      allow delete: if isSignedIn() && 
+                      request.auth.uid == resource.data.creator_id;
+    }
+    
+    // Orders collection - buyer can create and read their orders
+    match /orders/{orderId} {
+      // Users can read their own orders (as buyer)
+      allow read: if isSignedIn() && 
+                    request.auth.uid == resource.data.buyer_id;
+      
+      // Signed-in users can create orders for themselves
+      allow create: if isSignedIn() && 
+                      request.auth.uid == request.resource.data.buyer_id;
+      
+      // Allow updating order status (for checkout flow)
+      allow update: if isSignedIn() && 
+                      request.auth.uid == resource.data.buyer_id;
+    }
+    
+    // Trips collection - member access only
+    match /trips/{tripId} {
+      // Trip members can read their trips
+      allow read: if isSignedIn() && 
+                    request.auth.uid in resource.data.member_ids;
+      
+      // Only signed-in users can create trips
+      // Must be the owner
+      allow create: if isSignedIn() && 
+                      request.auth.uid == request.resource.data.owner_id;
+      
+      // Owner and members can update trip data
+      allow update: if isSignedIn() && 
+                      request.auth.uid in resource.data.member_ids;
+      
+      // Only the owner can delete their trips
+      allow delete: if isSignedIn() && 
+                      request.auth.uid == resource.data.owner_id;
+    }
+  }
+}
