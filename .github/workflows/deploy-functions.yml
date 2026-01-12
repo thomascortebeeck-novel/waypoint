@@ -45,16 +45,14 @@ jobs:
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > $HOME/gcloud-service-key.json
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
 
-      # 7. Set Google Places API key as Firebase secret (requires Secret Manager API enabled)
-      - name: Set Firebase Secret
+      # 7. Create .env.yaml file with API key for Cloud Functions
+      - name: Setup Environment Variables
+        working-directory: ./functions
         run: |
-          export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
-          echo "Setting Firebase secret GOOGLE_PLACES_KEY..."
-          echo "${{ secrets.GOOGLE_PLACES_API_KEY }}" | firebase functions:secrets:set GOOGLE_PLACES_KEY \
-            --project ${{ secrets.FIREBASE_PROJECT_ID }} \
-            --force \
-            --data-file=- || echo "⚠️ Secret setting failed - this is OK if secret already exists. Enable Secret Manager API at: https://console.cloud.google.com/apis/library/secretmanager.googleapis.com?project=${{ secrets.FIREBASE_PROJECT_ID }}"
-        continue-on-error: true
+          cat > .env.yaml << EOF
+          GOOGLE_PLACES_KEY: "${{ secrets.GOOGLE_PLACES_API_KEY }}"
+          EOF
+          echo "✅ Environment variables configured"
 
       # 8. Deploy Cloud Functions
       - name: Deploy to Firebase
@@ -68,7 +66,9 @@ jobs:
       # 9. Cleanup sensitive files
       - name: Cleanup Credentials
         if: always()
-        run: rm -f $HOME/gcloud-service-key.json
+        run: |
+          rm -f $HOME/gcloud-service-key.json
+          rm -f functions/.env.yaml
 
       # 10. Success notification
       - name: Deployment Summary
