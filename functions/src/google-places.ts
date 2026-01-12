@@ -1,12 +1,12 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {defineSecret} from "firebase-functions/params";
 import {getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
 import axios from "axios";
 
-// 🔒 SECURITY: API key stored in Firebase environment config
-// Set via: firebase functions:config:set google.places_key="YOUR_KEY"
-// Note: For v2 functions, use defineSecret() or environment variables
-const GOOGLE_PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
+// 🔒 SECURITY: API key stored as Firebase secret
+// GitHub Actions will set this via: firebase functions:secrets:set GOOGLE_PLACES_KEY
+const GOOGLE_PLACES_KEY = defineSecret("GOOGLE_PLACES_KEY");
 
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
@@ -57,7 +57,10 @@ interface PlacesSearchRequest {
  * 🔒 SECURE: Search places using Google Places API (New)
  * Implements autocomplete search with rate limiting and authentication
  */
-export const placesSearch = onCall({region: "us-central1"}, async (request) => {
+export const placesSearch = onCall({
+  region: "us-central1",
+  secrets: [GOOGLE_PLACES_KEY],
+}, async (request) => {
   // Enforce authentication
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -73,6 +76,7 @@ export const placesSearch = onCall({region: "us-central1"}, async (request) => {
 
   try {
     const {query, proximity, types} = data;
+    const apiKey = GOOGLE_PLACES_KEY.value();
 
     // Validate input
     if (!query || query.trim().length < 2) {
@@ -107,7 +111,7 @@ export const placesSearch = onCall({region: "us-central1"}, async (request) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+          "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text",
         },
       }
@@ -137,7 +141,10 @@ interface PlaceDetailsRequest {
 /**
  * 🔒 SECURE: Get detailed place information
  */
-export const placeDetails = onCall({region: "us-central1"}, async (request) => {
+export const placeDetails = onCall({
+  region: "us-central1",
+  secrets: [GOOGLE_PLACES_KEY],
+}, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
@@ -151,6 +158,7 @@ export const placeDetails = onCall({region: "us-central1"}, async (request) => {
 
   try {
     const {placeId} = data;
+    const apiKey = GOOGLE_PLACES_KEY.value();
 
     if (!placeId) {
       throw new HttpsError("invalid-argument", "Place ID required");
@@ -162,7 +170,7 @@ export const placeDetails = onCall({region: "us-central1"}, async (request) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+          "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,websiteUri,nationalPhoneNumber,types,photos",
         },
       }
@@ -196,7 +204,10 @@ interface GeocodeRequest {
 /**
  * 🔒 SECURE: Geocode address to coordinates
  */
-export const geocodeAddress = onCall({region: "us-central1"}, async (request) => {
+export const geocodeAddress = onCall({
+  region: "us-central1",
+  secrets: [GOOGLE_PLACES_KEY],
+}, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
@@ -210,6 +221,7 @@ export const geocodeAddress = onCall({region: "us-central1"}, async (request) =>
 
   try {
     const {address} = data;
+    const apiKey = GOOGLE_PLACES_KEY.value();
 
     if (!address) {
       throw new HttpsError("invalid-argument", "Address required");
@@ -219,7 +231,7 @@ export const geocodeAddress = onCall({region: "us-central1"}, async (request) =>
     const response = await axios.get(GEOCODING_URL, {
       params: {
         address,
-        key: GOOGLE_PLACES_API_KEY,
+        key: apiKey,
       },
     });
 
@@ -249,7 +261,10 @@ interface PhotoRequest {
  * 🔒 SECURE: Get place photo with Firebase Storage caching
  * Photos are fetched once from Google and cached permanently
  */
-export const placePhoto = onCall({region: "us-central1"}, async (request) => {
+export const placePhoto = onCall({
+  region: "us-central1",
+  secrets: [GOOGLE_PLACES_KEY],
+}, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
   }
@@ -263,6 +278,7 @@ export const placePhoto = onCall({region: "us-central1"}, async (request) => {
 
   try {
     const {photoReference, maxWidth, waypointId} = data;
+    const apiKey = GOOGLE_PLACES_KEY.value();
 
     if (!photoReference) {
       throw new HttpsError("invalid-argument", "Photo reference required");
@@ -292,7 +308,7 @@ export const placePhoto = onCall({region: "us-central1"}, async (request) => {
     }
 
     // Not cached - fetch from Google Places
-    const photoUrl = `${PLACES_BASE_URL}/${photoReference}/media?maxWidthPx=${maxWidth || 800}&key=${GOOGLE_PLACES_API_KEY}`;
+    const photoUrl = `${PLACES_BASE_URL}/${photoReference}/media?maxWidthPx=${maxWidth || 800}&key=${apiKey}`;
 
     const response = await axios.get(photoUrl, {
       responseType: "arraybuffer",
