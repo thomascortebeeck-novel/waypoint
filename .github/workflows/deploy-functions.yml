@@ -45,14 +45,15 @@ jobs:
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > $HOME/gcloud-service-key.json
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
 
-      # 7. Set Google Places API key as Firebase secret
+      # 7. Set Google Places API key as Firebase secret (requires Secret Manager API enabled)
       - name: Set Firebase Secret
         run: |
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
+          echo "Setting Firebase secret GOOGLE_PLACES_KEY..."
           echo "${{ secrets.GOOGLE_PLACES_API_KEY }}" | firebase functions:secrets:set GOOGLE_PLACES_KEY \
             --project ${{ secrets.FIREBASE_PROJECT_ID }} \
             --force \
-            --data-file=-
+            --data-file=- || echo "⚠️ Secret setting failed - this is OK if secret already exists. Enable Secret Manager API at: https://console.cloud.google.com/apis/library/secretmanager.googleapis.com?project=${{ secrets.FIREBASE_PROJECT_ID }}"
         continue-on-error: true
 
       # 8. Deploy Cloud Functions
