@@ -1390,83 +1390,248 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
 
   @override
   Widget build(BuildContext context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 700),
+          width: 480,
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.95,
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 40,
+                offset: const Offset(0, 20),
+                spreadRadius: 0,
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
+              // Modern header
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.add_location_alt),
-                    const SizedBox(width: 8),
-                    const Text('Add Waypoint', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF428A13), Color(0xFF2D5A27)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF428A13).withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.add_location_alt_rounded, color: Colors.white, size: 24),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Add Waypoint',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade900,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Search or tap on map to set location',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.close_rounded, size: 20, color: Colors.grey.shade600),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1),
+              
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Search for a place or paste Google Maps link',
-                          helperText: 'Tip: You can paste Google Maps share links directly',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searching
-                              ? const Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                                )
-                              : null,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      // Modern search section
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.grey.shade200),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
+                        child: TextField(
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            hintText: 'Search for a place or paste Google Maps link',
+                            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+                            prefixIcon: Container(
+                              padding: const EdgeInsets.all(12),
+                              child: Icon(Icons.search_rounded, color: Colors.grey.shade400, size: 22),
+                            ),
+                            suffixIcon: _searchController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear_rounded, size: 20),
+                                    color: Colors.grey.shade400,
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() => _searchResults = []);
+                                    },
+                                  )
+                                : (_searching
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                                      )
+                                    : null),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.lightbulb_outline_rounded, size: 14, color: Colors.grey.shade400),
+                          const SizedBox(width: 6),
+                          Text('Tip: Paste Google Maps share links directly', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(4)),
+                            child: const Text('NEW', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF2E7D32), letterSpacing: 0.5)),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       if (_searchResults.isNotEmpty) ...[
                         Container(
                           constraints: const BoxConstraints(maxHeight: 200),
                           decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(8),
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.grey.shade200),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.08),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: _searchResults.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
-                            itemBuilder: (_, i) {
-                              final result = _searchResults[i];
-                              return ListTile(
-                                dense: true,
-                                leading: Icon(getWaypointIcon(_selectedType), size: 20),
-                                title: Text(result.text),
-                                onTap: () => _selectPlace(result),
-                              );
-                            },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              itemCount: _searchResults.length,
+                              separatorBuilder: (_, __) => Divider(height: 1, indent: 56, endIndent: 16, color: Colors.grey.shade200),
+                              itemBuilder: (_, i) {
+                                final result = _searchResults[i];
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () => _selectPlace(result),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF5F5F5),
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            child: const Icon(Icons.place_rounded, size: 20, color: Color(0xFF428A13)),
+                                          ),
+                                          const SizedBox(width: 14),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  result.text,
+                                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade900),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  result.placeId,
+                                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade300),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
-                        // ✅ "Powered by Google" Attribution
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Image.network(
                               'https://developers.google.com/static/maps/images/powered-by-google-on-white.png',
                               height: 16,
-                              errorBuilder: (_, __, ___) => Text(
-                                'Powered by Google',
-                                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                              ),
+                              errorBuilder: (_, __, ___) => Text('Powered by Google', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
                             ),
                           ],
                         ),
@@ -1517,74 +1682,55 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                           style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      const Text('Type', style: TextStyle(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 20),
+                      Text('Type', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700, letterSpacing: 0.3)),
+                      const SizedBox(height: 12),
                       Wrap(
-                        spacing: 8,
-                        children: WaypointType.values
-                            .map((type) => ChoiceChip(
-                                  label: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(getWaypointIcon(type), size: 16),
-                                      const SizedBox(width: 4),
-                                      Text(getWaypointLabel(type)),
-                                    ],
-                                  ),
-                                  selected: _selectedType == type,
-                                  onSelected: (selected) {
-                                    if (selected) {
-                                      setState(() {
-                                        _selectedType = type;
-                                        _searchResults = [];
-                                        if (_searchController.text.isNotEmpty) {
-                                          _performSearch(_searchController.text);
-                                        }
-                                      });
-                                    }
-                                  },
-                                  selectedColor: getWaypointColor(type).withValues(alpha: 0.3),
-                                ))
-                            .toList(),
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: WaypointType.values.map((type) => _ModernTypeChip(
+                          type: type,
+                          isSelected: _selectedType == type,
+                          onTap: () {
+                            setState(() {
+                              _selectedType = type;
+                              _searchResults = [];
+                              if (_searchController.text.isNotEmpty) {
+                                _performSearch(_searchController.text);
+                              }
+                            });
+                          },
+                        )).toList(),
                       ),
                       if (_selectedType == WaypointType.accommodation) ...[
                         const SizedBox(height: 16),
-                        const Text('Accommodation Type *', style: TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                            const SizedBox(width: 8),
+                            Text('Accommodation Type', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                            const SizedBox(width: 4),
+                            const Text('*', style: TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
-                              child: ChoiceChip(
-                                label: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.hotel, size: 16),
-                                    SizedBox(width: 4),
-                                    Text('Hotel'),
-                                  ],
-                                ),
-                                selected: _accommodationType == AccommodationType.hotel,
-                                onSelected: (selected) {
-                                  if (selected) setState(() => _accommodationType = AccommodationType.hotel);
-                                },
+                              child: _ModernSubtypeChip(
+                                icon: Icons.apartment_rounded,
+                                label: 'Hotel',
+                                isSelected: _accommodationType == AccommodationType.hotel,
+                                onTap: () => setState(() => _accommodationType = AccommodationType.hotel),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 10),
                             Expanded(
-                              child: ChoiceChip(
-                                label: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.home, size: 16),
-                                    SizedBox(width: 4),
-                                    Text('Airbnb'),
-                                  ],
-                                ),
-                                selected: _accommodationType == AccommodationType.airbnb,
-                                onSelected: (selected) {
-                                  if (selected) setState(() => _accommodationType = AccommodationType.airbnb);
-                                },
+                              child: _ModernSubtypeChip(
+                                icon: Icons.home_rounded,
+                                label: 'Airbnb',
+                                isSelected: _accommodationType == AccommodationType.airbnb,
+                                onTap: () => setState(() => _accommodationType = AccommodationType.airbnb),
                               ),
                             ),
                           ],
@@ -1626,43 +1772,128 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                             ),
                         ],
                       ],
-                      const SizedBox(height: 16),
-                      TextField(
+                      const SizedBox(height: 20),
+                      Container(height: 1, color: Colors.grey.shade100, margin: const EdgeInsets.only(bottom: 20)),
+                      _ModernTextField(
+                        label: 'Name',
+                        isRequired: true,
                         controller: _nameController,
-                        decoration: InputDecoration(
-                          labelText: 'Name *',
-                          hintText: 'e.g., Café Aurora',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+                        hintText: 'e.g., Abisko Mountain Lodge',
+                        prefixIcon: Icons.label_outline_rounded,
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
+                      const SizedBox(height: 16),
+                      _ModernTextField(
+                        label: 'Description',
+                        isRequired: false,
                         controller: _descController,
-                        maxLines: 2,
-                        decoration: InputDecoration(
-                          labelText: 'Description (optional)',
-                          hintText: 'Add details...',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+                        hintText: 'Add notes, tips, or details...',
+                        prefixIcon: Icons.notes_rounded,
+                        maxLines: 3,
                       ),
                     ],
                   ),
                 ),
               ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.all(16),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
+                  border: Border(top: BorderSide(color: Colors.grey.shade100)),
+                ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    if (_selectedPlace != null)
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F5E9),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF428A13)),
+                            ),
+                            const SizedBox(width: 10),
+                            const Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Place selected', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+                                  Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (_accommodationType == AccommodationType.airbnb && _airbnbAddressConfirmed)
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F5E9),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.location_on_rounded, size: 18, color: Color(0xFF428A13)),
+                            ),
+                            const SizedBox(width: 10),
+                            const Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Location set', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline_rounded, size: 16, color: Colors.orange.shade600),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text('Search or set location first', style: TextStyle(fontSize: 13, color: Colors.orange.shade600)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(width: 16),
                     TextButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('Cancel', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Colors.grey.shade600)),
                     ),
-                    const SizedBox(width: 8),
-                    FilledButton(
+                    const SizedBox(width: 10),
+                    ElevatedButton(
                       onPressed: _canSave() ? _save : null,
-                      child: const Text('Save'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF428A13),
+                        disabledBackgroundColor: Colors.grey.shade200,
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add_rounded, size: 18, color: _canSave() ? Colors.white : Colors.grey.shade400),
+                          const SizedBox(width: 6),
+                          Text('Add Waypoint', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _canSave() ? Colors.white : Colors.grey.shade400)),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -1737,6 +1968,211 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     );
 
     Navigator.of(context).pop(waypoint);
+  }
+}
+
+/// Modern type chip widget
+class _ModernTypeChip extends StatelessWidget {
+  final WaypointType type;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ModernTypeChip({
+    required this.type,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = getWaypointColor(type);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.12) : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? color : Colors.grey.shade200, width: isSelected ? 2 : 1),
+          boxShadow: isSelected
+              ? [BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 2))]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: isSelected ? 20 : 0,
+              child: isSelected
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Icon(Icons.check_rounded, size: 16, color: color),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: isSelected ? color.withValues(alpha: 0.15) : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(getWaypointIcon(type), size: 16, color: isSelected ? color : Colors.grey.shade500),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              getWaypointLabel(type),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected ? color : Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Modern subtype chip widget for accommodation types
+class _ModernSubtypeChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ModernSubtypeChip({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF9C27B0).withValues(alpha: 0.1) : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF9C27B0) : Colors.grey.shade200,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: isSelected ? const Color(0xFF9C27B0) : Colors.grey.shade500),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected ? const Color(0xFF9C27B0) : Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Modern text field widget with focus states
+class _ModernTextField extends StatefulWidget {
+  final String? label;
+  final bool isRequired;
+  final TextEditingController controller;
+  final String hintText;
+  final IconData? prefixIcon;
+  final int maxLines;
+  final TextInputType? keyboardType;
+
+  const _ModernTextField({
+    this.label,
+    required this.isRequired,
+    required this.controller,
+    required this.hintText,
+    this.prefixIcon,
+    this.maxLines = 1,
+    this.keyboardType,
+  });
+
+  @override
+  State<_ModernTextField> createState() => _ModernTextFieldState();
+}
+
+class _ModernTextFieldState extends State<_ModernTextField> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.label != null) ...[
+          Row(
+            children: [
+              Text(
+                widget.label!,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+              ),
+              if (widget.isRequired)
+                const Text(' *', style: TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: _isFocused ? Colors.white : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _isFocused ? const Color(0xFF428A13) : Colors.grey.shade200,
+              width: _isFocused ? 2 : 1,
+            ),
+            boxShadow: _isFocused
+                ? [BoxShadow(color: const Color(0xFF428A13).withValues(alpha: 0.1), blurRadius: 8, offset: const Offset(0, 2))]
+                : null,
+          ),
+          child: Focus(
+            onFocusChange: (focused) => setState(() => _isFocused = focused),
+            child: TextField(
+              controller: widget.controller,
+              maxLines: widget.maxLines,
+              keyboardType: widget.keyboardType,
+              style: TextStyle(fontSize: 15, color: Colors.grey.shade900),
+              decoration: InputDecoration(
+                hintText: widget.hintText,
+                hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                prefixIcon: widget.prefixIcon != null
+                    ? Container(
+                        padding: const EdgeInsets.all(12),
+                        child: Icon(
+                          widget.prefixIcon,
+                          size: 20,
+                          color: _isFocused ? const Color(0xFF428A13) : Colors.grey.shade400,
+                        ),
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
