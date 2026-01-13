@@ -6,6 +6,8 @@ import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/itinerary/itinerary_bottom_bar.dart';
+import 'package:waypoint/components/inputs/waypoint_text_field.dart';
 
 /// Step 1 — Define itinerary: name, version selection, start date, and visual schedule
 class ItineraryDefineScreen extends StatefulWidget {
@@ -79,23 +81,42 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/itinerary/${widget.planId}')),
-        title: Text('New itinerary', style: context.textStyles.titleLarge),
+        title: const Text('New Itinerary'),
         centerTitle: false,
       ),
       body: ListView(
         padding: AppSpacing.paddingLg,
         children: [
+          // Header section with gradient icon
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                gradient: LinearGradient(colors: [context.colors.primary, context.colors.secondary]),
+              ),
+              child: const Icon(Icons.auto_awesome, color: Colors.white, size: 28),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Create your itinerary', style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text('Set up your trip details', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant)),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 24),
+
           // Name
-          Text('Name', style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text('Itinerary name', style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          TextField(
-            controller: _nameController,
-            decoration: const InputDecoration(hintText: 'e.g. Summer Adventure'),
-          ),
+          WaypointTextField(controller: _nameController, hint: 'e.g., Summer Adventure 2026'),
           const SizedBox(height: 24),
 
           // Version selection FIRST
-          Text('Pick a version', style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text('Pick a version', style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           ..._plan!.versions.map((v) => _VersionCard(
                 version: v,
@@ -106,7 +127,7 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
           const SizedBox(height: 24),
 
           // Start date only
-          Text('When do you start?', style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text('When do you start?', style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           InkWell(
             onTap: _pickStartDate,
@@ -114,15 +135,16 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                border: Border.all(color: context.colors.outline),
+                border: Border.all(color: context.colors.outlineVariant),
                 borderRadius: BorderRadius.circular(12),
+                color: context.colors.surface,
               ),
               child: Row(children: [
                 Icon(Icons.calendar_today, color: context.colors.primary),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    _startDate == null ? 'Select start date' : DateFormat('EEEE, MMMM d, yyyy').format(_startDate!),
+                    _startDate == null ? 'Select start date' : DateFormat('MMMM d, yyyy').format(_startDate!),
                     style: context.textStyles.bodyLarge?.copyWith(
                       color: _startDate == null ? context.colors.onSurfaceVariant : context.colors.onSurface,
                     ),
@@ -143,16 +165,16 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
             ),
           ],
 
-          const SizedBox(height: 32),
-          SizedBox(
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: _saving || _selectedVersionId == null ? null : _onCreate,
-              icon: const Icon(Icons.arrow_forward),
-              label: Text(_saving ? 'Creating…' : 'Create and continue'),
-            ),
-          ),
+          const SizedBox(height: 100),
         ],
+      ),
+      bottomNavigationBar: ItineraryBottomBar(
+        onBack: () => context.go('/itinerary/${widget.planId}'),
+        backLabel: 'Back',
+        onNext: _saving || _selectedVersionId == null ? null : _onCreate,
+        nextEnabled: !_saving && _selectedVersionId != null && _nameController.text.trim().isNotEmpty,
+        nextLabel: _saving ? 'Creating…' : 'Create and Continue',
+        nextIcon: Icons.arrow_forward,
       ),
     );
   }

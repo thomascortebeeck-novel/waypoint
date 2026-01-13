@@ -6,6 +6,7 @@ import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/itinerary/itinerary_card.dart';
 
 /// Itinerary home for a specific plan. Users can create and manage multiple itineraries.
 class ItineraryHomeScreen extends StatelessWidget {
@@ -38,65 +39,132 @@ class ItineraryHomeScreen extends StatelessWidget {
       builder: (context, planSnap) {
         final plan = planSnap.data;
         return Scaffold(
-          appBar: AppBar(
-            leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/details/$planId')),
-            title: Text(plan?.name ?? 'Itinerary', style: context.textStyles.titleLarge),
-            centerTitle: false,
-          ),
-          body: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (plan != null)
-                Padding(
-                  padding: AppSpacing.paddingMd,
-                  child: Text('Create and manage your itineraries for ${plan.name}', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant)),
-                ),
-              Expanded(
-                child: StreamBuilder<List<Trip>>(
+          body: plan == null
+              ? const Center(child: CircularProgressIndicator())
+              : StreamBuilder<List<Trip>>(
                   stream: trips.streamTripsForUserPlan(uid, planId),
                   builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      // Log and fall back to empty state with create action
-                      debugPrint('Itinerary stream error: ${snapshot.error}');
-                      return _ErrorOrEmpty(planId: planId, message: 'Could not load itineraries');
-                    }
-                    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                    final hasError = snapshot.hasError;
                     final list = snapshot.data ?? [];
-                    if (list.isEmpty) return _EmptyCreate(planId: planId);
-                    return ListView.separated(
-                      padding: AppSpacing.paddingMd,
-                      itemBuilder: (c, i) {
-                        final t = list[i];
-                        return InkWell(
-                          onTap: () => context.push('/itinerary/$planId/setup/${t.id}'),
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: context.colors.surface,
-                              borderRadius: BorderRadius.circular(AppRadius.md),
-                              border: Border.all(color: context.colors.outlineVariant),
+                    return CustomScrollView(
+                      slivers: [
+                        SliverAppBar(
+                          expandedHeight: 200,
+                          pinned: true,
+                          leading: IconButton(
+                            icon: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.3), shape: BoxShape.circle),
+                              child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                             ),
-                            padding: const EdgeInsets.all(16),
-                            child: Row(children: [
-                              const Icon(Icons.map_outlined),
-                              const SizedBox(width: 12),
-                              Expanded(child: Text(t.title ?? 'Itinerary', style: context.textStyles.titleMedium)),
-                              _ItineraryMenu(trip: t),
-                              const Icon(Icons.chevron_right),
+                            onPressed: () => context.go('/details/$planId'),
+                          ),
+                          flexibleSpace: FlexibleSpaceBar(
+                            titlePadding: const EdgeInsets.only(left: 16, bottom: 16, right: 16),
+                            title: Text(plan.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                            background: Stack(fit: StackFit.expand, children: [
+                              Image.network(plan.heroImageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: context.colors.surfaceContainer)),
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Colors.transparent, Colors.black.withValues(alpha: 0.6)],
+                                    stops: const [0.5, 1],
+                                  ),
+                                ),
+                              ),
                             ]),
                           ),
-                        );
-                      },
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemCount: list.length,
+                        ),
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: AppSpacing.paddingMd,
+                            child: Text('Manage your trip itineraries', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant)),
+                          ),
+                        ),
+                        if (hasError)
+                          SliverToBoxAdapter(child: _ErrorOrEmpty(planId: planId, message: 'Could not load itineraries'))
+                        else if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData)
+                          const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())))
+                        else if (list.isEmpty)
+                          SliverToBoxAdapter(child: _EmptyCreate(planId: planId))
+                        else
+                          SliverList.separated(
+                            itemCount: list.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 12),
+                            itemBuilder: (c, i) {
+                              final t = list[i];
+                              // Version lookup
+                              PlanVersion? version;
+                              if (plan.versions.isNotEmpty) {
+                                try {
+                                  version = plan.versions.firstWhere((v) => v.id == t.versionId);
+                                } catch (_) {
+                                  version = plan.versions.first;
+                                }
+                              }
+                              final days = version?.durationDays;
+                              final dr = _formatDateRange(t.startDate, t.endDate);
+                              final status = _computeStatus(t.startDate, t.endDate);
+                              return Padding(
+                                padding: AppSpacing.paddingMd.copyWith(top: 0, bottom: 0),
+                                child: ItineraryCard(
+                                  title: t.title ?? 'Itinerary',
+                                  dateRange: dr,
+                                  days: days,
+                                  versionName: version?.name,
+                                  status: status,
+                                  onTap: () => context.push('/itinerary/$planId/setup/${t.id}'),
+                                  menuItems: const [
+                                    PopupMenuItem(value: 'rename', child: Text('Rename')),
+                                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                  ],
+                                  onMenuSelected: (value) async {
+                                    switch (value) {
+                                      case 'rename':
+                                        final name = await _promptName(context, t.title);
+                                        if (name == null) return;
+                                        try {
+                                          await TripService().updateTripTitle(tripId: t.id, title: name);
+                                          if (!context.mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Itinerary renamed')));
+                                        } catch (e) {
+                                          debugPrint('Rename itinerary error: $e');
+                                        }
+                                        break;
+                                      case 'delete':
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (c) => AlertDialog(
+                                            title: const Text('Delete itinerary?'),
+                                            content: const Text('This action cannot be undone.'),
+                                            actions: [
+                                              TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('Cancel')),
+                                              FilledButton(onPressed: () => Navigator.of(c).pop(true), child: const Text('Delete')),
+                                            ],
+                                          ),
+                                        );
+                                        if (confirm == true) {
+                                          try {
+                                            await TripService().deleteTrip(t.id);
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Itinerary deleted')));
+                                          } catch (e) {
+                                            debugPrint('Delete itinerary error: $e');
+                                          }
+                                        }
+                                        break;
+                                    }
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                      ],
                     );
                   },
                 ),
-              ),
-            ],
-          ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: () => context.push('/itinerary/$planId/new'),
             icon: const Icon(Icons.add),
@@ -225,4 +293,24 @@ class _ItineraryMenu extends StatelessWidget {
       ],
     );
   }
+}
+
+String? _formatDateRange(DateTime? start, DateTime? end) {
+  if (start == null && end == null) return null;
+  if (start != null && end != null) {
+    return '${_fmt(start)} – ${_fmt(end)}';
+  }
+  if (start != null) return 'Starts ${_fmt(start)}';
+  if (end != null) return 'Ends ${_fmt(end)}';
+  return null;
+}
+
+String _fmt(DateTime d) => '${d.month}/${d.day}/${d.year}';
+
+ItineraryStatus _computeStatus(DateTime? start, DateTime? end) {
+  final now = DateTime.now();
+  if (start == null || end == null) return ItineraryStatus.upcoming;
+  if (now.isBefore(start)) return ItineraryStatus.upcoming;
+  if (now.isAfter(end)) return ItineraryStatus.completed;
+  return ItineraryStatus.inProgress;
 }

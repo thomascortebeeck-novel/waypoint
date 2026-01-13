@@ -1,3 +1,8 @@
+// Initialize Firebase Admin SDK before any usage of Firestore/Storage
+// This fixes: "FirebaseAppError: The default Firebase app does not exist."
+import {initializeApp} from "firebase-admin/app";
+initializeApp();
+
 import {onCall} from "firebase-functions/v2/https";
 export {getDirections, matchRoute, getElevationProfile} from "./mapbox";
 export {placesSearch, placeDetails, geocodeAddress, placePhoto} from "./google-places";

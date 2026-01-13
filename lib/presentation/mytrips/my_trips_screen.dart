@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
-import 'package:waypoint/presentation/widgets/plan_card.dart';
+import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
@@ -24,111 +23,113 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
   @override
   Widget build(BuildContext context) {
     final uid = _auth.currentUserId;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth >= 1024;
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // App Bar
-          SliverAppBar(
-            expandedHeight: 160,
-            floating: false,
-            pinned: true,
-            elevation: 0,
-            backgroundColor: context.colors.surface,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      context.colors.primary.withValues(alpha: 0.1),
-                      context.colors.surface,
-                    ],
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 80, 20, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        'My Adventures',
-                        style: context.textStyles.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Your planned trips and itineraries',
-                        style: context.textStyles.bodyMedium?.copyWith(
-                          color: context.colors.onSurface.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              titlePadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              title: LayoutBuilder(
-                builder: (context, constraints) {
-                  final isCollapsed = constraints.biggest.height < 80;
-                  return Opacity(
-                    opacity: isCollapsed ? 1.0 : 0.0,
-                    child: Text(
-                      'My Adventures',
-                      style: context.textStyles.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-
-          // Content
+          _buildHeader(context, isDesktop),
           SliverPadding(
-            padding: AppSpacing.paddingMd,
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16,
+              vertical: 8,
+            ),
             sliver: uid == null
-                ? SliverToBoxAdapter(child: _signedOut(context))
-                : _buildTripsGrid(context, uid),
+                ? SliverToBoxAdapter(child: _SignedOutState())
+                : _buildTripsContent(context, uid, isDesktop),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 32)),
         ],
       ),
     );
   }
 
-  Widget _buildTripsGrid(BuildContext context, String uid) {
-    return StreamBuilder<List<Trip>>(
-      stream: _trips.streamTripsForUser(uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return SliverToBoxAdapter(
-            child: Center(
+  Widget _buildHeader(BuildContext context, bool isDesktop) {
+    return SliverAppBar(
+      expandedHeight: isDesktop ? 140 : 120,
+      floating: false,
+      pinned: true,
+      elevation: 0,
+      backgroundColor: context.colors.surface,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                context.colors.primary.withValues(alpha: 0.08),
+                context.colors.surface,
+              ],
+            ),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                isDesktop ? 32 : 20,
+                isDesktop ? 24 : 16,
+                isDesktop ? 32 : 20,
+                24,
+              ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
                   Text(
-                    'Loading your adventures...',
-                    style: context.textStyles.bodyMedium?.copyWith(
+                    'My Trips',
+                    style: context.textStyles.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Your planned trips and itineraries',
+                    style: context.textStyles.bodyLarge?.copyWith(
                       color: context.colors.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                 ],
               ),
             ),
+          ),
+        ),
+        titlePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCollapsed = constraints.biggest.height < 80;
+            return AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: isCollapsed ? 1.0 : 0.0,
+              child: Text(
+                'My Trips',
+                style: context.textStyles.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTripsContent(BuildContext context, String uid, bool isDesktop) {
+    return StreamBuilder<List<Trip>>(
+      stream: _trips.streamTripsForUser(uid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SliverToBoxAdapter(
+            child: _LoadingState(isDesktop: isDesktop),
           );
         }
 
         final trips = snapshot.data ?? [];
         if (trips.isEmpty) {
-          return SliverToBoxAdapter(child: _emptyState(context));
+          return SliverToBoxAdapter(child: _EmptyTripsState());
         }
 
-        // Get unique plan IDs from trips
         final planIds = trips.map((t) => t.planId).toSet().toList();
 
         return FutureBuilder<List<Plan>>(
@@ -136,141 +137,110 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           builder: (context, plansSnapshot) {
             if (!plansSnapshot.hasData) {
               return SliverToBoxAdapter(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircularProgressIndicator(),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Loading plans...',
-                          style: context.textStyles.bodyMedium?.copyWith(
-                            color: context.colors.onSurface.withValues(alpha: 0.6),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                child: _LoadingState(isDesktop: isDesktop),
               );
             }
 
             final plans = plansSnapshot.data ?? [];
             if (plans.isEmpty) {
-              return SliverToBoxAdapter(child: _emptyState(context));
+              return SliverToBoxAdapter(child: _EmptyTripsState());
             }
 
-            // Use responsive grid
-            return SliverLayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.crossAxisExtent;
-                final crossAxisCount = width > 900 ? 3 : (width > 600 ? 2 : 1);
-                final cardHeight = 280.0;
-                final aspectRatio = (width / crossAxisCount - 16) / cardHeight;
-
-                return SliverGrid(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    mainAxisSpacing: 16,
-                    crossAxisSpacing: 16,
-                    childAspectRatio: aspectRatio,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final plan = plans[index];
-                      return PlanCard(
-                        plan: plan,
-                        onTap: () => context.go('/itinerary/${plan.id}'),
-                      );
-                    },
-                    childCount: plans.length,
-                  ),
-                );
-              },
-            );
+            return _buildTripsGrid(context, plans, isDesktop);
           },
         );
       },
     );
   }
 
-  Widget _signedOut(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: context.colors.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.lock_outline, size: 56, color: context.colors.primary),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Sign in to track your adventures',
-              style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Access your active trips, track progress, and manage your packing lists',
-              style: context.textStyles.bodyMedium?.copyWith(
-                color: context.colors.onSurface.withValues(alpha: 0.6),
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => context.go('/profile'),
-              icon: const Icon(Icons.login),
-              label: const Text('Go to Profile'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              ),
-            ),
-          ]),
-        ),
-      );
+  Widget _buildTripsGrid(BuildContext context, List<Plan> plans, bool isDesktop) {
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.crossAxisExtent;
+        final crossAxisCount = width > 1200 ? 3 : (width > 700 ? 2 : 1);
+        final aspectRatio = crossAxisCount == 1 ? 16 / 12 : 4 / 5;
 
-  Widget _emptyState(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: context.colors.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
+        return SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: 20,
+            crossAxisSpacing: 20,
+            childAspectRatio: aspectRatio,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final plan = plans[index];
+              return AdventureCard(
+                plan: plan,
+                variant: AdventureCardVariant.fullWidth,
+                onTap: () => context.go('/itinerary/${plan.id}'),
+              );
+            },
+            childCount: plans.length,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SignedOutState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return EmptyStateWidget(
+      icon: Icons.lock_outline,
+      title: 'Sign in to track your adventures',
+      subtitle: 'Access your active trips, track progress, and manage your packing lists',
+      actionLabel: 'Go to Profile',
+      onAction: () => context.go('/profile'),
+    );
+  }
+}
+
+class _EmptyTripsState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return EmptyStateWidget(
+      icon: Icons.backpack_outlined,
+      title: 'Start your first adventure',
+      subtitle: 'Browse expertly crafted routes and begin tracking your journey today',
+      actionLabel: 'Explore Adventures',
+      onAction: () => context.go('/'),
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  final bool isDesktop;
+
+  const _LoadingState({required this.isDesktop});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: context.colors.primary,
               ),
-              child: Icon(Icons.backpack_outlined, size: 56, color: context.colors.primary),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Text(
-              'Start your first adventure',
-              style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Browse expertly crafted routes and begin tracking your journey today',
+              'Loading your adventures...',
               style: context.textStyles.bodyMedium?.copyWith(
                 color: context.colors.onSurface.withValues(alpha: 0.6),
               ),
-              textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => context.go('/'),
-              icon: const Icon(Icons.explore),
-              label: const Text('Explore Adventures'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              ),
-            ),
-          ]),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }

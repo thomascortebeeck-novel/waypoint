@@ -5,6 +5,8 @@ import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/itinerary/step_indicator.dart';
+import 'package:waypoint/components/itinerary/itinerary_bottom_bar.dart';
 
 class ItineraryPackScreen extends StatefulWidget {
   final String planId;
@@ -108,22 +110,19 @@ class _ItineraryPackScreenState extends State<ItineraryPackScreen> {
           : ListView(
               padding: AppSpacing.paddingLg,
               children: [
-                // Title section
-                Text(
-                  'What to pack?',
-                  style: context.textStyles.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: context.colors.onSurface,
+                StepIndicator(currentStep: 2, totalSteps: 3, labels: const ['Setup', 'Pack', 'Travel']),
+                const SizedBox(height: 16),
+                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('What to pack?', style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: context.colors.onSurface)),
+                      const SizedBox(height: 6),
+                      Text('Check off items as you pack them for your trip', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant)),
+                    ]),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Check off items as you pack them for your trip',
-                  style: context.textStyles.bodyMedium?.copyWith(
-                    color: context.colors.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 24),
+                  _OverallChecklistProgress(checklist: checklist, categories: categories),
+                ]),
+                const SizedBox(height: 16),
                 // Categories list - all expanded by default
                 ...categories.map((cat) => PackingCategoryCard(
                       category: cat,
@@ -140,57 +139,12 @@ class _ItineraryPackScreenState extends State<ItineraryPackScreen> {
                     )),
               ],
             ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton.icon(
-                onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
-                icon: const Icon(Icons.arrow_back, size: 20),
-                label: const Text('Back'),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  foregroundColor: context.colors.onSurfaceVariant,
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () => context.push('/itinerary/${_plan!.id}/travel/${_trip!.id}'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                  backgroundColor: context.colors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 2,
-                  shadowColor: context.colors.primary.withValues(alpha: 0.3),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  minimumSize: const Size(120, 48),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Next',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(Icons.arrow_forward, size: 18),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      bottomNavigationBar: ItineraryBottomBar(
+        onBack: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+        backLabel: 'Back',
+        onNext: () => context.push('/itinerary/${_plan!.id}/travel/${_trip!.id}'),
+        nextLabel: 'Next',
+        nextIcon: Icons.arrow_forward,
       ),
     );
   }
@@ -407,5 +361,33 @@ class _PackingCategoryCardState extends State<PackingCategoryCard> {
     if (name.contains('camping') || name.contains('outdoor')) return Icons.park;
     if (name.contains('general') || name.contains('essential')) return Icons.backpack;
     return Icons.inventory_2;
+  }
+}
+
+class _OverallChecklistProgress extends StatelessWidget {
+  final Map<String, bool> checklist;
+  final List<PackingCategory> categories;
+  const _OverallChecklistProgress({required this.checklist, required this.categories});
+
+  @override
+  Widget build(BuildContext context) {
+    final allItems = categories.expand((c) => c.items.map((i) => i.name)).toList();
+    final total = allItems.length;
+    final done = allItems.where((n) => checklist[n] == true).length;
+    final progress = total == 0 ? 0.0 : done / total;
+    final pct = ((progress) * 100).round();
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: Stack(fit: StackFit.expand, children: [
+        CircularProgressIndicator(value: progress, strokeWidth: 6, backgroundColor: context.colors.surfaceContainerHighest, color: context.colors.primary),
+        Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('$pct%', style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: context.colors.primary)),
+            Text('packed', style: context.textStyles.labelSmall?.copyWith(color: context.colors.onSurfaceVariant)),
+          ]),
+        ),
+      ]),
+    );
   }
 }

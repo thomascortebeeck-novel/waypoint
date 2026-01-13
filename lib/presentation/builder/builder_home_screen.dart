@@ -1,8 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/theme.dart';
@@ -23,59 +23,160 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final uid = _auth.currentUserId;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth >= 1024;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Builder', style: context.textStyles.headlineMedium?.copyWith(fontWeight: FontWeight.w700)),
-            Text('Create & manage your adventures', style: context.textStyles.bodySmall?.copyWith(color: context.colors.onSurface.withValues(alpha: 0.6))),
-          ],
+      body: CustomScrollView(
+        slivers: [
+          _buildHeader(context, isDesktop),
+          SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16,
+              vertical: 8,
+            ),
+            sliver: uid == null
+                ? SliverToBoxAdapter(child: _SignedOutState(onAction: _showSignInRequired))
+                : _buildPlansContent(context, uid, isDesktop),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        ],
+      ),
+      floatingActionButton: _buildFAB(context, uid),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, bool isDesktop) {
+    return SliverAppBar(
+      expandedHeight: isDesktop ? 140 : 120,
+      floating: false,
+      pinned: true,
+      elevation: 0,
+      backgroundColor: context.colors.surface,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                context.colors.primary.withValues(alpha: 0.08),
+                context.colors.surface,
+              ],
+            ),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                isDesktop ? 32 : 20,
+                isDesktop ? 24 : 16,
+                isDesktop ? 32 : 20,
+                24,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'Builder',
+                    style: context.textStyles.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Create & manage your adventures',
+                    style: context.textStyles.bodyLarge?.copyWith(
+                      color: context.colors.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        titlePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCollapsed = constraints.biggest.height < 80;
+            return AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: isCollapsed ? 1.0 : 0.0,
+              child: Text(
+                'Builder',
+                style: context.textStyles.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            );
+          },
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: uid == null ? _showSignInRequired : () => _createNewDraft(context),
-        label: Text('New Adventure', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-        icon: const Icon(Icons.add, size: 24),
-        elevation: 4,
+    );
+  }
+
+  Widget _buildFAB(BuildContext context, String? uid) {
+    return FloatingActionButton.extended(
+      onPressed: uid == null ? _showSignInRequired : () => _createNewDraft(context),
+      elevation: 4,
+      label: Text(
+        'New Adventure',
+        style: context.textStyles.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
       ),
-      body: uid == null
-          ? _buildSignedOut(context)
-          : StreamBuilder<List<Plan>>(
-              stream: _plans.streamPlansByCreator(uid),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const CircularProgressIndicator(),
-                        const SizedBox(height: 16),
-                        Text('Loading your adventures...', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurface.withValues(alpha: 0.6))),
-                      ],
-                    ),
-                  );
-                }
-                final plans = snapshot.data ?? [];
-                if (plans.isEmpty) return _buildEmptyState(context);
-                return GridView.builder(
-                  padding: AppSpacing.paddingMd,
-                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 400,
-                    childAspectRatio: 0.75,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemCount: plans.length,
-                  itemBuilder: (context, index) => _BuilderPlanCard(
-                    plan: plans[index],
-                    onTap: () => context.push('/builder/edit/${plans[index].id}'),
-                    onDelete: () => _confirmDelete(context, plans[index]),
-                  ),
-                );
-              },
-            ),
+      icon: const Icon(Icons.add, size: 22, color: Colors.white),
+    );
+  }
+
+  Widget _buildPlansContent(BuildContext context, String uid, bool isDesktop) {
+    return StreamBuilder<List<Plan>>(
+      stream: _plans.streamPlansByCreator(uid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SliverToBoxAdapter(
+            child: _LoadingState(),
+          );
+        }
+        final plans = snapshot.data ?? [];
+        if (plans.isEmpty) {
+          return SliverToBoxAdapter(child: _EmptyBuilderState());
+        }
+        return _buildPlansGrid(context, plans, isDesktop);
+      },
+    );
+  }
+
+  Widget _buildPlansGrid(BuildContext context, List<Plan> plans, bool isDesktop) {
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.crossAxisExtent;
+        final crossAxisCount = width > 1200 ? 4 : (width > 900 ? 3 : (width > 600 ? 2 : 1));
+        final aspectRatio = crossAxisCount == 1 ? 16 / 12 : 4 / 5;
+
+        return SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            childAspectRatio: aspectRatio,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final plan = plans[index];
+              return AdventureCard(
+                plan: plan,
+                variant: AdventureCardVariant.builder,
+                onTap: () => context.push('/builder/edit/${plan.id}'),
+                onDelete: () => _confirmDelete(context, plan),
+              );
+            },
+            childCount: plans.length,
+          ),
+        );
+      },
     );
   }
 
@@ -83,26 +184,54 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      backgroundColor: context.colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
       builder: (context) => Padding(
-        padding: AppSpacing.paddingMd,
+        padding: AppSpacing.paddingLg,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Sign In Required', style: Theme.of(context).textTheme.titleLarge),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.4),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.login,
+                size: 32,
+                color: context.colors.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Sign In Required',
+              style: context.textStyles.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               'You need to sign in to create and manage adventures.',
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                context.push('/profile');
-              },
-              child: const Text('Go to Profile'),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  context.push('/profile');
+                },
+                child: const Text('Go to Profile'),
+              ),
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
@@ -113,21 +242,37 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
     final uid = _auth.currentUserId;
     if (uid == null) return;
 
-    // Show loading dialog while creating draft
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
+      builder: (context) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: context.colors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: context.colors.primary),
+              const SizedBox(height: 16),
+              Text(
+                'Creating adventure...',
+                style: context.textStyles.bodyMedium,
+              ),
+            ],
+          ),
+        ),
       ),
     );
 
     try {
       final user = await _users.getUserById(uid);
       final now = DateTime.now();
-      
+
       final draftPlan = Plan(
-        id: '', // Will be set by createPlan
+        id: '',
         name: 'Untitled Adventure',
         description: '',
         heroImageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
@@ -145,110 +290,21 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       await _users.addCreatedPlan(uid, planId);
 
       if (!mounted) return;
-      
-      // Close loading dialog
+
       Navigator.of(context).pop();
-      
-      // Navigate to builder using go (replaces current route)
       context.go('/builder/edit/$planId');
     } catch (e) {
       debugPrint('Failed to create draft: $e');
       if (!mounted) return;
-      
-      // Close loading dialog
+
       Navigator.of(context).pop();
-      
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to create draft. Try again.')),
+        SnackBar(
+          content: const Text('Failed to create draft. Try again.'),
+          backgroundColor: context.colors.error,
+        ),
       );
     }
-  }
-
-  Widget _buildSignedOut(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: context.colors.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.edit_road, size: 56, color: context.colors.primary),
-            ),
-            const SizedBox(height: 20),
-            Text('Design your dream adventure', style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Text(
-              'Create detailed itineraries with routes, accommodations, and packing lists. Sign in when you\'re ready to publish.',
-              style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurface.withValues(alpha: 0.6)),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _showSignInRequired,
-              icon: const Icon(Icons.add_circle),
-              label: const Text('Start Creating'),
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: context.colors.primaryContainer.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.create_outlined, size: 56, color: context.colors.primary),
-            ),
-            const SizedBox(height: 20),
-            Text('Your builder awaits', style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Text(
-              'Create your first adventure route with our intuitive builder. Add waypoints, plan itineraries, and share with travelers.',
-              style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurface.withValues(alpha: 0.6)),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              children: [
-                Chip(
-                  avatar: Icon(Icons.check_circle, size: 16, color: context.colors.primary),
-                  label: const Text('Route Builder'),
-                  backgroundColor: context.colors.primaryContainer.withValues(alpha: 0.3),
-                ),
-                Chip(
-                  avatar: Icon(Icons.check_circle, size: 16, color: context.colors.primary),
-                  label: const Text('Day Planner'),
-                  backgroundColor: context.colors.primaryContainer.withValues(alpha: 0.3),
-                ),
-                Chip(
-                  avatar: Icon(Icons.check_circle, size: 16, color: context.colors.primary),
-                  label: const Text('Packing Lists'),
-                  backgroundColor: context.colors.primaryContainer.withValues(alpha: 0.3),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _confirmDelete(BuildContext context, Plan plan) async {
@@ -260,17 +316,62 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       context: context,
       showDragHandle: true,
       backgroundColor: context.colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
       builder: (context) {
         return Padding(
-          padding: AppSpacing.paddingMd,
+          padding: AppSpacing.paddingLg,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Delete “${plan.name}”?', style: context.textStyles.titleLarge),
-              const SizedBox(height: 8),
-              Text('This will remove the plan for all participants. This action cannot be undone.', style: context.textStyles.bodyMedium),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: Icon(
+                      Icons.delete_outline,
+                      color: Colors.red.shade400,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Delete Adventure',
+                          style: context.textStyles.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          plan.name,
+                          style: context.textStyles.bodyMedium?.copyWith(
+                            color: context.colors.onSurface.withValues(alpha: 0.6),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
+              Text(
+                'This will permanently remove this adventure for all participants. This action cannot be undone.',
+                style: context.textStyles.bodyMedium?.copyWith(
+                  color: context.colors.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
@@ -281,14 +382,20 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: FilledButton.tonal(
+                    child: FilledButton(
                       onPressed: () => Navigator.pop(context, true),
-                      style: FilledButton.styleFrom(backgroundColor: Colors.red.withValues(alpha: 0.15)),
-                      child: Text('Delete', style: TextStyle(color: Colors.red.shade400)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.red.shade400,
+                      ),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ),
                 ],
-              )
+              ),
+              const SizedBox(height: 8),
             ],
           ),
         );
@@ -301,11 +408,21 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
         await _plans.deletePlan(plan.id);
         await _users.removeCreatedPlan(uid, plan.id);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plan deleted')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Adventure deleted'),
+            backgroundColor: context.colors.primary,
+          ),
+        );
       } catch (e) {
         debugPrint('Delete failed: $e');
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete. Try again.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to delete. Try again.'),
+            backgroundColor: context.colors.error,
+          ),
+        );
       } finally {
         if (mounted) setState(() => _deleting = false);
       }
@@ -313,200 +430,142 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
   }
 }
 
-/// Builder-specific plan card that reuses PlanCard design with edit/delete actions
-class _BuilderPlanCard extends StatelessWidget {
-  final Plan plan;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
+class _SignedOutState extends StatelessWidget {
+  final VoidCallback onAction;
 
-  const _BuilderPlanCard({
-    required this.plan,
-    required this.onTap,
-    required this.onDelete,
-  });
+  const _SignedOutState({required this.onAction});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
+    return EmptyStateWidget(
+      icon: Icons.edit_road,
+      title: 'Design your dream adventure',
+      subtitle: 'Create detailed itineraries with routes, accommodations, and packing lists. Sign in when you\'re ready to publish.',
+      actionLabel: 'Sign In to Start',
+      onAction: onAction,
+    );
+  }
+}
+
+class _EmptyBuilderState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.4),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.create_outlined,
+                size: 48,
+                color: context.colors.primary,
+              ),
             ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+            const SizedBox(height: 24),
+            Text(
+              'Your builder awaits',
+              style: context.textStyles.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Create your first adventure route with our intuitive builder',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _FeatureChip(icon: Icons.route, label: 'Route Builder'),
+                _FeatureChip(icon: Icons.calendar_today, label: 'Day Planner'),
+                _FeatureChip(icon: Icons.backpack, label: 'Packing Lists'),
+              ],
             ),
           ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          child: Stack(
-            children: [
-              // Background Image
-              Positioned.fill(
-                child: CachedNetworkImage(
-                  imageUrl: plan.heroImageUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: context.colors.surface,
-                    child: const Center(child: CircularProgressIndicator()),
-                  ),
-                  errorWidget: (context, url, error) => Container(
-                    color: context.colors.surface,
-                    child: const Icon(Icons.error),
-                  ),
-                ),
-              ),
-              
-              // Gradient Overlay
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.2),
-                        Colors.black.withValues(alpha: 0.8),
-                      ],
-                      stops: const [0.5, 0.7, 1.0],
-                    ),
-                  ),
-                ),
-              ),
-
-              // Content
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Padding(
-                  padding: AppSpacing.paddingMd,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Location or "Draft" indicator
-                      if (plan.location.isNotEmpty)
-                        Row(
-                          children: [
-                            const Icon(Icons.location_on, color: Colors.white70, size: 12),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                plan.location.toUpperCase(),
-                                style: context.textStyles.labelSmall?.copyWith(
-                                  color: Colors.white70,
-                                  letterSpacing: 1.0,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Text(
-                          'NO LOCATION SET',
-                          style: context.textStyles.labelSmall?.copyWith(
-                            color: Colors.white70,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                      const SizedBox(height: 4),
-                      
-                      // Title
-                      Text(
-                        plan.name,
-                        style: context.textStyles.titleLarge?.copyWith(color: Colors.white),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Footer Info
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Status + Difficulty Chips
-                          Expanded(
-                            child: Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                _buildChip(
-                                  context,
-                                  plan.isPublished ? 'Published' : 'Draft',
-                                  plan.isPublished ? context.colors.primary : Colors.orange,
-                                ),
-                                if (plan.versions.isNotEmpty && plan.difficultyRange.isNotEmpty)
-                                  _buildChip(context, plan.difficultyRange, null),
-                              ],
-                            ),
-                          ),
-                          
-                          // Price
-                          Text(
-                            plan.minPrice == 0 ? "FREE" : "€${plan.minPrice.toStringAsFixed(0)}",
-                            style: context.textStyles.titleMedium?.copyWith(
-                              color: context.colors.secondary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Delete Button (top right)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Material(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    onTap: onDelete,
-                    customBorder: const CircleBorder(),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(Icons.delete, color: Colors.red.shade300, size: 20),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildChip(BuildContext context, String label, Color? bgColor) {
+class _FeatureChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _FeatureChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: bgColor?.withValues(alpha: 0.25) ?? Colors.white.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
+        color: context.colors.primaryContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(AppRadius.full),
         border: Border.all(
-          color: bgColor?.withValues(alpha: 0.5) ?? Colors.white.withValues(alpha: 0.3),
+          color: context.colors.primary.withValues(alpha: 0.2),
         ),
       ),
-      child: Text(
-        label,
-        style: context.textStyles.labelSmall?.copyWith(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: context.colors.primary,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: context.textStyles.bodySmall?.copyWith(
+              color: context.colors.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: context.colors.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Loading your adventures...',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+          ],
         ),
       ),
     );

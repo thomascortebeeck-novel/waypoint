@@ -95,445 +95,373 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   Widget build(BuildContext context) {
     final center = _points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5);
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: context.colors.surface,
       appBar: AppBar(
-        backgroundColor: context.colors.surface,
-        elevation: 1,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.alt_route, color: context.colors.primary),
-            const SizedBox(width: 8),
-            Text('Build Route', style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          ],
-        ),
+        backgroundColor: context.colors.surface.withValues(alpha: 0.9),
+        scrolledUnderElevation: 0,
+        elevation: 0,
+        toolbarHeight: 56,
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()),
+        title: Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
         actions: [
-          Text('Snap to trail', style: context.textStyles.bodySmall),
-          const SizedBox(width: 8),
-          Switch(value: _snapToTrail, onChanged: (v) => setState(() => _snapToTrail = v)),
-          const SizedBox(width: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(children: [
+              Text('Snap to trail', style: context.textStyles.labelSmall?.copyWith(color: context.colors.onSurface.withValues(alpha: 0.7))),
+              const SizedBox(width: 8),
+              Switch(value: _snapToTrail, onChanged: (v) => setState(() => _snapToTrail = v)),
+              const SizedBox(width: 8),
+            ]),
+          ),
         ],
       ),
-      body: Column(
-        children: [
-          // Search bar
-          Container(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w500),
-                  decoration: InputDecoration(
-                    hintText: 'Search location (e.g., Abisko)',
-                    hintStyle: TextStyle(color: Colors.grey.shade500, fontWeight: FontWeight.w400),
-                    prefixIcon: Icon(Icons.search, color: Colors.grey.shade700),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(Icons.clear, color: Colors.grey.shade700),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchResults = []);
-                            },
-                          )
-                        : (_searching
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              )
-                            : null),
-                    filled: true,
-                    fillColor: Colors.white,
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey.shade400, width: 1),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: context.colors.primary, width: 2),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
-                  onChanged: (v) {
-                    setState(() {});
-                    _debouncedSearch(v);
+      body: LayoutBuilder(builder: (context, constraints) {
+        final isDesktopSidebar = constraints.maxWidth >= 1280;
+        // Desktop (>=1280px): Sidebar + Map layout
+        if (isDesktopSidebar) {
+          final center = _points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5);
+          return Row(
+            children: [
+              SizedBox(
+                width: 380,
+                child: _DesktopSidebar(
+                  snapToTrail: _snapToTrail,
+                  onToggleSnap: (v) => setState(() => _snapToTrail = v),
+                  poiWaypoints: _poiWaypoints,
+                  previewDistance: _previewDistance,
+                  previewDuration: _previewDuration,
+                  elevation: _previewElevation,
+                  ascent: _previewAscent,
+                  descent: _previewDescent,
+                  busy: _busy,
+                  onAddWaypoint: _showAddWaypointDialog,
+                  onEditWaypoint: _editWaypoint,
+                  onPreview: _points.length < 2 ? null : _updatePreview,
+                  onSave: _points.length < 2 ? null : _buildAndSave,
+                  onReorder: (oldIndex, newIndex) {
+                    setState(() {
+                      if (newIndex > oldIndex) newIndex -= 1;
+                      final item = _poiWaypoints.removeAt(oldIndex);
+                      _poiWaypoints.insert(newIndex, item);
+                      for (int i = 0; i < _poiWaypoints.length; i++) {
+                        _poiWaypoints[i].order = i;
+                      }
+                    });
                   },
                 ),
-                // Search results dropdown
-                if (_searchResults.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    constraints: const BoxConstraints(maxHeight: 250),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.15),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        itemCount: _searchResults.length,
-                        separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
-                        itemBuilder: (_, i) {
-                          final s = _searchResults[i];
-                          return ListTile(
-                            dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(
-                                s.isPoi ? Icons.place : Icons.location_city,
-                                size: 20,
-                                color: Theme.of(context).primaryColor,
-                              ),
-                            ),
-                            title: Text(
-                              s.text,
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.black87),
-                            ),
-                            subtitle: Text(
-                              s.placeName,
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w400),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: () => _selectPlace(s),
-                          );
+              ),
+              Expanded(
+                child: Stack(children: [
+                  Positioned.fill(
+                    child: fm.FlutterMap(
+                      mapController: _map,
+                      options: fm.MapOptions(
+                        initialCenter: center,
+                        initialZoom: 11,
+                        onTap: (tapPos, latLng) async {
+                          if (_searchResults.isNotEmpty) {
+                            setState(() => _searchResults = []);
+                            return;
+                          }
+                          Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
+                          await _showMapTapActionPicker(context, latLng);
                         },
                       ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-
-          // Map
-          Expanded(
-            child: Stack(
-              children: [
-                fm.FlutterMap(
-                  mapController: _map,
-                  options: fm.MapOptions(
-                    initialCenter: center,
-                    initialZoom: 11,
-                    onTap: (tapPos, latLng) async {
-                      if (_searchResults.isNotEmpty) {
-                        setState(() => _searchResults = []);
-                        return;
-                      }
-                      Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
-                      await _showMapTapActionPicker(context, latLng);
-                    },
-                  ),
-                  children: [
-                    fm.TileLayer(
-                      urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}@2x?access_token=$mapboxPublicToken',
-                      userAgentPackageName: 'com.waypoint.app',
-                      tileSize: 512,
-                      zoomOffset: -1,
-                    ),
-                    if (_previewGeometry != null)
-                      fm.PolylineLayer(
-                        polylines: [
-                          fm.Polyline(
-                            points: _coordsToLatLng(_previewGeometry!['coordinates']),
-                            color: const Color(0xFF4CAF50),
-                            strokeWidth: 5,
-                            borderColor: Colors.white,
-                            borderStrokeWidth: 2,
-                          )
-                        ],
-                      ),
-                    if (_points.isNotEmpty)
-                      fm.MarkerLayer(
-                        markers: [
-                          for (int i = 0; i < _points.length; i++)
-                            fm.Marker(
-                              point: _points[i],
-                              width: 44,
-                              height: 44,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: i == 0
-                                      ? const Color(0xFF4CAF50)
-                                      : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 3),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.3),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
+                      children: [
+                        fm.TileLayer(
+                          urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}@2x?access_token=$mapboxPublicToken',
+                          userAgentPackageName: 'com.waypoint.app',
+                          tileSize: 512,
+                          zoomOffset: -1,
+                        ),
+                        if (_previewGeometry != null)
+                          fm.PolylineLayer(
+                            polylines: [
+                              fm.Polyline(
+                                points: _coordsToLatLng(_previewGeometry!['coordinates']),
+                                color: const Color(0xFF4CAF50),
+                                strokeWidth: 5,
+                                borderColor: Colors.white,
+                                borderStrokeWidth: 2,
+                              )
+                            ],
+                          ),
+                        if (_points.isNotEmpty)
+                          fm.MarkerLayer(
+                            markers: [
+                              for (int i = 0; i < _points.length; i++)
+                                fm.Marker(
+                                  point: _points[i],
+                                  width: 44,
+                                  height: 44,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: i == 0
+                                          ? const Color(0xFF4CAF50)
+                                          : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white, width: 3),
+                                      boxShadow: [
+                                        BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                                child: Center(
-                                  child: Icon(
-                                    i == 0
-                                        ? Icons.play_arrow
-                                        : (i == _points.length - 1 ? Icons.flag : Icons.circle),
-                                    color: Colors.white,
-                                    size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                                    child: Center(
+                                      child: Icon(
+                                        i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
+                                        color: Colors.white,
+                                        size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    // POI waypoint markers
-                    if (_poiWaypoints.isNotEmpty)
-                      fm.MarkerLayer(
-                        markers: _poiWaypoints
-                            .map((wp) => fm.Marker(
-                                  point: wp.position,
-                                  width: 48,
-                                  height: 48,
-                                  child: GestureDetector(
-                                    onTap: () => _editWaypoint(wp),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: getWaypointColor(wp.type),
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 3),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(alpha: 0.3),
-                                            blurRadius: 6,
-                                            offset: const Offset(0, 2),
+                            ],
+                          ),
+                        if (_poiWaypoints.isNotEmpty)
+                          fm.MarkerLayer(
+                            markers: _poiWaypoints
+                                .map((wp) => fm.Marker(
+                                      point: wp.position,
+                                      width: 48,
+                                      height: 48,
+                                      child: GestureDetector(
+                                        onTap: () => _editWaypoint(wp),
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: getWaypointColor(wp.type),
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.white, width: 3),
+                                            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2))],
                                           ),
-                                        ],
-                                      ),
-                                      child: Center(
-                                        child: Icon(
-                                          getWaypointIcon(wp.type),
-                                          color: Colors.white,
-                                          size: 24,
+                                          child: Center(child: Icon(getWaypointIcon(wp.type), color: Colors.white, size: 24)),
                                         ),
                                       ),
-                                    ),
-                                  ),
-                                ))
-                            .toList(),
-                      ),
-                  ],
-                ),
-
-                // Zoom controls
-                Positioned(
-                  right: 16,
-                  top: 16,
-                  child: Column(
-                    children: [
-                      _controlButton(icon: Icons.add, onTap: () => _map.move(_map.camera.center, _map.camera.zoom + 1)),
-                      const SizedBox(height: 8),
-                      _controlButton(icon: Icons.remove, onTap: () => _map.move(_map.camera.center, _map.camera.zoom - 1)),
-                    ],
-                  ),
-                ),
-
-                // Undo/Clear buttons
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: Column(
-                    children: [
-                      if (_points.isNotEmpty) ...[
-                        _controlButton(
-                          icon: Icons.undo,
-                          label: 'Undo',
-                          onTap: () async {
-                            setState(() => _points.removeLast());
-                            await _updatePreview();
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                        _controlButton(
-                          icon: Icons.clear_all,
-                          label: 'Clear',
-                          onTap: () {
-                            setState(() {
-                              _points.clear();
-                              _previewGeometry = null;
-                              _previewDistance = null;
-                              _previewDuration = null;
-                              _previewElevation = [];
-                              _previewAscent = null;
-                              _previewDescent = null;
-                            });
-                          },
-                        ),
+                                    ))
+                                .toList(),
+                          ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
-
-                // Instructions overlay (when no points)
-                if (_points.isEmpty && _searchResults.isEmpty)
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    top: 16,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.touch_app,
-                              color: Theme.of(context).primaryColor,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Tap on the map to add route points or waypoints',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                            ),
-                          ),
-                        ],
+                  // Floating Search Bar (top center of map area)
+                  _FloatingSearchBar(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    searching: _searching,
+                    results: _searchResults,
+                    onChanged: _debouncedSearch,
+                    onClear: () => setState(() => _searchResults = []),
+                    onSelect: (s) => _selectPlace(s),
+                    mapAreaPaddingLeft: 0,
+                    mapAreaWidth: null,
+                  ),
+                  // Zoom controls (right center)
+                  Positioned.fill(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: _ZoomControls(
+                          onZoomIn: () => _map.move(_map.camera.center, _map.camera.zoom + 1),
+                          onZoomOut: () => _map.move(_map.camera.center, _map.camera.zoom - 1),
+                        ),
                       ),
                     ),
                   ),
-              ],
-            ),
-          ),
-
-          // Waypoints list section
-          _buildWaypointsSection(),
-
-          // Stats and buttons
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, -4))],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+                ]),
+              ),
+            ],
+          );
+        }
+        // Mobile/Tablet: original map-first with bottom panel
+        return Stack(
+          children: [
+            // Map layer
+            Positioned.fill(
+              child: fm.FlutterMap(
+              mapController: _map,
+              options: fm.MapOptions(
+                initialCenter: center,
+                initialZoom: 11,
+                onTap: (tapPos, latLng) async {
+                  if (_searchResults.isNotEmpty) {
+                    setState(() => _searchResults = []);
+                    return;
+                  }
+                  Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
+                  await _showMapTapActionPicker(context, latLng);
+                },
+              ),
               children: [
-                if (_previewDistance != null) ...[
-                  Row(
-                    children: [
-                      Icon(Icons.straighten, size: 18, color: context.colors.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${(_previewDistance! / 1000).toStringAsFixed(2)} km',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
-                      ),
-                      const SizedBox(width: 20),
-                      Icon(Icons.schedule, size: 18, color: context.colors.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        _formatDuration(_previewDuration ?? 0),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (_previewElevation.isNotEmpty) ...[
-                  SizedBox(height: 120, child: ElevationChart(data: _previewElevation)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (_previewAscent != null) ...[
-                        Icon(Icons.trending_up, size: 16, color: Colors.green.shade700),
-                        const SizedBox(width: 4),
-                        Text(
-                          '+${_previewAscent!.toStringAsFixed(0)} m',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.green.shade700),
-                        ),
-                        const SizedBox(width: 16),
-                      ],
-                      if (_previewDescent != null) ...[
-                        Icon(Icons.trending_down, size: 16, color: Colors.red.shade700),
-                        const SizedBox(width: 4),
-                        Text(
-                          '-${_previewDescent!.toStringAsFixed(0)} m',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _busy || _points.length < 2 ? null : _updatePreview,
-                        icon: _busy
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.visibility),
-                        label: const Text('Preview'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          side: BorderSide(color: Colors.grey.shade300, width: 1.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: FilledButton.icon(
-                        onPressed: _busy || _points.length < 2 ? null : _buildAndSave,
-                        icon: const Icon(Icons.check_circle),
-                        label: const Text('Build & Save'),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 2,
-                        ),
-                      ),
-                    ),
-                  ],
+                fm.TileLayer(
+                  urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}@2x?access_token=$mapboxPublicToken',
+                  userAgentPackageName: 'com.waypoint.app',
+                  tileSize: 512,
+                  zoomOffset: -1,
                 ),
+                if (_previewGeometry != null)
+                  fm.PolylineLayer(
+                    polylines: [
+                      fm.Polyline(
+                        points: _coordsToLatLng(_previewGeometry!['coordinates']),
+                        color: const Color(0xFF4CAF50),
+                        strokeWidth: 5,
+                        borderColor: Colors.white,
+                        borderStrokeWidth: 2,
+                      )
+                    ],
+                  ),
+                if (_points.isNotEmpty)
+                  fm.MarkerLayer(
+                    markers: [
+                      for (int i = 0; i < _points.length; i++)
+                        fm.Marker(
+                          point: _points[i],
+                          width: 44,
+                          height: 44,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: i == 0
+                                  ? const Color(0xFF4CAF50)
+                                  : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+                              ],
+                            ),
+                            child: Center(
+                              child: Icon(
+                                i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
+                                color: Colors.white,
+                                size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                if (_poiWaypoints.isNotEmpty)
+                  fm.MarkerLayer(
+                    markers: _poiWaypoints
+                        .map((wp) => fm.Marker(
+                              point: wp.position,
+                              width: 48,
+                              height: 48,
+                              child: GestureDetector(
+                                onTap: () => _editWaypoint(wp),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: getWaypointColor(wp.type),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 3),
+                                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2))],
+                                  ),
+                                  child: Center(child: Icon(getWaypointIcon(wp.type), color: Colors.white, size: 24)),
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                  ),
               ],
             ),
           ),
-        ],
-      ),
+
+          // Floating Search Bar (center top)
+          _FloatingSearchBar(
+            controller: _searchController,
+            focusNode: _searchFocusNode,
+            searching: _searching,
+            results: _searchResults,
+            onChanged: _debouncedSearch,
+            onClear: () => setState(() => _searchResults = []),
+            onSelect: (s) => _selectPlace(s),
+            mapAreaPaddingLeft: 0,
+            mapAreaWidth: null,
+          ),
+
+          // Hint chip (bottom-left on mobile/tablet)
+          if (_shouldShowHint && !isDesktopSidebar)
+            Positioned(
+              left: 16,
+              bottom: 24 + 180, // above bottom sheet collapsed height
+              child: _HintChip(
+                text: 'Tap map to add waypoints',
+                onDismiss: () => setState(() => _hintDismissed = true),
+              ),
+            ),
+
+          // Zoom + extra map controls (right, vertically centered)
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _ZoomControls(
+                  onZoomIn: () => _map.move(_map.camera.center, _map.camera.zoom + 1),
+                  onZoomOut: () => _map.move(_map.camera.center, _map.camera.zoom - 1),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            bottom: 12 + 180, // keep above bottom sheet when collapsed
+            child: Column(children: [
+              if (_points.isNotEmpty)
+                _SmallControlButton(
+                  icon: Icons.undo,
+                  label: 'Undo',
+                  onTap: () async {
+                    setState(() => _points.removeLast());
+                    await _updatePreview();
+                  },
+                ),
+              if (_points.isNotEmpty) const SizedBox(height: 8),
+              if (_points.isNotEmpty)
+                _SmallControlButton(
+                  icon: Icons.clear_all,
+                  label: 'Clear',
+                  onTap: () {
+                    setState(() {
+                      _points.clear();
+                      _previewGeometry = null;
+                      _previewDistance = null;
+                      _previewDuration = null;
+                      _previewElevation = [];
+                      _previewAscent = null;
+                      _previewDescent = null;
+                    });
+                  },
+                ),
+            ]),
+          ),
+
+          // Bottom draggable panel
+          _BottomPanel(
+            poiWaypoints: _poiWaypoints,
+            previewDistance: _previewDistance,
+            previewDuration: _previewDuration,
+            elevation: _previewElevation,
+            ascent: _previewAscent,
+            descent: _previewDescent,
+            busy: _busy,
+            onAddWaypoint: _showAddWaypointDialog,
+            onEditWaypoint: _editWaypoint,
+            onPreview: _points.length < 2 ? null : _updatePreview,
+            onSave: _points.length < 2 ? null : _buildAndSave,
+            onReorder: (oldIndex, newIndex) {
+              setState(() {
+                if (newIndex > oldIndex) newIndex -= 1;
+                final item = _poiWaypoints.removeAt(oldIndex);
+                _poiWaypoints.insert(newIndex, item);
+                for (int i = 0; i < _poiWaypoints.length; i++) {
+                  _poiWaypoints[i].order = i;
+                }
+              });
+            },
+          ),
+          ],
+        );
+      }),
     );
   }
 
@@ -863,7 +791,10 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     if (!mounted || action == null) return;
 
     if (action == 'route') {
-      setState(() => _points.add(latLng));
+      setState(() {
+        _points.add(latLng);
+        _hintDismissed = true; // auto-hide hint once a point is added
+      });
       await _updatePreview();
     } else {
       final type = WaypointType.values.firstWhere((t) => t.name == action);
@@ -1071,6 +1002,686 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
       });
     }
   }
+}
+
+// --- Floating UI pieces ---
+
+bool _hintDismissed = false; // module-level to persist within session
+
+extension _HintLogic on _RouteBuilderScreenState {
+  bool get _shouldShowHint => !_hintDismissed && _points.isEmpty;
+}
+
+class _HintChip extends StatelessWidget {
+  final String text; final VoidCallback onDismiss;
+  const _HintChip({required this.text, required this.onDismiss});
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 280),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 2))],
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.info_outline, color: Colors.white, size: 14),
+            const SizedBox(width: 8),
+            Flexible(child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12), overflow: TextOverflow.ellipsis)),
+            const SizedBox(width: 8),
+            InkWell(onTap: onDismiss, child: const Icon(Icons.close, color: Colors.white, size: 16)),
+          ]),
+        ),
+      );
+}
+
+class _ZoomControls extends StatelessWidget {
+  final VoidCallback onZoomIn; final VoidCallback onZoomOut;
+  const _ZoomControls({required this.onZoomIn, required this.onZoomOut});
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 12, offset: const Offset(0, 4))],
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _IconBtn(icon: Icons.add, onTap: onZoomIn),
+            Container(height: 1, width: 44, color: Colors.grey.shade200),
+            _IconBtn(icon: Icons.remove, onTap: onZoomOut),
+          ]),
+        ),
+      );
+}
+
+class _IconBtn extends StatelessWidget {
+  final IconData icon; final VoidCallback onTap;
+  const _IconBtn({required this.icon, required this.onTap});
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Icon(icon, size: 20, color: Colors.grey.shade700),
+        ),
+      );
+}
+
+class _SmallControlButton extends StatelessWidget {
+  final IconData icon; final String label; final VoidCallback onTap;
+  const _SmallControlButton({required this.icon, required this.label, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        elevation: 4,
+        shadowColor: Colors.black.withValues(alpha: 0.2),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 18, color: Colors.grey.shade800),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade800)),
+            ]),
+          ),
+        ),
+      );
+}
+
+class _FloatingSearchBar extends StatefulWidget {
+  final TextEditingController controller; final FocusNode focusNode; final bool searching;
+  final List<PlaceSuggestion> results; final ValueChanged<String> onChanged; final VoidCallback onClear;
+  final ValueChanged<PlaceSuggestion> onSelect;
+  // When inside desktop map area, the parent may provide padding/width overrides
+  final double? mapAreaPaddingLeft; // left offset padding inside map area
+  final double? mapAreaWidth; // explicit width of map area; if null, uses screen width
+  const _FloatingSearchBar({
+    required this.controller,
+    required this.focusNode,
+    required this.searching,
+    required this.results,
+    required this.onChanged,
+    required this.onClear,
+    required this.onSelect,
+    this.mapAreaPaddingLeft,
+    this.mapAreaWidth,
+  });
+  @override
+  State<_FloatingSearchBar> createState() => _FloatingSearchBarState();
+}
+
+class _FloatingSearchBarState extends State<_FloatingSearchBar> {
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _FloatingSearchBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode.removeListener(_onFocusChange);
+      widget.focusNode.addListener(_onFocusChange);
+      _focused = widget.focusNode.hasFocus;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.focusNode.removeListener(_onFocusChange);
+    super.dispose();
+  }
+
+  void _onFocusChange() => setState(() => _focused = widget.focusNode.hasFocus);
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final barWidth = isMobile ? size.width * 0.9 : 400.0;
+    final containerWidth = widget.mapAreaWidth ?? size.width;
+    final leftOffset = ((containerWidth - barWidth) / 2) + (widget.mapAreaPaddingLeft ?? 0);
+    // Single-layer decoration: outer container owns all visuals; TextField has no decoration
+    final borderColor = _focused ? context.colors.primary : Colors.grey.shade300;
+    final boxShadow = [
+      BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 4)),
+      if (_focused) BoxShadow(color: context.colors.primary.withValues(alpha: 0.15), blurRadius: 0, spreadRadius: 2),
+    ];
+    return Positioned(
+      top: isMobile ? kToolbarHeight + 12 : 12,
+      left: leftOffset,
+      width: barWidth,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // SINGLE container - no nesting, TextField has collapsed decoration
+        Material(
+          color: Colors.transparent,
+          child: Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: borderColor, width: _focused ? 2 : 1),
+              boxShadow: boxShadow,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Row(children: [
+                const SizedBox(width: 16),
+                Icon(Icons.search, color: _focused ? context.colors.primary : Colors.grey.shade500, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: widget.controller,
+                    focusNode: widget.focusNode,
+                    onChanged: widget.onChanged,
+                    style: const TextStyle(fontSize: 15),
+                    decoration: InputDecoration.collapsed(
+                      hintText: 'Search location...',
+                      hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+                    ),
+                    cursorColor: context.colors.primary,
+                  ),
+                ),
+                if (widget.controller.text.isNotEmpty)
+                  GestureDetector(
+                    onTap: () {
+                      widget.controller.clear();
+                      widget.onClear();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Icon(Icons.close, size: 18, color: Colors.grey.shade500),
+                    ),
+                  )
+                else if (widget.searching)
+                  const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                else
+                  const SizedBox(width: 16),
+              ]),
+            ),
+          ),
+        ),
+        if (widget.results.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            constraints: const BoxConstraints(maxHeight: 240),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 4))],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: widget.results.length,
+                separatorBuilder: (_, __) => Divider(height: 1, indent: 56, color: Colors.grey.shade200),
+                itemBuilder: (context, index) {
+                  final result = widget.results[index];
+                  return ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(result.isPoi ? Icons.place : Icons.location_city, size: 18, color: context.colors.primary),
+                    ),
+                    title: Text(result.text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    subtitle: Text(result.placeName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    onTap: () => widget.onSelect(result),
+                  );
+                },
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+class _BottomPanel extends StatelessWidget {
+  final List<RouteWaypoint> poiWaypoints;
+  final double? previewDistance; final int? previewDuration;
+  final List<ElevationPoint> elevation; final double? ascent; final double? descent;
+  final bool busy;
+  final VoidCallback onAddWaypoint; final void Function(RouteWaypoint) onEditWaypoint;
+  final VoidCallback? onPreview; final VoidCallback? onSave;
+  final void Function(int oldIndex, int newIndex) onReorder;
+
+  const _BottomPanel({
+    required this.poiWaypoints,
+    required this.previewDistance,
+    required this.previewDuration,
+    required this.elevation,
+    required this.ascent,
+    required this.descent,
+    required this.busy,
+    required this.onAddWaypoint,
+    required this.onEditWaypoint,
+    required this.onPreview,
+    required this.onSave,
+    required this.onReorder,
+  });
+
+  @override
+  Widget build(BuildContext context) => DraggableScrollableSheet(
+        initialChildSize: 0.24,
+        minChildSize: 0.16,
+        maxChildSize: 0.8,
+        builder: (context, controller) {
+          final size = MediaQuery.of(context).size;
+          final isDesktop = size.width >= 1024;
+          final panelContent = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 8),
+              Center(
+                child: Container(width: 44, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
+                    child: Row(children: [
+                      Text('Waypoints', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(999)),
+                        child: Text('${poiWaypoints.length}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: onAddWaypoint,
+                        style: IconButton.styleFrom(backgroundColor: context.colors.primary.withValues(alpha: 0.1)),
+                        icon: Icon(Icons.add, color: context.colors.primary),
+                        tooltip: 'Add waypoint',
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              if (poiWaypoints.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 20, bottom: 12),
+                  child: Column(children: [
+                    Icon(Icons.location_on_outlined, size: 32, color: Colors.grey.shade400),
+                    const SizedBox(height: 8),
+                    Text('No waypoints added yet', style: context.textStyles.bodySmall?.copyWith(color: Colors.grey.shade600)),
+                    Text('Tap on the map or use +', style: context.textStyles.labelSmall?.copyWith(color: Colors.grey.shade500)),
+                  ]),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: _WaypointList(
+                    items: poiWaypoints,
+                    onEdit: onEditWaypoint,
+                    onReorder: onReorder,
+                  ),
+                ),
+              if (previewDistance != null || elevation.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (previewDistance != null)
+                      Row(children: [
+                        Icon(Icons.straighten, size: 18, color: context.colors.primary),
+                        const SizedBox(width: 8),
+                        Text('${(previewDistance! / 1000).toStringAsFixed(2)} km', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                        const SizedBox(width: 20),
+                        Icon(Icons.schedule, size: 18, color: context.colors.primary),
+                        const SizedBox(width: 8),
+                        Text(_formatDuration(previewDuration ?? 0), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      ]),
+                    if (elevation.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(height: 120, child: ElevationChart(data: elevation)),
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        if (ascent != null) ...[
+                          Icon(Icons.trending_up, size: 16, color: Colors.green.shade700),
+                          const SizedBox(width: 4),
+                          Text('+${ascent!.toStringAsFixed(0)} m', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.green.shade700)),
+                          const SizedBox(width: 16),
+                        ],
+                        if (descent != null) ...[
+                          Icon(Icons.trending_down, size: 16, color: Colors.red.shade700),
+                          const SizedBox(width: 4),
+                          Text('-${descent!.toStringAsFixed(0)} m', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
+                        ],
+                      ]),
+                    ],
+                  ]),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isDesktop ? 500 : double.infinity),
+                    child: Row(children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : onPreview,
+                          icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.visibility),
+                          label: const Text('Preview'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: busy ? null : onSave,
+                          icon: const Icon(Icons.check_circle),
+                          label: const Text('Build & Save'),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          );
+
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 24, offset: const Offset(0, -8))],
+            ),
+            child: ListView(controller: controller, padding: EdgeInsets.zero, children: [panelContent]),
+          );
+        },
+      );
+
+  String _formatDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h > 0) return '${h}h ${m}m';
+    return '${m}m';
+  }
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  final bool snapToTrail; final ValueChanged<bool> onToggleSnap;
+  final List<RouteWaypoint> poiWaypoints;
+  final double? previewDistance; final int? previewDuration;
+  final List<ElevationPoint> elevation; final double? ascent; final double? descent;
+  final bool busy;
+  final VoidCallback onAddWaypoint; final void Function(RouteWaypoint) onEditWaypoint;
+  final VoidCallback? onPreview; final VoidCallback? onSave;
+  final void Function(int oldIndex, int newIndex) onReorder;
+
+  const _DesktopSidebar({
+    required this.snapToTrail,
+    required this.onToggleSnap,
+    required this.poiWaypoints,
+    required this.previewDistance,
+    required this.previewDuration,
+    required this.elevation,
+    required this.ascent,
+    required this.descent,
+    required this.busy,
+    required this.onAddWaypoint,
+    required this.onEditWaypoint,
+    required this.onPreview,
+    required this.onSave,
+    required this.onReorder,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(right: BorderSide(color: Colors.grey.shade200, width: 1)),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(2, 0))],
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Column(children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+              child: Row(children: [
+                Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                const Spacer(),
+                Text('Snap', style: context.textStyles.labelSmall?.copyWith(color: Colors.grey.shade600)),
+                const SizedBox(width: 6),
+                Switch(value: snapToTrail, onChanged: onToggleSnap),
+              ]),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                children: [
+                  // Stats section
+                  if (previewDistance != null || ascent != null || previewDuration != null)
+                    _StatsRow(
+                      distanceMeters: previewDistance,
+                      durationSeconds: previewDuration,
+                      ascentMeters: ascent,
+                    ),
+                  if (elevation.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 80,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: ElevationChart(data: elevation),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  // Waypoints section
+                  Container(
+                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      Text('Waypoints', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(999)),
+                        child: Text('${poiWaypoints.length}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: onAddWaypoint,
+                        style: IconButton.styleFrom(backgroundColor: context.colors.primary.withValues(alpha: 0.1)),
+                        icon: Icon(Icons.add, color: context.colors.primary),
+                        tooltip: 'Add waypoint',
+                      ),
+                    ]),
+                  ),
+                  if (poiWaypoints.isEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.info_outline, size: 16),
+                        const SizedBox(width: 8),
+                        const Expanded(child: Text('Click to place points or hold Shift to draw')),
+                      ]),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    Column(children: [
+                      for (int i = 0; i < poiWaypoints.length; i++)
+                        _SidebarWaypointTile(
+                          waypoint: poiWaypoints[i],
+                          onEdit: () => onEditWaypoint(poiWaypoints[i]),
+                          onMoveUp: i == 0 ? null : () => onReorder(i, i - 1),
+                          onMoveDown: i == poiWaypoints.length - 1 ? null : () => onReorder(i, i + 2),
+                        ),
+                    ]),
+                  ],
+                ],
+              ),
+            ),
+            // Footer
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.shade100))),
+              child: Row(children: [
+                TextButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Cancel')),
+                const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : onPreview,
+                  icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.visibility),
+                  label: const Text('Preview'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(onPressed: busy ? null : onSave, icon: const Icon(Icons.check_circle), label: const Text('Save')),
+              ]),
+            ),
+          ]),
+        ),
+      );
+}
+
+class _StatsRow extends StatelessWidget {
+  final double? distanceMeters; final int? durationSeconds; final double? ascentMeters;
+  const _StatsRow({this.distanceMeters, this.durationSeconds, this.ascentMeters});
+  @override
+  Widget build(BuildContext context) {
+    String dist = distanceMeters == null ? '-' : '${(distanceMeters! / 1000).toStringAsFixed(1)} km';
+    String dur = durationSeconds == null ? '-' : _fmtDuration(durationSeconds!);
+    String asc = ascentMeters == null ? '-' : '+${ascentMeters!.toStringAsFixed(0)} m';
+    TextStyle label = TextStyle(fontSize: 12, color: Colors.grey.shade600);
+    TextStyle value = const TextStyle(fontSize: 14, fontWeight: FontWeight.w700);
+    return Row(children: [
+      _statTile(context, Icons.straighten, 'Length', dist, label, value),
+      _divider(),
+      _statTile(context, Icons.trending_up, 'Elev. gain', asc, label, value),
+      _divider(),
+      _statTile(context, Icons.schedule, 'Est. time', dur, label, value),
+      _divider(),
+      _statTile(context, Icons.directions_walk, 'Activity', 'Walking', label, value),
+    ]);
+  }
+
+  Widget _divider() => Container(width: 1, height: 28, margin: const EdgeInsets.symmetric(horizontal: 10), color: Colors.grey.shade200);
+  Widget _statTile(BuildContext context, IconData icon, String label, String value, TextStyle l, TextStyle v) => Expanded(
+        child: Row(children: [
+          Icon(icon, size: 16, color: context.colors.primary),
+          const SizedBox(width: 6),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: l),
+            Text(value, style: v),
+          ]),
+        ]),
+      );
+}
+
+String _fmtDuration(int seconds) {
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  if (h > 0) return '${h}h ${m}m';
+  return '${m}m';
+}
+
+class _SidebarWaypointTile extends StatelessWidget {
+  final RouteWaypoint waypoint; final VoidCallback onEdit; final VoidCallback? onMoveUp; final VoidCallback? onMoveDown;
+  const _SidebarWaypointTile({required this.waypoint, required this.onEdit, this.onMoveUp, this.onMoveDown});
+  @override
+  Widget build(BuildContext context) => Container(
+        height: 56,
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+        child: Row(children: [
+          Icon(Icons.drag_indicator, size: 18, color: Colors.grey.shade400),
+          const SizedBox(width: 6),
+          Container(width: 28, height: 28, decoration: BoxDecoration(color: getWaypointColor(waypoint.type), borderRadius: BorderRadius.circular(8)),
+              child: Icon(getWaypointIcon(waypoint.type), color: Colors.white, size: 16)),
+          const SizedBox(width: 10),
+          Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(waypoint.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(getWaypointLabel(waypoint.type), style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          ])),
+          if (onMoveUp != null) IconButton(onPressed: onMoveUp, icon: const Icon(Icons.arrow_upward, size: 16)),
+          if (onMoveDown != null) IconButton(onPressed: onMoveDown, icon: const Icon(Icons.arrow_downward, size: 16)),
+          IconButton(onPressed: onEdit, icon: const Icon(Icons.more_vert, size: 18)),
+        ]),
+      );
+}
+
+class _WaypointList extends StatelessWidget {
+  final List<RouteWaypoint> items; final void Function(RouteWaypoint) onEdit; final void Function(int,int) onReorder;
+  const _WaypointList({required this.items, required this.onEdit, required this.onReorder});
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          for (int i = 0; i < items.length; i++)
+            _WaypointTile(
+              key: ValueKey(items[i].id ?? '${items[i].name}-$i'),
+              waypoint: items[i],
+              onEdit: () => onEdit(items[i]),
+              // Up/Down quick reorder for now
+              onMoveUp: i == 0 ? null : () => onReorder(i, i - 1),
+              onMoveDown: i == items.length - 1 ? null : () => onReorder(i, i + 2),
+            ),
+        ],
+      );
+}
+
+class _WaypointTile extends StatelessWidget {
+  final RouteWaypoint waypoint; final VoidCallback onEdit; final VoidCallback? onMoveUp; final VoidCallback? onMoveDown;
+  const _WaypointTile({super.key, required this.waypoint, required this.onEdit, this.onMoveUp, this.onMoveDown});
+  @override
+  Widget build(BuildContext context) => Container(
+        height: 56,
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+        child: Row(children: [
+          const SizedBox(width: 8),
+          Icon(Icons.drag_indicator, size: 20, color: Colors.grey.shade400),
+          const SizedBox(width: 8),
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(color: getWaypointColor(waypoint.type), borderRadius: BorderRadius.circular(8)),
+            child: Icon(getWaypointIcon(waypoint.type), color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(waypoint.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(getWaypointLabel(waypoint.type), style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+            ]),
+          ),
+          if (onMoveUp != null)
+            IconButton(onPressed: onMoveUp, icon: const Icon(Icons.arrow_upward, size: 18)),
+          if (onMoveDown != null)
+            IconButton(onPressed: onMoveDown, icon: const Icon(Icons.arrow_downward, size: 18)),
+          IconButton(onPressed: onEdit, icon: const Icon(Icons.more_vert)),
+        ]),
+      );
 }
 
 /// Action tile for map tap picker

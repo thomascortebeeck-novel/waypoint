@@ -5,6 +5,8 @@ import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/itinerary/step_indicator.dart';
+import 'package:waypoint/components/itinerary/itinerary_bottom_bar.dart';
 
 class ItinerarySetupScreen extends StatefulWidget {
   final String planId;
@@ -87,6 +89,8 @@ class _ItinerarySetupScreenState extends State<ItinerarySetupScreen> {
       body: ListView(
         padding: AppSpacing.paddingLg,
         children: [
+          StepIndicator(currentStep: 1, totalSteps: 3, labels: const ['Setup', 'Pack', 'Travel']),
+          const SizedBox(height: 24),
           // Version selection
           Text(
             'Choose a version',
@@ -165,63 +169,13 @@ class _ItinerarySetupScreenState extends State<ItinerarySetupScreen> {
           const SizedBox(height: 100), // Extra space for bottom bar
         ],
       ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton.icon(
-                onPressed: () => context.go('/itinerary/${widget.planId}'),
-                icon: const Icon(Icons.arrow_back, size: 20),
-                label: const Text('Back'),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  foregroundColor: context.colors.onSurfaceVariant,
-                ),
-              ),
-              ElevatedButton(
-                onPressed: (_selectedVersionId == null || _saving) ? null : _saveAndContinue,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                  backgroundColor: context.colors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 2,
-                  shadowColor: context.colors.primary.withValues(alpha: 0.3),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  minimumSize: const Size(120, 48),
-                ),
-                child: _saving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Next',
-                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                          ),
-                          SizedBox(width: 8),
-                          Icon(Icons.arrow_forward, size: 18),
-                        ],
-                      ),
-              ),
-            ],
-          ),
-        ),
+      bottomNavigationBar: ItineraryBottomBar(
+        onBack: () => context.go('/itinerary/${widget.planId}'),
+        backLabel: 'Back',
+        onNext: (_selectedVersionId == null || _saving) ? null : _saveAndContinue,
+        nextLabel: 'Next',
+        nextIcon: Icons.arrow_forward,
+        nextEnabled: _selectedVersionId != null && !_saving,
       ),
     );
   }

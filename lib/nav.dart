@@ -26,7 +26,6 @@ import 'package:waypoint/services/plan_service.dart';
 import 'theme.dart';
 import 'package:waypoint/utils/logger.dart';
 
-// Route constants
 class AppRoutes {
   static const String marketplace = '/';
   static const String myTrips = '/mytrips';
@@ -56,7 +55,6 @@ class AppRouter {
     initialLocation: AppRoutes.marketplace,
     debugLogDiagnostics: true,
     routes: [
-      // Full-screen builder routes (no bottom nav)
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/builder/create',
@@ -79,7 +77,6 @@ class AppRouter {
           );
         },
       ),
-      // Deep link route for shared plan URLs (redirects to nested route)
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/plan/:planId',
@@ -88,8 +85,6 @@ class AppRouter {
           return '/details/$planId';
         },
       ),
-      
-      // Checkout routes (full-screen, no bottom nav)
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/checkout/:planId',
@@ -103,7 +98,6 @@ class AppRouter {
             return CheckoutScreen(plan: plan, buyerId: buyerId);
           }
           
-          // If plan not passed, load it
           return FutureBuilder(
             future: PlanService().getPlanById(planId),
             builder: (context, snapshot) {
@@ -163,7 +157,6 @@ class AppRouter {
           );
         },
       ),
-      // Itinerary routes (full-screen)
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: AppRoutes.itineraryHome,
@@ -217,20 +210,16 @@ class AppRouter {
           return ItineraryDayScreen(planId: planId, tripId: tripId, dayIndex: dayIndex);
         },
       ),
-      
-      // Admin routes (full-screen, no bottom nav)
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: AppRoutes.adminMigration,
         builder: (context, state) => const AdminMigrationScreen(),
       ),
-      
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
-          return ScaffoldWithNavBar(navigationShell: navigationShell);
+          return ResponsiveScaffold(navigationShell: navigationShell);
         },
         branches: [
-          // Marketplace Branch
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -254,8 +243,6 @@ class AppRouter {
               ),
             ],
           ),
-          
-          // My Trips Branch
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -276,8 +263,6 @@ class AppRouter {
               ),
             ],
           ),
-
-          // Builder Branch (only home screen, create/edit are full-screen)
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -286,8 +271,6 @@ class AppRouter {
               ),
             ],
           ),
-
-          // Profile Branch
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -302,6 +285,510 @@ class AppRouter {
   );
 }
 
+class ResponsiveScaffold extends StatelessWidget {
+  const ResponsiveScaffold({required this.navigationShell, super.key});
+
+  final StatefulNavigationShell navigationShell;
+
+  static const double _desktopBreakpoint = 1024;
+  static const double _sidebarWidth = 240;
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth >= _desktopBreakpoint;
+
+    if (isDesktop) {
+      return Scaffold(
+        body: Row(
+          children: [
+            DesktopSidebar(
+              currentIndex: navigationShell.currentIndex,
+              onDestinationSelected: _onDestinationSelected,
+            ),
+            Expanded(child: navigationShell),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: navigationShell,
+      bottomNavigationBar: ModernBottomNav(
+        currentIndex: navigationShell.currentIndex,
+        onDestinationSelected: _onDestinationSelected,
+      ),
+    );
+  }
+
+  void _onDestinationSelected(int index) {
+    Log.i('router', 'Switching branch to index=$index');
+    navigationShell.goBranch(
+      index,
+      initialLocation: index == navigationShell.currentIndex,
+    );
+  }
+}
+
+class DesktopSidebar extends StatelessWidget {
+  const DesktopSidebar({
+    required this.currentIndex,
+    required this.onDestinationSelected,
+    super.key,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 240,
+      decoration: BoxDecoration(
+        color: context.colors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(2, 0),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 24),
+            _buildLogo(context),
+            const SizedBox(height: 32),
+            Divider(height: 1, color: context.colors.outline),
+            const SizedBox(height: 16),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  children: [
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.compass,
+                      label: 'Explore',
+                      isSelected: currentIndex == 0,
+                      onTap: () => onDestinationSelected(0),
+                    ),
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.map,
+                      label: 'My Trips',
+                      isSelected: currentIndex == 1,
+                      onTap: () => onDestinationSelected(1),
+                    ),
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.penRuler,
+                      label: 'Builder',
+                      isSelected: currentIndex == 2,
+                      onTap: () => onDestinationSelected(2),
+                    ),
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.user,
+                      label: 'Profile',
+                      isSelected: currentIndex == 3,
+                      onTap: () => onDestinationSelected(3),
+                    ),
+                    const Spacer(),
+                    Divider(height: 1, color: context.colors.outline),
+                    const SizedBox(height: 12),
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.gear,
+                      label: 'Settings',
+                      isSelected: false,
+                      onTap: () {},
+                    ),
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.circleQuestion,
+                      label: 'Help',
+                      isSelected: false,
+                      onTap: () {},
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogo(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Icon(Icons.terrain, color: context.colors.primary, size: 28),
+          const SizedBox(width: 10),
+          Text(
+            'WAYPOINT',
+            style: context.textStyles.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+              color: context.colors.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarNavItem extends StatefulWidget {
+  const _SidebarNavItem({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  State<_SidebarNavItem> createState() => _SidebarNavItemState();
+}
+
+class _SidebarNavItemState extends State<_SidebarNavItem> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = widget.isSelected || _isHovered;
+    
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: Material(
+            // Remove green tint for the selected state on desktop sidebar.
+            // Keep a very subtle hover background only.
+            color: _isHovered
+                ? context.colors.surfaceContainerHighest.withValues(alpha: 0.5)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: InkWell(
+              onTap: widget.onTap,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              splashColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  // Remove the left selection border to match mobile/tablet behavior
+                  // where only the label/icon color changes when active.
+                  border: null,
+                ),
+                child: Row(
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(
+                        widget.icon,
+                        size: 18,
+                        color: isActive
+                            ? context.colors.primary
+                            : context.colors.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        widget.label,
+                        style: context.textStyles.bodyLarge?.copyWith(
+                          fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color: isActive
+                              ? context.colors.primary
+                              : context.colors.onSurface.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ModernBottomNav extends StatelessWidget {
+  const ModernBottomNav({
+    required this.currentIndex,
+    required this.onDestinationSelected,
+    super.key,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: context.colors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 20,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 72,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _NavItem(
+                icon: FontAwesomeIcons.compass,
+                selectedIcon: FontAwesomeIcons.solidCompass,
+                label: 'Explore',
+                isSelected: currentIndex == 0,
+                onTap: () => onDestinationSelected(0),
+              ),
+              _NavItem(
+                icon: FontAwesomeIcons.map,
+                selectedIcon: FontAwesomeIcons.solidMap,
+                label: 'My Trips',
+                isSelected: currentIndex == 1,
+                onTap: () => onDestinationSelected(1),
+              ),
+              _BuilderNavItem(
+                isSelected: currentIndex == 2,
+                onTap: () => onDestinationSelected(2),
+              ),
+              _NavItem(
+                icon: FontAwesomeIcons.user,
+                selectedIcon: FontAwesomeIcons.solidUser,
+                label: 'Profile',
+                isSelected: currentIndex == 3,
+                onTap: () => onDestinationSelected(3),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatefulWidget {
+  const _NavItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  bool _isHovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = widget.isSelected || _isHovered;
+
+    return Expanded(
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _isHovered = true);
+          _controller.forward();
+        },
+        onExit: (_) {
+          setState(() => _isHovered = false);
+          _controller.reverse();
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedBuilder(
+            animation: _scaleAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _isHovered ? _scaleAnimation.value : 1.0,
+                child: child,
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    child: Icon(
+                      widget.isSelected ? widget.selectedIcon : widget.icon,
+                      size: 22,
+                      color: isActive
+                          ? context.colors.primary
+                          : context.colors.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: context.textStyles.labelSmall!.copyWith(
+                      color: isActive
+                          ? context.colors.primary
+                          : context.colors.onSurface.withValues(alpha: 0.5),
+                      fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                    ),
+                    child: Text(widget.label),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BuilderNavItem extends StatefulWidget {
+  const _BuilderNavItem({
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  State<_BuilderNavItem> createState() => _BuilderNavItemState();
+}
+
+class _BuilderNavItemState extends State<_BuilderNavItem> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _liftAnimation;
+  bool _isHovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _liftAnimation = Tween<double>(begin: 0, end: -2).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = widget.isSelected || _isHovered;
+    
+    return Expanded(
+      child: MouseRegion(
+        onEnter: (_) {
+          setState(() => _isHovered = true);
+          _controller.forward();
+        },
+        onExit: (_) {
+          setState(() => _isHovered = false);
+          _controller.reverse();
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedBuilder(
+            animation: _liftAnimation,
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(0, _isHovered ? _liftAnimation.value : 0),
+                child: child,
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    child: Icon(
+                      FontAwesomeIcons.penRuler,
+                      size: 22,
+                      color: isActive
+                          ? context.colors.primary
+                          : context.colors.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: context.textStyles.labelSmall!.copyWith(
+                      color: isActive
+                          ? context.colors.primary
+                          : context.colors.onSurface.withValues(alpha: 0.5),
+                      fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
+                    ),
+                    child: const Text('Builder'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Keep old ScaffoldWithNavBar for backwards compatibility if needed
 class ScaffoldWithNavBar extends StatelessWidget {
   const ScaffoldWithNavBar({
     required this.navigationShell,
@@ -312,65 +799,6 @@ class ScaffoldWithNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: context.colors.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 16,
-              offset: const Offset(0, -2),
-            ),
-          ],
-          border: Border(
-            top: BorderSide(
-              color: context.colors.outlineVariant,
-              width: 1,
-            ),
-          ),
-        ),
-        child: SafeArea(
-          child: NavigationBar(
-            selectedIndex: navigationShell.currentIndex,
-            onDestinationSelected: (index) {
-              Log.i('router', 'Switching branch to index=$index');
-              navigationShell.goBranch(
-                index,
-                initialLocation: index == navigationShell.currentIndex,
-              );
-            },
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(FontAwesomeIcons.compass),
-                selectedIcon: Icon(FontAwesomeIcons.solidCompass),
-                label: 'Explore',
-              ),
-              NavigationDestination(
-                icon: Icon(FontAwesomeIcons.map),
-                selectedIcon: Icon(FontAwesomeIcons.solidMap),
-                label: 'My Trips',
-              ),
-              NavigationDestination(
-                icon: Icon(FontAwesomeIcons.penRuler),
-                selectedIcon: Icon(FontAwesomeIcons.penRuler),
-                label: 'Builder',
-              ),
-              NavigationDestination(
-                icon: Icon(FontAwesomeIcons.user),
-                selectedIcon: Icon(FontAwesomeIcons.solidUser),
-                label: 'Profile',
-              ),
-            ],
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            indicatorColor: context.colors.primary.withValues(alpha: 0.12),
-            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-            height: 64,
-          ),
-        ),
-      ),
-    );
+    return ResponsiveScaffold(navigationShell: navigationShell);
   }
 }

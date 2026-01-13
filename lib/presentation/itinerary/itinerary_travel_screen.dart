@@ -7,6 +7,8 @@ import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/itinerary/step_indicator.dart';
+import 'package:waypoint/components/itinerary/itinerary_bottom_bar.dart';
 
 class ItineraryTravelScreen extends StatefulWidget {
   final String planId;
@@ -87,77 +89,36 @@ class _ItineraryTravelScreenState extends State<ItineraryTravelScreen> {
           : ListView(
               padding: AppSpacing.paddingLg,
               children: [
-                // Title section
-                Text(
-                  'How to get there',
-                  style: context.textStyles.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: context.colors.onSurface,
-                  ),
-                ),
+                StepIndicator(currentStep: 3, totalSteps: 3, labels: const ['Setup', 'Pack', 'Travel']),
+                const SizedBox(height: 16),
+                Text('How to get there', style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: context.colors.onSurface)),
                 const SizedBox(height: 8),
-                Text(
-                  'Transportation options to reach your destination',
-                  style: context.textStyles.bodyMedium?.copyWith(
-                    color: context.colors.onSurfaceVariant,
-                  ),
-                ),
+                Text('Transportation options to reach your destination', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant)),
                 const SizedBox(height: 24),
-                // Transportation options
-                ...options.map((o) => TransportationOptionCard(option: o)),
+                // Transportation options as timeline
+                ...options.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final o = entry.value;
+                  final isLast = i == options.length - 1;
+                  return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    // timeline rail
+                    Column(children: [
+                      Container(width: 10, height: 10, decoration: BoxDecoration(color: context.colors.primary, shape: BoxShape.circle)),
+                      if (!isLast)
+                        Container(width: 2, height: 28, color: context.colors.outlineVariant),
+                    ]),
+                    const SizedBox(width: 12),
+                    Expanded(child: TransportationOptionCard(option: o)),
+                  ]);
+                }).toList(),
               ],
             ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 20,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton.icon(
-                onPressed: () => context.go('/itinerary/${widget.planId}/pack/${widget.tripId}'),
-                icon: const Icon(Icons.arrow_back, size: 20),
-                label: const Text('Back'),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  foregroundColor: context.colors.onSurfaceVariant,
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () => context.go('/itinerary/${widget.planId}/day/${widget.tripId}/0'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                  backgroundColor: context.colors.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 2,
-                  shadowColor: context.colors.primary.withValues(alpha: 0.3),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  minimumSize: const Size(120, 48),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Day 1',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.arrow_forward, size: 18),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      bottomNavigationBar: ItineraryBottomBar(
+        onBack: () => context.go('/itinerary/${widget.planId}/pack/${widget.tripId}'),
+        backLabel: 'Back',
+        onNext: () => context.go('/itinerary/${widget.planId}/day/${widget.tripId}/0'),
+        nextLabel: 'Day 1',
+        nextIcon: Icons.arrow_forward,
       ),
     );
   }

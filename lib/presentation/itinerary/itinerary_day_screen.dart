@@ -183,53 +183,26 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
               ),
             ),
           ),
+          // Sticky day navigator
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _DayNavigatorHeader(
+              totalDays: totalDays,
+              currentIndex: widget.dayIndex,
+              onPrev: isFirstDay
+                  ? () => context.go('/itinerary/${widget.planId}/travel/${widget.tripId}')
+                  : () => context.go('/itinerary/${widget.planId}/day/${widget.tripId}/${widget.dayIndex - 1}'),
+              onNext: isLastDay
+                  ? null
+                  : () => context.go('/itinerary/${widget.planId}/day/${widget.tripId}/${widget.dayIndex + 1}'),
+            ),
+          ),
 
           // Content
           SliverPadding(
             padding: AppSpacing.paddingLg,
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // Day progress indicator
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: context.colors.primaryContainer.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(totalDays, (i) {
-                      final isActive = i == widget.dayIndex;
-                      final isPast = i < widget.dayIndex;
-                      return Container(
-                        margin: EdgeInsets.only(right: i < totalDays - 1 ? 8 : 0),
-                        width: isActive ? 32 : 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: isActive
-                              ? context.colors.primary
-                              : isPast
-                                  ? context.colors.primary.withValues(alpha: 0.5)
-                                  : context.colors.outline.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: isActive
-                            ? Center(
-                                child: Text(
-                                  '${widget.dayIndex + 1}',
-                                  style: TextStyle(
-                                    color: context.colors.onPrimary,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              )
-                            : null,
-                      );
-                    }),
-                  ),
-                ),
-                const SizedBox(height: 24),
 
                 // Title
                 Text(
@@ -459,6 +432,8 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
       ),
     );
   }
+
+ 
 
   Widget _buildWaypointsSummary(BuildContext context, DayItinerary day) {
     final waypoints = <Map<String, dynamic>>[];
@@ -740,4 +715,61 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
     final mins = minutes % 60;
     return mins > 0 ? '${hours}h ${mins}min' : '${hours}h';
   }
+}
+
+class _DayNavigatorHeader extends SliverPersistentHeaderDelegate {
+  final int totalDays;
+  final int currentIndex;
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+
+  _DayNavigatorHeader({required this.totalDays, required this.currentIndex, this.onPrev, this.onNext});
+
+  @override
+  double get minExtent => 64;
+  @override
+  double get maxExtent => 64;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Theme.of(context).colorScheme.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SafeArea(
+        bottom: false,
+        child: Row(children: [
+          IconButton(onPressed: onPrev, icon: const Icon(Icons.chevron_left)),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: List.generate(totalDays, (i) {
+                final active = i == currentIndex;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: active ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outlineVariant),
+                    ),
+                    child: Center(
+                      child: Text('${i + 1}', style: TextStyle(color: active ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                );
+              })),
+            ),
+          ),
+          IconButton(onPressed: onNext, icon: const Icon(Icons.chevron_right)),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _DayNavigatorHeader oldDelegate) =>
+      totalDays != oldDelegate.totalDays || currentIndex != oldDelegate.currentIndex || onPrev != oldDelegate.onPrev || onNext != oldDelegate.onNext;
 }

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// Re-export the new design system for gradual migration
+export 'package:waypoint/core/theme/waypoint_theme.dart';
+export 'package:waypoint/components/components.dart';
+
+/// Legacy spacing - use WaypointSpacing from the new design system
 class AppSpacing {
   static const double xs = 4.0;
   static const double sm = 8.0;
@@ -28,11 +33,12 @@ class AppSpacing {
   static const EdgeInsets verticalXl = EdgeInsets.symmetric(vertical: xl);
 }
 
+/// Legacy radius - use WaypointRadius from the new design system
 class AppRadius {
   static const double sm = 8.0;
-  static const double md = 16.0; // More rounded for modern look
-  static const double lg = 24.0;
-  static const double xl = 32.0;
+  static const double md = 12.0;
+  static const double lg = 16.0;
+  static const double xl = 24.0;
   static const double full = 999.0;
 }
 
@@ -51,68 +57,70 @@ extension TextStyleExtensions on TextStyle {
 }
 
 class LightModeColors {
-  // AllTrails-Inspired Professional Palette
-  static const primary = Color(0xFF428A13); // AllTrails Signature Green
+  static const primary = Color(0xFF428A13);
+  static const primaryDark = Color(0xFF2D5A27);
+  static const primaryLight = Color(0xFFE8F5E9);
   static const onPrimary = Color(0xFFFFFFFF);
-  static const primaryContainer = Color(0xFFE8F5E0);
+  static const primaryContainer = Color(0xFFE8F5E9);
   static const onPrimaryContainer = Color(0xFF0D2E00);
 
-  static const secondary = Color(0xFFFF6D00); // Vibrant Orange for CTAs
+  static const secondary = Color(0xFFE65100);
   static const onSecondary = Color(0xFFFFFFFF);
   static const secondaryContainer = Color(0xFFFFEDD5);
   
-  static const tertiary = Color(0xFF2B7A78); // Teal for accents
+  static const tertiary = Color(0xFF2B7A78);
   static const onTertiary = Color(0xFFFFFFFF);
 
   static const error = Color(0xFFBA1A1A);
   static const onError = Color(0xFFFFFFFF);
 
-  // Professional neutral backgrounds
-  static const surface = Color(0xFFFAFAFA); // Soft off-white
-  static const onSurface = Color(0xFF1A1C19);
+  static const surface = Color(0xFFFAFBFA);
+  static const onSurface = Color(0xFF1A1A1A);
+  static const onSurfaceSecondary = Color(0xFF5C5C5C);
+  static const onSurfaceMuted = Color(0xFF8A8A8A);
   static const surfaceVariant = Color(0xFFF5F5F5);
-  static const surfaceContainer = Color(0xFFFFFFFF); // Pure white for cards
-  static const background = Color(0xFFFAFAFA);
+  static const surfaceContainer = Color(0xFFFFFFFF);
+  static const background = Color(0xFFFAFBFA);
   
-  static const outline = Color(0xFFE0E0E0);
+  static const outline = Color(0xFFE5EBE5);
   static const outlineVariant = Color(0xFFF0F0F0);
   static const shadow = Color(0xFF000000);
   
-  // Semantic colors
   static const success = Color(0xFF428A13);
   static const warning = Color(0xFFFF8C42);
   static const info = Color(0xFF2B7A78);
 }
 
 class DarkModeColors {
-  // AllTrails Dark Mode Professional Palette
-  static const primary = Color(0xFF6BBF47); // Lighter green for dark backgrounds
+  static const primary = Color(0xFF6BBF47);
+  static const primaryDark = Color(0xFF4A9A2E);
+  static const primaryLight = Color(0xFF1A3D12);
   static const onPrimary = Color(0xFF0F3A00);
   static const primaryContainer = Color(0xFF2A5016);
   static const onPrimaryContainer = Color(0xFFD7F2C9);
 
-  static const secondary = Color(0xFFFF8A3D); // Warm orange
+  static const secondary = Color(0xFFFF8A3D);
   static const onSecondary = Color(0xFF4A2000);
   static const secondaryContainer = Color(0xFF663300);
 
-  static const tertiary = Color(0xFF5ACFC5); // Bright teal
+  static const tertiary = Color(0xFF5ACFC5);
   static const onTertiary = Color(0xFF003733);
 
   static const error = Color(0xFFFFB4AB);
   static const onError = Color(0xFF690005);
 
-  // Professional dark backgrounds
-  static const surface = Color(0xFF1C1C1C); // Rich dark surface
+  static const surface = Color(0xFF1C1C1C);
   static const onSurface = Color(0xFFE5E5E5);
+  static const onSurfaceSecondary = Color(0xFFB0B0B0);
+  static const onSurfaceMuted = Color(0xFF707070);
   static const surfaceVariant = Color(0xFF2A2A2A);
-  static const surfaceContainer = Color(0xFF242424); // Cards in dark mode
-  static const background = Color(0xFF121212); // Deep background
+  static const surfaceContainer = Color(0xFF242424);
+  static const background = Color(0xFF121212);
   
   static const outline = Color(0xFF3A3A3A);
   static const outlineVariant = Color(0xFF2A2A2A);
   static const shadow = Color(0xFF000000);
   
-  // Semantic colors
   static const success = Color(0xFF6BBF47);
   static const warning = Color(0xFFFF8A3D);
   static const info = Color(0xFF5ACFC5);
@@ -125,12 +133,13 @@ class FontSizes {
   static const double headlineLarge = 28.0;
   static const double headlineMedium = 24.0;
   static const double headlineSmall = 20.0;
-  static const double titleLarge = 20.0;
+  static const double titleLarge = 18.0;
   static const double titleMedium = 16.0;
   static const double titleSmall = 14.0;
-  static const double bodyLarge = 16.0;
+  static const double bodyLarge = 15.0;
   static const double bodyMedium = 14.0;
-  static const double bodySmall = 12.0;
+  static const double bodySmall = 13.0;
+  static const double labelSmall = 11.0;
 }
 
 ThemeData get lightTheme => ThemeData(
@@ -164,8 +173,8 @@ ThemeData get lightTheme => ThemeData(
     shadowColor: Colors.black.withValues(alpha: 0.04),
     color: LightModeColors.surfaceContainer,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      side: BorderSide(color: LightModeColors.outlineVariant, width: 1),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      side: BorderSide(color: LightModeColors.outline, width: 1),
     ),
     margin: EdgeInsets.zero,
   ),
@@ -173,15 +182,15 @@ ThemeData get lightTheme => ThemeData(
     filled: true,
     fillColor: LightModeColors.surfaceVariant,
     border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: LightModeColors.outline),
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: LightModeColors.outline),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: LightModeColors.primary, width: 2),
     ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -193,7 +202,7 @@ ThemeData get lightTheme => ThemeData(
       foregroundColor: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       textStyle: GoogleFonts.inter(
         fontWeight: FontWeight.w600,
@@ -208,7 +217,7 @@ ThemeData get lightTheme => ThemeData(
       foregroundColor: LightModeColors.primary,
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       side: const BorderSide(color: LightModeColors.primary, width: 2),
       textStyle: GoogleFonts.inter(
@@ -224,8 +233,41 @@ ThemeData get lightTheme => ThemeData(
     foregroundColor: Colors.white,
     extendedPadding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(16)),
+      borderRadius: BorderRadius.all(Radius.circular(AppRadius.lg)),
     ),
+  ),
+  navigationBarTheme: NavigationBarThemeData(
+    elevation: 0,
+    backgroundColor: Colors.transparent,
+    indicatorColor: Colors.transparent,
+    labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+    height: 72,
+    labelTextStyle: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.selected)) {
+        return GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: LightModeColors.primary,
+        );
+      }
+      return GoogleFonts.inter(
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        color: LightModeColors.onSurfaceMuted,
+      );
+    }),
+    iconTheme: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.selected)) {
+        return const IconThemeData(
+          size: 24,
+          color: LightModeColors.primary,
+        );
+      }
+      return const IconThemeData(
+        size: 24,
+        color: LightModeColors.onSurfaceMuted,
+      );
+    }),
   ),
   textTheme: _buildTextTheme(Brightness.light),
 );
@@ -261,8 +303,8 @@ ThemeData get darkTheme => ThemeData(
     shadowColor: Colors.black.withValues(alpha: 0.3),
     color: DarkModeColors.surfaceContainer,
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppRadius.md),
-      side: BorderSide(color: DarkModeColors.outlineVariant, width: 1),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      side: BorderSide(color: DarkModeColors.outline, width: 1),
     ),
     margin: EdgeInsets.zero,
   ),
@@ -270,15 +312,15 @@ ThemeData get darkTheme => ThemeData(
     filled: true,
     fillColor: DarkModeColors.surfaceVariant,
     border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: DarkModeColors.outline),
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: DarkModeColors.outline),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.sm),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       borderSide: BorderSide(color: DarkModeColors.primary, width: 2),
     ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -290,7 +332,7 @@ ThemeData get darkTheme => ThemeData(
       foregroundColor: DarkModeColors.onPrimary,
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       textStyle: GoogleFonts.inter(
         fontWeight: FontWeight.w600,
@@ -305,7 +347,7 @@ ThemeData get darkTheme => ThemeData(
       foregroundColor: DarkModeColors.primary,
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       side: const BorderSide(color: DarkModeColors.primary, width: 2),
       textStyle: GoogleFonts.inter(
@@ -321,14 +363,46 @@ ThemeData get darkTheme => ThemeData(
     foregroundColor: Colors.white,
     extendedPadding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(16)),
+      borderRadius: BorderRadius.all(Radius.circular(AppRadius.lg)),
     ),
+  ),
+  navigationBarTheme: NavigationBarThemeData(
+    elevation: 0,
+    backgroundColor: Colors.transparent,
+    indicatorColor: Colors.transparent,
+    labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+    height: 72,
+    labelTextStyle: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.selected)) {
+        return GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: DarkModeColors.primary,
+        );
+      }
+      return GoogleFonts.inter(
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        color: DarkModeColors.onSurfaceMuted,
+      );
+    }),
+    iconTheme: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.selected)) {
+        return const IconThemeData(
+          size: 24,
+          color: DarkModeColors.primary,
+        );
+      }
+      return const IconThemeData(
+        size: 24,
+        color: DarkModeColors.onSurfaceMuted,
+      );
+    }),
   ),
   textTheme: _buildTextTheme(Brightness.dark),
 );
 
 TextTheme _buildTextTheme(Brightness brightness) {
-  // AllTrails-inspired typography: Inter for everything (clean, modern, web-friendly)
   return TextTheme(
     displayLarge: GoogleFonts.inter(
       fontSize: FontSizes.displayLarge,
@@ -352,12 +426,12 @@ TextTheme _buildTextTheme(Brightness brightness) {
     ),
     headlineMedium: GoogleFonts.inter(
       fontSize: FontSizes.headlineMedium,
-      fontWeight: FontWeight.w700,
+      fontWeight: FontWeight.w600,
       letterSpacing: -0.2,
     ),
     headlineSmall: GoogleFonts.inter(
       fontSize: FontSizes.headlineSmall,
-      fontWeight: FontWeight.w700,
+      fontWeight: FontWeight.w600,
     ),
     titleLarge: GoogleFonts.inter(
       fontSize: FontSizes.titleLarge,
@@ -385,13 +459,18 @@ TextTheme _buildTextTheme(Brightness brightness) {
     ),
     bodySmall: GoogleFonts.inter(
       fontSize: FontSizes.bodySmall,
-      fontWeight: FontWeight.w400,
+      fontWeight: FontWeight.w500,
       height: 1.4,
     ),
     labelLarge: GoogleFonts.inter(
       fontSize: 14.0,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.1,
+    ),
+    labelSmall: GoogleFonts.inter(
+      fontSize: FontSizes.labelSmall,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.5,
     ),
   );
 }
