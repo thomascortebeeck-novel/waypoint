@@ -1,18 +1,12 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {defineSecret} from "firebase-functions/params";
 import {getFirestore} from "firebase-admin/firestore";
 import {getStorage} from "firebase-admin/storage";
 import axios from "axios";
 
-// 🔒 SECURITY: API key stored as environment variable
-// Set via: firebase functions:config:set google.places_key="YOUR_KEY"
-// Or in GitHub Actions: firebase deploy --only functions -P production with .env file
-function getGooglePlacesKey(): string {
-  const key = process.env.GOOGLE_PLACES_KEY;
-  if (!key) {
-    throw new Error("GOOGLE_PLACES_KEY environment variable not set");
-  }
-  return key;
-}
+// 🔒 SECURITY: API key stored in Firebase Secret Manager
+// Set via: echo "YOUR_KEY" | firebase functions:secrets:set GOOGLE_PLACES_KEY --data-file=-
+const googlePlacesKey = defineSecret("GOOGLE_PLACES_KEY");
 
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
@@ -65,6 +59,7 @@ interface PlacesSearchRequest {
  */
 export const placesSearch = onCall({
   region: "us-central1",
+  secrets: [googlePlacesKey],
 }, async (request) => {
   // Enforce authentication
   if (!request.auth) {
@@ -81,7 +76,7 @@ export const placesSearch = onCall({
 
   try {
     const {query, proximity, types} = data;
-    const apiKey = getGooglePlacesKey();
+    const apiKey = googlePlacesKey.value();
 
     // Validate input
     if (!query || query.trim().length < 2) {
@@ -148,6 +143,7 @@ interface PlaceDetailsRequest {
  */
 export const placeDetails = onCall({
   region: "us-central1",
+  secrets: [googlePlacesKey],
 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -162,7 +158,7 @@ export const placeDetails = onCall({
 
   try {
     const {placeId} = data;
-    const apiKey = getGooglePlacesKey();
+    const apiKey = googlePlacesKey.value();
 
     if (!placeId) {
       throw new HttpsError("invalid-argument", "Place ID required");
@@ -210,6 +206,7 @@ interface GeocodeRequest {
  */
 export const geocodeAddress = onCall({
   region: "us-central1",
+  secrets: [googlePlacesKey],
 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -224,7 +221,7 @@ export const geocodeAddress = onCall({
 
   try {
     const {address} = data;
-    const apiKey = getGooglePlacesKey();
+    const apiKey = googlePlacesKey.value();
 
     if (!address) {
       throw new HttpsError("invalid-argument", "Address required");
@@ -266,6 +263,7 @@ interface PhotoRequest {
  */
 export const placePhoto = onCall({
   region: "us-central1",
+  secrets: [googlePlacesKey],
 }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated");
@@ -280,7 +278,7 @@ export const placePhoto = onCall({
 
   try {
     const {photoReference, maxWidth, waypointId} = data;
-    const apiKey = getGooglePlacesKey();
+    const apiKey = googlePlacesKey.value();
 
     if (!photoReference) {
       throw new HttpsError("invalid-argument", "Photo reference required");
