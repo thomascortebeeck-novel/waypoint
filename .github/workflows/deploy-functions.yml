@@ -59,13 +59,24 @@ jobs:
       - name: Create Environment Variables File
         working-directory: ./functions
         run: |
-          cat > .env.yaml << 'EOF'
-          GOOGLE_PLACES_KEY: "${{ secrets.GOOGLE_PLACES_API_KEY }}"
-          MAPBOX_SECRET_TOKEN: "${{ secrets.MAPBOX_SECRET_TOKEN }}"
-          EOF
-          echo "✅ Created .env.yaml with API keys (Google Places + Mapbox)"
+          echo "GOOGLE_PLACES_KEY: \"${{ secrets.GOOGLE_PLACES_API_KEY }}\"" > .env.yaml
+          echo "MAPBOX_SECRET_TOKEN: \"${{ secrets.MAPBOX_SECRET_TOKEN }}\"" >> .env.yaml
+          echo "✅ Created .env.yaml"
+          echo "📄 File contents (values redacted):"
+          cat .env.yaml | sed 's/: ".*"/: "***"/'
 
-      # 8. Deploy Cloud Functions
+      # 8. Verify .env.yaml exists
+      - name: Verify Environment File
+        run: |
+          if [ -f functions/.env.yaml ]; then
+            echo "✅ .env.yaml found in functions/"
+            echo "📄 File size: $(wc -c < functions/.env.yaml) bytes"
+          else
+            echo "❌ ERROR: .env.yaml not found!"
+            exit 1
+          fi
+
+      # 9. Deploy Cloud Functions
       - name: Deploy to Firebase
         run: |
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
@@ -75,17 +86,16 @@ jobs:
           firebase deploy --only functions \
             --project ${{ secrets.FIREBASE_PROJECT_ID }} \
             --non-interactive \
-            --force \
-            --debug
+            --force
 
-      # 9. Cleanup sensitive files
+      # 10. Cleanup sensitive files
       - name: Cleanup Credentials
         if: always()
         run: |
           rm -f $HOME/gcloud-service-key.json
           rm -f functions/.env.yaml
 
-      # 10. Success notification
+      # 11. Success notification
       - name: Deployment Summary
         if: success()
         run: |
@@ -101,12 +111,12 @@ jobs:
           echo "  - getElevationProfile (Mapbox)"
           echo "  - fetchMeta (Link previews)"
 
-      # 11. Failure notification
+      # 12. Failure notification
       - name: Deployment Failed
         if: failure()
         run: |
           echo "❌ Deployment failed! Check the logs above for details."
           echo "Common issues:"
           echo "  1. Check Firebase Service Account JSON is valid"
-          echo "  2. Verify API key is set correctly"
+          echo "  2. Verify API keys (GOOGLE_PLACES_API_KEY, MAPBOX_SECRET_TOKEN) are set in GitHub Secrets"
           echo "  3. Ensure functions/package.json has correct dependencies"
