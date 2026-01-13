@@ -61,8 +61,9 @@ jobs:
         run: |
           cat > .env.yaml << 'EOF'
           GOOGLE_PLACES_KEY: "${{ secrets.GOOGLE_PLACES_API_KEY }}"
+          MAPBOX_SECRET_TOKEN: "${{ secrets.MAPBOX_SECRET_TOKEN }}"
           EOF
-          echo "✅ Created .env.yaml with API key"
+          echo "✅ Created .env.yaml with API keys (Google Places + Mapbox)"
 
       # 8. Deploy Cloud Functions
       - name: Deploy to Firebase
