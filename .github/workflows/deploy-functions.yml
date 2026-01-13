@@ -53,26 +53,30 @@ jobs:
       - name: Setup Google Cloud Credentials
         run: |
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > $HOME/gcloud-service-key.json
-          export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
 
-      # 7. Create environment variables file (.env.yaml)
+      # 7. Create .env file (NOT .env.yaml!) - Firebase expects KEY=value format
       - name: Create Environment Variables File
         working-directory: ./functions
         run: |
-          echo "GOOGLE_PLACES_KEY: \"${{ secrets.GOOGLE_PLACES_API_KEY }}\"" > .env.yaml
-          echo "MAPBOX_SECRET_TOKEN: \"${{ secrets.MAPBOX_SECRET_TOKEN }}\"" >> .env.yaml
-          echo "✅ Created .env.yaml"
-          echo "📄 File contents (values redacted):"
-          cat .env.yaml | sed 's/: ".*"/: "***"/'
+          echo "GOOGLE_PLACES_KEY=${{ secrets.GOOGLE_PLACES_API_KEY }}" > .env
+          echo "MAPBOX_SECRET_TOKEN=${{ secrets.MAPBOX_SECRET_TOKEN }}" >> .env
+          echo "✅ Created .env file"
+          echo "📄 Verification:"
+          ls -la .env
+          echo "Lines in file: $(wc -l < .env)"
+          echo "File contents (values redacted):"
+          cat .env | sed 's/=.*/=***/'
 
-      # 8. Verify .env.yaml exists
+      # 8. Verify .env exists
       - name: Verify Environment File
+        working-directory: ./functions
         run: |
-          if [ -f functions/.env.yaml ]; then
-            echo "✅ .env.yaml found in functions/"
-            echo "📄 File size: $(wc -c < functions/.env.yaml) bytes"
+          if [ -f .env ]; then
+            echo "✅ .env found in functions/"
+            echo "📄 File size: $(wc -c < .env) bytes"
+            echo "📄 Line count: $(wc -l < .env)"
           else
-            echo "❌ ERROR: .env.yaml not found!"
+            echo "❌ ERROR: .env not found!"
             exit 1
           fi
 
@@ -82,6 +86,8 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
           echo "🚀 Starting deployment..."
           echo "📋 Project: ${{ secrets.FIREBASE_PROJECT_ID }}"
+          echo "📂 Checking .env file exists:"
+          ls -la functions/.env && echo "✅ .env file found" || echo "❌ .env missing"
           echo ""
           firebase deploy --only functions \
             --project ${{ secrets.FIREBASE_PROJECT_ID }} \
@@ -93,6 +99,7 @@ jobs:
         if: always()
         run: |
           rm -f $HOME/gcloud-service-key.json
+          rm -f functions/.env
           rm -f functions/.env.yaml
 
       # 11. Success notification
