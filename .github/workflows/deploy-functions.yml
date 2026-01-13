@@ -34,6 +34,16 @@ jobs:
       - name: Build Functions
         working-directory: ./functions
         run: npm run build
+      
+      # 4.5. Verify build output
+      - name: Verify Build Output
+        working-directory: ./functions
+        run: |
+          echo "📦 Checking compiled functions..."
+          ls -la lib/
+          echo ""
+          echo "📝 Contents of lib/index.js:"
+          head -20 lib/index.js || echo "⚠️ index.js not found!"
 
       # 5. Install Firebase CLI globally
       - name: Install Firebase CLI
@@ -55,14 +65,18 @@ jobs:
             --data-file=-
         continue-on-error: true
 
-      # 8. Deploy Cloud Functions (target specific codebase to bypass extensions check)
+      # 8. Deploy Cloud Functions
       - name: Deploy to Firebase
         run: |
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
-          firebase deploy --only functions:codebase:default \
+          echo "🚀 Starting deployment..."
+          echo "📋 Project: ${{ secrets.FIREBASE_PROJECT_ID }}"
+          echo ""
+          firebase deploy --only functions \
             --project ${{ secrets.FIREBASE_PROJECT_ID }} \
             --non-interactive \
-            --force
+            --force \
+            --debug
 
       # 9. Cleanup sensitive files
       - name: Cleanup Credentials
@@ -76,10 +90,14 @@ jobs:
           echo "✅ Cloud Functions deployed successfully!"
           echo "📊 View logs: https://console.firebase.google.com/project/${{ secrets.FIREBASE_PROJECT_ID }}/functions"
           echo "🔍 Functions deployed:"
-          echo "  - placesSearch"
-          echo "  - placeDetails"
-          echo "  - geocodeAddress"
-          echo "  - placePhoto"
+          echo "  - placesSearch (Google Places)"
+          echo "  - placeDetails (Google Places)"
+          echo "  - geocodeAddress (Google Places)"
+          echo "  - placePhoto (Google Places)"
+          echo "  - getDirections (Mapbox)"
+          echo "  - matchRoute (Mapbox)"
+          echo "  - getElevationProfile (Mapbox)"
+          echo "  - fetchMeta (Link previews)"
 
       # 11. Failure notification
       - name: Deployment Failed

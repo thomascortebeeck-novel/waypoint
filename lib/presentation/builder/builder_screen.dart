@@ -34,6 +34,7 @@ class _BuilderScreenState extends State<BuilderScreen> {
   int _currentStep = 0;
   bool _isSaving = false;
   bool _isLoadingExisting = false;
+  bool _isInitializing = true;
 
   // Auto-save state
   Timer? _autoSaveDebounce;
@@ -98,6 +99,10 @@ class _BuilderScreenState extends State<BuilderScreen> {
       // Add listeners to update button state
       initialVersion.duration.addListener(() => setState(() {}));
       _versions.add(initialVersion);
+      // Delay to allow validation to run after first build
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) setState(() => _isInitializing = false);
+      });
     }
     // Add listeners to update state when required fields change
     _nameCtrl.addListener(() {
@@ -216,7 +221,12 @@ class _BuilderScreenState extends State<BuilderScreen> {
         context.pop();
       }
     } finally {
-      if (mounted) setState(() => _isLoadingExisting = false);
+      if (mounted) {
+        setState(() {
+          _isLoadingExisting = false;
+          _isInitializing = false;
+        });
+      }
     }
   }
 
@@ -333,7 +343,7 @@ class _BuilderScreenState extends State<BuilderScreen> {
                 const SizedBox(width: 100),
               
               ElevatedButton(
-                onPressed: (_isSaving || (_currentStep < 3 && !_canProceedFromCurrentStep()))
+                onPressed: (_isInitializing || _isSaving || (_currentStep < 3 && !_canProceedFromCurrentStep()))
                     ? null
                     : () async {
                         if (_currentStep < 3) {
