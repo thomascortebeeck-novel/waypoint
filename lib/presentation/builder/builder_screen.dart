@@ -682,6 +682,14 @@ class _BuilderScreenState extends State<BuilderScreen> {
             "This is the price for purchasing this adventure plan",
             style: context.textStyles.bodySmall?.copyWith(color: Colors.grey),
           ),
+          const SizedBox(height: 32),
+          
+          // FAQ Section
+          Text("Frequently Asked Questions", style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Text("Add helpful information for travelers", style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700)),
+          const SizedBox(height: 16),
+          _buildGeneralInfoFAQSection(),
               ],
             ),
           ),
@@ -730,7 +738,7 @@ class _BuilderScreenState extends State<BuilderScreen> {
 
   Widget _buildStep3Days() {
     return DefaultTabController(
-      length: 4,
+      length: 3,
       child: Column(
         children: [
           // Version selector
@@ -782,7 +790,6 @@ class _BuilderScreenState extends State<BuilderScreen> {
               tabs: const [
                 Tab(text: 'What to Pack'),
                 Tab(text: 'How to Get There'),
-                Tab(text: 'FAQ'),
                 Tab(text: 'Days'),
               ],
             ),
@@ -801,7 +808,6 @@ class _BuilderScreenState extends State<BuilderScreen> {
                     children: [
                       _buildPackingTab(),
                       _buildTransportationTab(),
-                      _buildFAQTab(),
                       _buildDaysTab(),
                     ],
                   ),
@@ -1210,6 +1216,87 @@ class _BuilderScreenState extends State<BuilderScreen> {
           _buildTextField("Answer", "Provide a helpful answer...", maxLines: 5, controller: faq.answerCtrl, required: true),
         ],
       ),
+    );
+  }
+
+  Widget _buildGeneralInfoFAQSection() {
+    if (_versions.isEmpty) {
+      return Container(
+        padding: AppSpacing.paddingMd,
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.orange.shade700, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Add at least one version first to manage FAQs',
+                style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Use the first version's FAQ items
+    final vf = _versions[0];
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // FAQ items
+        ...vf.faqItems.asMap().entries.map((entry) {
+          final index = entry.key;
+          final faq = entry.value;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _buildFAQCard(vf, index, faq),
+          );
+        }),
+        
+        // Add FAQ button
+        OutlinedButton.icon(
+          onPressed: () {
+            setState(() {
+              vf.faqItems.add(_FAQFormData());
+              _triggerAutoSave();
+            });
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Add FAQ'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 50),
+            side: BorderSide(color: context.colors.primary, style: BorderStyle.solid),
+          ),
+        ),
+        
+        const SizedBox(height: 16),
+        Container(
+          padding: AppSpacing.paddingMd,
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Tip: Use **bold**, *italic*, and press Enter for new paragraphs in answers',
+                  style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
   
