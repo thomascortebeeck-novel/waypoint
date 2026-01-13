@@ -804,60 +804,58 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   Future<void> _showMapTapActionPicker(BuildContext context, ll.LatLng latLng) async {
-    final action = await showModalBottomSheet<String>(
+    final action = await showDialog<String>(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'What to add?',
-              style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            _ActionTile(
-              icon: Icons.navigation,
-              color: const Color(0xFF4CAF50),
-              label: 'Route Point',
-              onTap: () => Navigator.of(context).pop('route'),
-            ),
-            const SizedBox(height: 12),
-            _ActionTile(
-              icon: Icons.restaurant,
-              color: const Color(0xFFFF9800),
-              label: 'Restaurant',
-              onTap: () => Navigator.of(context).pop('restaurant'),
-            ),
-            const SizedBox(height: 12),
-            _ActionTile(
-              icon: Icons.hotel,
-              color: const Color(0xFF2196F3),
-              label: 'Accommodation',
-              onTap: () => Navigator.of(context).pop('accommodation'),
-            ),
-            const SizedBox(height: 12),
-            _ActionTile(
-              icon: Icons.local_activity,
-              color: const Color(0xFF9C27B0),
-              label: 'Activity',
-              onTap: () => Navigator.of(context).pop('activity'),
-            ),
-            const SizedBox(height: 12),
-            _ActionTile(
-              icon: Icons.visibility,
-              color: const Color(0xFFFFC107),
-              label: 'Viewing Point',
-              onTap: () => Navigator.of(context).pop('viewingPoint'),
-            ),
-            const SizedBox(height: 12),
-          ],
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'What to add?',
+                style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              _ActionTile(
+                icon: Icons.navigation,
+                color: const Color(0xFF4CAF50),
+                label: 'Route Point',
+                onTap: () => Navigator.of(context).pop('route'),
+              ),
+              const SizedBox(height: 12),
+              _ActionTile(
+                icon: Icons.restaurant,
+                color: const Color(0xFFFF9800),
+                label: 'Restaurant',
+                onTap: () => Navigator.of(context).pop('restaurant'),
+              ),
+              const SizedBox(height: 12),
+              _ActionTile(
+                icon: Icons.hotel,
+                color: const Color(0xFF2196F3),
+                label: 'Accommodation',
+                onTap: () => Navigator.of(context).pop('accommodation'),
+              ),
+              const SizedBox(height: 12),
+              _ActionTile(
+                icon: Icons.local_activity,
+                color: const Color(0xFF9C27B0),
+                label: 'Activity',
+                onTap: () => Navigator.of(context).pop('activity'),
+              ),
+              const SizedBox(height: 12),
+              _ActionTile(
+                icon: Icons.visibility,
+                color: const Color(0xFFFFC107),
+                label: 'Viewing Point',
+                onTap: () => Navigator.of(context).pop('viewingPoint'),
+              ),
+            ],
+          ),
         ),
       ),
     );
