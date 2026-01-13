@@ -21,6 +21,7 @@ import 'package:waypoint/presentation/itinerary/itinerary_pack_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_travel_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_define_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_day_screen.dart';
+import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'theme.dart';
 import 'package:waypoint/utils/logger.dart';
@@ -43,6 +44,7 @@ class AppRoutes {
   static const String itineraryPack = '/itinerary/:planId/pack/:tripId';
   static const String itineraryTravel = '/itinerary/:planId/travel/:tripId';
   static const String itineraryDay = '/itinerary/:planId/day/:tripId/:dayIndex';
+  static const String adminMigration = '/admin/migration';
 }
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -214,6 +216,13 @@ class AppRouter {
           final dayIndex = int.tryParse(state.pathParameters['dayIndex'] ?? '0') ?? 0;
           return ItineraryDayScreen(planId: planId, tripId: tripId, dayIndex: dayIndex);
         },
+      ),
+      
+      // Admin routes (full-screen, no bottom nav)
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.adminMigration,
+        builder: (context, state) => const AdminMigrationScreen(),
       ),
       
       StatefulShellRoute.indexedStack(

@@ -2,7 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+    
     function isSignedIn() {
       return request.auth != null;
     }
@@ -11,17 +14,55 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
     
-    // Users collection - private data
+    // Check if user is an admin
+    function isAdmin() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.is_admin == true;
+    }
+    
+    // Helper to check if user is plan creator
+    function isPlanCreator(planId) {
+      return isSignedIn() && 
+             get(/databases/$(database)/documents/plans/$(planId)).data.creator_id == request.auth.uid;
+    }
+    
+    // Helper to check if user owns the plan (purchased)
+    function ownsPlan(planId) {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)/purchasedPlans/$(planId));
+    }
+    
+    // Helper to check if user has purchased the plan (via user document)
+    function hasPurchasedPlan(planId) {
+      return isSignedIn() &&
+             planId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.purchased_plan_ids;
+    }
+    
+    // Helper to check if user is trip member
+    function isTripMember(tripId) {
+      return isSignedIn() && 
+             request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.member_ids;
+    }
+    
+    // ============================================
+    // USERS COLLECTION
+    // ============================================
     match /users/{userId} {
-      // Users can read their own data
-      allow read: if isOwner(userId);
+      // Users can read their own data, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
       
       // Users can create their own profile
       allow create: if isSignedIn() && 
-                      request.auth.uid == request.resource.data.id;
+                      request.auth.uid == request.resource.data.id &&
+                      // Prevent users from setting themselves as admin on creation
+                      (!('is_admin' in request.resource.data) || request.resource.data.is_admin == false);
       
       // Users can update their own profile
-      allow update: if isOwner(userId);
+      // Only admins can modify is_admin field
+      allow update: if isOwner(userId) && 
+                      // Non-admins cannot change is_admin field
+                      (!('is_admin' in request.resource.data.diff(resource.data).affectedKeys()) || isAdmin());
       
       // Users can delete their own profile
       allow delete: if isOwner(userId);
@@ -38,14 +79,16 @@ service cloud.firestore {
       }
     }
     
-    // Plans collection - public read, owner write
+    // ============================================
+    // PLANS COLLECTION (Marketplace)
+    // ============================================
     match /plans/{planId} {
       // Anyone can read published plans
-      allow read: if resource.data.is_published == true;
-      
       // Creators can read their own unpublished plans
-      allow read: if isSignedIn() && 
-                    request.auth.uid == resource.data.creator_id;
+      // Admins can read all plans
+      allow read: if resource.data.is_published == true ||
+                    (isSignedIn() && request.auth.uid == resource.data.creator_id) ||
+                    isAdmin();
       
       // Only signed-in users can create plans
       // Must set creator_id to their own UID
@@ -53,38 +96,92 @@ service cloud.firestore {
                       request.auth.uid == request.resource.data.creator_id;
       
       // Creator can update their own plans
-      // Also allow signed-in users to update only favorite_count and sales_count
+      // Signed-in users can update favorite_count and sales_count
+      // Admins can update any plan (for migrations, featuring, etc.)
       allow update: if isSignedIn() && (
                       request.auth.uid == resource.data.creator_id ||
                       (request.resource.data.diff(resource.data).affectedKeys()
-                        .hasOnly(['favorite_count', 'sales_count']))
+                        .hasOnly(['favorite_count', 'sales_count', 'version_summaries'])) ||
+                      isAdmin()
                     );
       
-      // Only the creator can delete their own plans
+      // Only the creator or admin can delete plans
       allow delete: if isSignedIn() && 
-                      request.auth.uid == resource.data.creator_id;
+                      (request.auth.uid == resource.data.creator_id || isAdmin());
+      
+      // ============================================
+      // VERSIONS SUBCOLLECTION
+      // ============================================
+      match /versions/{versionId} {
+        // Anyone can read versions of published plans
+        // Plan creator can read their own versions
+        // Users who purchased can read versions
+        // Admins can read all
+        allow read: if get(/databases/$(database)/documents/plans/$(planId)).data.is_published == true ||
+                       isPlanCreator(planId) ||
+                       hasPurchasedPlan(planId) ||
+                       isAdmin();
+        
+        // Only plan creator or admin can write versions
+        allow create, update, delete: if isPlanCreator(planId) || isAdmin();
+        
+        // ============================================
+        // DAYS SUBCOLLECTION (within versions)
+        // ============================================
+        match /days/{dayId} {
+          // Same read rules as versions
+          allow read: if get(/databases/$(database)/documents/plans/$(planId)).data.is_published == true ||
+                         isPlanCreator(planId) ||
+                         hasPurchasedPlan(planId) ||
+                         isAdmin();
+          
+          // Only plan creator or admin can write days
+          allow create, update, delete: if isPlanCreator(planId) || isAdmin();
+          
+          // ============================================
+          // WAYPOINTS SUBCOLLECTION (within days)
+          // ============================================
+          match /waypoints/{waypointId} {
+            // Same read rules
+            allow read: if get(/databases/$(database)/documents/plans/$(planId)).data.is_published == true ||
+                           isPlanCreator(planId) ||
+                           hasPurchasedPlan(planId) ||
+                           isAdmin();
+            
+            // Only plan creator or admin can write waypoints
+            allow create, update, delete: if isPlanCreator(planId) || isAdmin();
+          }
+        }
+      }
     }
     
-    // Orders collection - buyer can create and read their orders
+    // ============================================
+    // ORDERS COLLECTION
+    // ============================================
     match /orders/{orderId} {
       // Users can read their own orders (as buyer)
-      allow read: if isSignedIn() && 
-                    request.auth.uid == resource.data.buyer_id;
+      // Admins can read all orders
+      allow read: if (isSignedIn() && request.auth.uid == resource.data.buyer_id) || isAdmin();
       
       // Signed-in users can create orders for themselves
       allow create: if isSignedIn() && 
                       request.auth.uid == request.resource.data.buyer_id;
       
       // Allow updating order status (for checkout flow)
-      allow update: if isSignedIn() && 
-                      request.auth.uid == resource.data.buyer_id;
+      // Admins can update any order
+      allow update: if (isSignedIn() && request.auth.uid == resource.data.buyer_id) || isAdmin();
+      
+      // Only admins can delete orders
+      allow delete: if isAdmin();
     }
     
-    // Trips collection - member access only
+    // ============================================
+    // TRIPS COLLECTION
+    // ============================================
     match /trips/{tripId} {
       // Trip members can read their trips
-      allow read: if isSignedIn() && 
-                    request.auth.uid in resource.data.member_ids;
+      // Admins can read all trips
+      allow read: if (isSignedIn() && request.auth.uid in resource.data.member_ids) || isAdmin();
       
       // Only signed-in users can create trips
       // Must be the owner
@@ -92,12 +189,62 @@ service cloud.firestore {
                       request.auth.uid == request.resource.data.owner_id;
       
       // Owner and members can update trip data
-      allow update: if isSignedIn() && 
-                      request.auth.uid in resource.data.member_ids;
+      // Admins can update any trip
+      allow update: if (isSignedIn() && request.auth.uid in resource.data.member_ids) || isAdmin();
       
-      // Only the owner can delete their trips
-      allow delete: if isSignedIn() && 
-                      request.auth.uid == resource.data.owner_id;
+      // Only the owner or admin can delete trips
+      allow delete: if (isSignedIn() && request.auth.uid == resource.data.owner_id) || isAdmin();
+      
+      // ============================================
+      // PACKING SUBCOLLECTION
+      // ============================================
+      match /packing/{categoryId} {
+        // Trip members can read packing checklist
+        allow read: if isTripMember(tripId) || isAdmin();
+        
+        // Trip members can create/update packing items
+        allow create, update: if isTripMember(tripId) || isAdmin();
+        
+        // Only trip owner or admin can delete packing categories
+        allow delete: if (isSignedIn() && 
+                        get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
+                        isAdmin();
+      }
+      
+      // ============================================
+      // DAYS PROGRESS SUBCOLLECTION
+      // ============================================
+      match /days/{dayId} {
+        // Trip members can read day progress
+        allow read: if isTripMember(tripId) || isAdmin();
+        
+        // Trip members can create/update day progress
+        allow create, update: if isTripMember(tripId) || isAdmin();
+        
+        // Only trip owner or admin can delete day progress
+        allow delete: if (isSignedIn() && 
+                        get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
+                        isAdmin();
+      }
+      
+      // ============================================
+      // GPS TRACKING SUBCOLLECTION
+      // ============================================
+      match /tracking/{recordId} {
+        // Trip members can read tracking data
+        allow read: if isTripMember(tripId) || isAdmin();
+        
+        // Trip members can create tracking records
+        allow create: if isTripMember(tripId) || isAdmin();
+        
+        // No updates to tracking records (immutable)
+        allow update: if false;
+        
+        // Only trip owner or admin can delete tracking records
+        allow delete: if (isSignedIn() && 
+                        get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
+                        isAdmin();
+      }
     }
   }
 }

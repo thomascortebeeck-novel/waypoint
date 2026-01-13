@@ -34,8 +34,10 @@ class ProfileScreen extends StatelessWidget {
           return StreamBuilder(
             stream: userService.streamUser(firebaseUser.uid),
             builder: (context, userSnap) {
-              final displayName = userSnap.data?.displayName ?? firebaseUser.displayName ?? firebaseUser.email ?? 'Explorer';
+              final user = userSnap.data;
+              final displayName = user?.displayName ?? firebaseUser.displayName ?? firebaseUser.email ?? 'Explorer';
               final initials = _initialsFrom(displayName);
+              final isAdmin = user?.isAdmin ?? false;
               return ListView(
                 padding: AppSpacing.paddingMd,
                 children: [
@@ -47,12 +49,42 @@ class ProfileScreen extends StatelessWidget {
                         child: Text(initials, style: context.textStyles.headlineLarge?.copyWith(color: context.colors.onPrimaryContainer)),
                       ),
                       const SizedBox(height: 16),
-                      Text(displayName, style: context.textStyles.titleLarge),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(displayName, style: context.textStyles.titleLarge),
+                          if (isAdmin) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                              ),
+                              child: Text(
+                                'ADMIN',
+                                style: context.textStyles.bodySmall?.copyWith(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                       if (firebaseUser.email != null)
                         Text(firebaseUser.email!, style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey)),
                     ]),
                   ),
                   const SizedBox(height: 32),
+                  if (isAdmin)
+                    _buildSection(context, "Admin", [
+                      _buildTile(context, FontAwesomeIcons.database, "Database Migration", () {
+                        context.push('/admin/migration');
+                      }),
+                    ]),
                   _buildSection(context, "Appearance", [
                     _buildThemeSwitcher(context),
                   ]),

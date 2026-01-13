@@ -9,6 +9,7 @@ class UserModel {
   final List<String> purchasedPlanIds;
   final List<String> createdPlanIds;
   final List<String> invitedPlanIds;
+  final bool isAdmin;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -20,6 +21,7 @@ class UserModel {
     this.purchasedPlanIds = const [],
     this.createdPlanIds = const [],
     this.invitedPlanIds = const [],
+    this.isAdmin = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -33,6 +35,7 @@ class UserModel {
       purchasedPlanIds: List<String>.from(json['purchased_plan_ids'] ?? []),
       createdPlanIds: List<String>.from(json['created_plan_ids'] ?? []),
       invitedPlanIds: List<String>.from(json['invited_plan_ids'] ?? []),
+      isAdmin: json['is_admin'] as bool? ?? false,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
     );
@@ -47,6 +50,7 @@ class UserModel {
       'purchased_plan_ids': purchasedPlanIds,
       'created_plan_ids': createdPlanIds,
       'invited_plan_ids': invitedPlanIds,
+      'is_admin': isAdmin,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
     };
@@ -60,6 +64,7 @@ class UserModel {
     List<String>? purchasedPlanIds,
     List<String>? createdPlanIds,
     List<String>? invitedPlanIds,
+    bool? isAdmin,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -71,6 +76,7 @@ class UserModel {
       purchasedPlanIds: purchasedPlanIds ?? this.purchasedPlanIds,
       createdPlanIds: createdPlanIds ?? this.createdPlanIds,
       invitedPlanIds: invitedPlanIds ?? this.invitedPlanIds,
+      isAdmin: isAdmin ?? this.isAdmin,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
