@@ -123,6 +123,7 @@ class PlanVersionDoc {
   );
 
   /// Convert from legacy PlanVersion (for migration)
+  /// NOTE: FAQ items are NOT copied - they should be stored at plan level
   factory PlanVersionDoc.fromPlanVersion(PlanVersion version, String planId) => PlanVersionDoc(
     id: version.id,
     planId: planId,
@@ -133,7 +134,7 @@ class PlanVersionDoc {
     price: version.price,
     packingCategories: version.packingCategories,
     transportationOptions: version.transportationOptions,
-    faqItems: version.faqItems,
+    faqItems: const [], // FAQ moved to plan level in new architecture
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );

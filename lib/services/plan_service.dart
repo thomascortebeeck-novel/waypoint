@@ -497,7 +497,7 @@ class PlanService {
     }
   }
 
-  /// Create a new plan (legacy format - also creates subcollections)
+  /// Create a new plan with subcollection architecture from the start
   Future<String> createPlan(Plan plan) async {
     try {
       final docRef = _firestore.collection(_collection).doc();
@@ -506,8 +506,9 @@ class PlanService {
       // Use a batch for atomic writes
       final batch = _firestore.batch();
       
-      // Write main plan document
-      batch.set(docRef, planWithId.toJson());
+      // Write main plan document with ONLY metadata (no embedded versions)
+      final planMeta = PlanMeta.fromPlan(planWithId);
+      batch.set(docRef, planMeta.toJson());
       
       // Write versions as subcollections
       for (final version in planWithId.versions) {
@@ -531,14 +532,71 @@ class PlanService {
     }
   }
 
-  /// Update a plan (legacy format)
+  /// Update a plan metadata (does not update subcollections)
   Future<void> updatePlan(Plan plan) async {
     try {
-      await _firestore.collection(_collection).doc(plan.id).update(
-        plan.copyWith(updatedAt: DateTime.now()).toJson(),
-      );
+      // Only update metadata, not subcollections
+      final planMeta = PlanMeta.fromPlan(plan.copyWith(updatedAt: DateTime.now()));
+      await _firestore.collection(_collection).doc(plan.id).update(planMeta.toJson());
     } catch (e) {
       debugPrint('Error updating plan: $e');
+      rethrow;
+    }
+  }
+
+  /// Update FAQ items for a plan (plan-level, shared across versions)
+  Future<void> updateFaqItems(String planId, List<FAQItem> faqItems) async {
+    try {
+      await _firestore.collection(_collection).doc(planId).update({
+        'faq_items': faqItems.map((f) => f.toJson()).toList(),
+        'updated_at': Timestamp.now(),
+      });
+    } catch (e) {
+      debugPrint('Error updating FAQ items: $e');
+      rethrow;
+    }
+  }
+
+  /// Update packing categories for a version
+  Future<void> updatePackingCategories(
+    String planId,
+    String versionId,
+    List<PackingCategory> categories,
+  ) async {
+    try {
+      await _firestore
+          .collection(_collection)
+          .doc(planId)
+          .collection(_versionsCollection)
+          .doc(versionId)
+          .update({
+        'packing_categories': categories.map((c) => c.toJson()).toList(),
+        'updated_at': Timestamp.now(),
+      });
+    } catch (e) {
+      debugPrint('Error updating packing categories: $e');
+      rethrow;
+    }
+  }
+
+  /// Update transportation options for a version
+  Future<void> updateTransportationOptions(
+    String planId,
+    String versionId,
+    List<TransportationOption> options,
+  ) async {
+    try {
+      await _firestore
+          .collection(_collection)
+          .doc(planId)
+          .collection(_versionsCollection)
+          .doc(versionId)
+          .update({
+        'transportation_options': options.map((t) => t.toJson()).toList(),
+        'updated_at': Timestamp.now(),
+      });
+    } catch (e) {
+      debugPrint('Error updating transportation options: $e');
       rethrow;
     }
   }
@@ -636,6 +694,11 @@ class PlanService {
       }
       
       // New format - load from subcollections
+      // Load FAQ items from plan document (plan-level, not version-level)
+      final planFaqItems = (planData['faq_items'] as List<dynamic>?)
+          ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
+          .toList() ?? <FAQItem>[];
+      
       final versions = <PlanVersion>[];
       for (final versionDoc in versionsSnap.docs) {
         final versionData = PlanVersionDoc.fromJson(versionDoc.data());
@@ -654,7 +717,20 @@ class PlanService {
             .map((d) => DayItineraryDoc.fromJson(d.data()).toDayItinerary())
             .toList();
         
-        versions.add(versionData.toPlanVersion(days));
+        // Convert to PlanVersion and inject plan-level FAQ items for backward compatibility
+        final planVersion = versionData.toPlanVersion(days);
+        versions.add(PlanVersion(
+          id: planVersion.id,
+          name: planVersion.name,
+          durationDays: planVersion.durationDays,
+          difficulty: planVersion.difficulty,
+          comfortType: planVersion.comfortType,
+          price: planVersion.price,
+          days: planVersion.days,
+          packingCategories: planVersion.packingCategories,
+          transportationOptions: planVersion.transportationOptions,
+          faqItems: planFaqItems, // Inject plan-level FAQ items
+        ));
       }
       
       // Build Plan from metadata + loaded versions
@@ -691,7 +767,28 @@ class PlanService {
       final days = await getDays(planId, versionId);
       final dayItineraries = days.map((d) => d.toDayItinerary()).toList();
       
-      return versionDoc.toPlanVersion(dayItineraries);
+      // Load FAQ items from plan document (plan-level, not version-level)
+      final planDoc = await _firestore.collection(_collection).doc(planId).get();
+      final planFaqItems = planDoc.exists
+          ? (planDoc.data()!['faq_items'] as List<dynamic>?)
+              ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
+              .toList() ?? <FAQItem>[]
+          : <FAQItem>[];
+      
+      // Convert to PlanVersion and inject plan-level FAQ items
+      final planVersion = versionDoc.toPlanVersion(dayItineraries);
+      return PlanVersion(
+        id: planVersion.id,
+        name: planVersion.name,
+        durationDays: planVersion.durationDays,
+        difficulty: planVersion.difficulty,
+        comfortType: planVersion.comfortType,
+        price: planVersion.price,
+        days: planVersion.days,
+        packingCategories: planVersion.packingCategories,
+        transportationOptions: planVersion.transportationOptions,
+        faqItems: planFaqItems, // Inject plan-level FAQ items
+      );
     } catch (e) {
       debugPrint('Error loading full version: $e');
       return null;

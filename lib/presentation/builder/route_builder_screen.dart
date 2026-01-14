@@ -20,12 +20,18 @@ import 'package:uuid/uuid.dart';
 
 /// Full-page route builder screen
 class RouteBuilderScreen extends StatefulWidget {
+  final String planId;
+  final String versionIndex;
+  final String dayNum;
   final ll.LatLng? start;
   final ll.LatLng? end;
   final DayRoute? initial;
 
   const RouteBuilderScreen({
     super.key,
+    required this.planId,
+    required this.versionIndex,
+    required this.dayNum,
     this.start,
     this.end,
     this.initial,
@@ -1182,16 +1188,28 @@ class _FloatingSearchBarState extends State<_FloatingSearchBar> {
                 Icon(Icons.search, color: _focused ? context.colors.primary : Colors.grey.shade500, size: 20),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TextField(
-                    controller: widget.controller,
-                    focusNode: widget.focusNode,
-                    onChanged: widget.onChanged,
-                    style: const TextStyle(fontSize: 15),
-                    decoration: InputDecoration.collapsed(
-                      hintText: 'Search location...',
-                      hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+                  // Ensure no inner focus/enable borders appear from global theme
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      inputDecorationTheme: const InputDecorationTheme(
+                        border: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                      ),
                     ),
-                    cursorColor: context.colors.primary,
+                    child: TextField(
+                      controller: widget.controller,
+                      focusNode: widget.focusNode,
+                      onChanged: widget.onChanged,
+                      style: const TextStyle(fontSize: 15),
+                      cursorColor: context.colors.primary,
+                      decoration: InputDecoration.collapsed(
+                        hintText: 'Search location...',
+                        hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+                      ),
+                    ),
                   ),
                 ),
                 if (widget.controller.text.isNotEmpty)

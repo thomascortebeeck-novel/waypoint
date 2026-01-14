@@ -1467,7 +1467,7 @@ class _BuilderScreenState extends State<BuilderScreen> {
                    try {
                      final planId = _editingPlan?.id ?? 'new';
                      final route = await context.push<DayRoute>(
-                       '/builder/edit/$planId/route-builder/$_activeVersionIndex/$dayNum',
+                       '/builder/route-builder/$planId/$_activeVersionIndex/$dayNum',
                        extra: {
                          'start': vf.startForDay[dayNum],
                          'end': vf.endForDay[dayNum],

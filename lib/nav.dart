@@ -67,10 +67,16 @@ class AppRouter {
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
-        path: '/builder/edit/:planId/route-builder/:versionIndex/:dayNum',
+        path: '/builder/route-builder/:planId/:versionIndex/:dayNum',
         builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final versionIndex = state.pathParameters['versionIndex'] ?? '0';
+          final dayNum = state.pathParameters['dayNum'] ?? '0';
           final extra = state.extra as Map<String, dynamic>?;
           return RouteBuilderScreen(
+            planId: planId,
+            versionIndex: versionIndex,
+            dayNum: dayNum,
             start: extra?['start'],
             end: extra?['end'],
             initial: extra?['initial'],

@@ -63,12 +63,7 @@ class MigrationService {
       var versionsCreated = 0;
       var daysCreated = 0;
 
-      // Update plan metadata with version summaries
-      final meta = PlanMeta.fromPlan(plan);
-      batch.update(
-        _firestore.collection('plans').doc(planId),
-        {'version_summaries': meta.versionSummaries.map((v) => v.toJson()).toList()},
-      );
+      // Plan metadata remains unchanged (no version_summaries needed)
 
       // Create version documents and day documents
       for (final version in plan.versions) {

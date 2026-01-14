@@ -101,7 +101,7 @@ service cloud.firestore {
       allow update: if isSignedIn() && (
                       request.auth.uid == resource.data.creator_id ||
                       (request.resource.data.diff(resource.data).affectedKeys()
-                        .hasOnly(['favorite_count', 'sales_count', 'version_summaries'])) ||
+                        .hasOnly(['favorite_count', 'sales_count'])) ||
                       isAdmin()
                     );
       

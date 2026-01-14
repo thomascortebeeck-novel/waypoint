@@ -19,8 +19,8 @@ class PlanMeta {
   final int salesCount;
   final DateTime createdAt;
   final DateTime updatedAt;
-  /// Lightweight version summaries for display (no heavy data)
-  final List<VersionSummary> versionSummaries;
+  /// FAQ items shared across all versions
+  final List<FAQItem> faqItems;
 
   PlanMeta({
     required this.id,
@@ -38,24 +38,8 @@ class PlanMeta {
     this.salesCount = 0,
     required this.createdAt,
     required this.updatedAt,
-    this.versionSummaries = const [],
+    this.faqItems = const [],
   });
-
-  double get minPrice => versionSummaries.isEmpty
-      ? basePrice
-      : versionSummaries.map((v) => v.price).reduce((a, b) => a < b ? a : b);
-
-  String get difficultyRange {
-    if (versionSummaries.isEmpty) return 'Moderate';
-    final difficulties = versionSummaries
-        .where((v) => v.difficulty != Difficulty.none)
-        .map((v) => v.difficulty.name)
-        .toSet()
-        .toList();
-    if (difficulties.isEmpty) return '';
-    if (difficulties.length == 1) return difficulties.first.toUpperCase();
-    return 'VARIOUS';
-  }
 
   factory PlanMeta.fromJson(Map<String, dynamic> json) => PlanMeta(
     id: json['id'] as String,
@@ -73,8 +57,8 @@ class PlanMeta {
     salesCount: (json['sales_count'] as num?)?.toInt() ?? 0,
     createdAt: (json['created_at'] as Timestamp).toDate(),
     updatedAt: (json['updated_at'] as Timestamp).toDate(),
-    versionSummaries: (json['version_summaries'] as List<dynamic>?)
-        ?.map((v) => VersionSummary.fromJson(v as Map<String, dynamic>))
+    faqItems: (json['faq_items'] as List<dynamic>?)
+        ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
         .toList() ?? [],
   );
 
@@ -94,7 +78,7 @@ class PlanMeta {
     'sales_count': salesCount,
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
-    'version_summaries': versionSummaries.map((v) => v.toJson()).toList(),
+    'faq_items': faqItems.map((f) => f.toJson()).toList(),
   };
 
   PlanMeta copyWith({
@@ -113,7 +97,7 @@ class PlanMeta {
     int? salesCount,
     DateTime? createdAt,
     DateTime? updatedAt,
-    List<VersionSummary>? versionSummaries,
+    List<FAQItem>? faqItems,
   }) => PlanMeta(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -130,124 +114,34 @@ class PlanMeta {
     salesCount: salesCount ?? this.salesCount,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
-    versionSummaries: versionSummaries ?? this.versionSummaries,
+    faqItems: faqItems ?? this.faqItems,
   );
 
   /// Convert legacy Plan to PlanMeta (for migration)
-  factory PlanMeta.fromPlan(Plan plan) => PlanMeta(
-    id: plan.id,
-    name: plan.name,
-    description: plan.description,
-    heroImageUrl: plan.heroImageUrl,
-    location: plan.location,
-    basePrice: plan.basePrice,
-    creatorId: plan.creatorId,
-    creatorName: plan.creatorName,
-    isFeatured: plan.isFeatured,
-    isDiscover: plan.isDiscover,
-    isPublished: plan.isPublished,
-    favoriteCount: plan.favoriteCount,
-    salesCount: plan.salesCount,
-    createdAt: plan.createdAt,
-    updatedAt: plan.updatedAt,
-    versionSummaries: plan.versions.map((v) => VersionSummary.fromPlanVersion(v)).toList(),
-  );
-}
-
-/// Lightweight version summary for plan listings
-class VersionSummary {
-  final String id;
-  final String name;
-  final int durationDays;
-  final Difficulty difficulty;
-  final ComfortType comfortType;
-  final double price;
-  /// Lightweight day summaries
-  final List<DaySummary> daySummaries;
-
-  VersionSummary({
-    required this.id,
-    required this.name,
-    required this.durationDays,
-    required this.difficulty,
-    required this.comfortType,
-    required this.price,
-    this.daySummaries = const [],
-  });
-
-  factory VersionSummary.fromJson(Map<String, dynamic> json) => VersionSummary(
-    id: json['id'] as String,
-    name: json['name'] as String,
-    durationDays: json['duration_days'] as int,
-    difficulty: Difficulty.values.firstWhere(
-      (d) => d.name == json['difficulty'],
-      orElse: () => Difficulty.moderate,
-    ),
-    comfortType: ComfortType.values.firstWhere(
-      (c) => c.name == json['comfort_type'],
-      orElse: () => ComfortType.comfort,
-    ),
-    price: (json['price'] as num).toDouble(),
-    daySummaries: (json['day_summaries'] as List<dynamic>?)
-        ?.map((d) => DaySummary.fromJson(d as Map<String, dynamic>))
-        .toList() ?? [],
-  );
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'duration_days': durationDays,
-    'difficulty': difficulty.name,
-    'comfort_type': comfortType.name,
-    'price': price,
-    'day_summaries': daySummaries.map((d) => d.toJson()).toList(),
-  };
-
-  /// Convert from PlanVersion (for migration)
-  factory VersionSummary.fromPlanVersion(PlanVersion version) => VersionSummary(
-    id: version.id,
-    name: version.name,
-    durationDays: version.durationDays,
-    difficulty: version.difficulty,
-    comfortType: version.comfortType,
-    price: version.price,
-    daySummaries: version.days.map((d) => DaySummary.fromDayItinerary(d)).toList(),
-  );
-}
-
-/// Lightweight day summary for version listings
-class DaySummary {
-  final int dayNum;
-  final String title;
-  final double distanceKm;
-  final int estimatedTimeMinutes;
-
-  DaySummary({
-    required this.dayNum,
-    required this.title,
-    required this.distanceKm,
-    required this.estimatedTimeMinutes,
-  });
-
-  factory DaySummary.fromJson(Map<String, dynamic> json) => DaySummary(
-    dayNum: json['day_num'] as int,
-    title: json['title'] as String,
-    distanceKm: (json['distance_km'] as num).toDouble(),
-    estimatedTimeMinutes: json['estimated_time_minutes'] as int,
-  );
-
-  Map<String, dynamic> toJson() => {
-    'day_num': dayNum,
-    'title': title,
-    'distance_km': distanceKm,
-    'estimated_time_minutes': estimatedTimeMinutes,
-  };
-
-  /// Convert from DayItinerary (for migration)
-  factory DaySummary.fromDayItinerary(DayItinerary day) => DaySummary(
-    dayNum: day.dayNum,
-    title: day.title,
-    distanceKm: day.distanceKm,
-    estimatedTimeMinutes: day.estimatedTimeMinutes,
-  );
+  factory PlanMeta.fromPlan(Plan plan) {
+    // Collect FAQ items from all versions (for backward compatibility)
+    // In the new architecture, FAQ is plan-level
+    final faqItems = plan.versions.isNotEmpty && plan.versions.first.faqItems.isNotEmpty
+        ? plan.versions.first.faqItems
+        : const <FAQItem>[];
+    
+    return PlanMeta(
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      heroImageUrl: plan.heroImageUrl,
+      location: plan.location,
+      basePrice: plan.basePrice,
+      creatorId: plan.creatorId,
+      creatorName: plan.creatorName,
+      isFeatured: plan.isFeatured,
+      isDiscover: plan.isDiscover,
+      isPublished: plan.isPublished,
+      favoriteCount: plan.favoriteCount,
+      salesCount: plan.salesCount,
+      createdAt: plan.createdAt,
+      updatedAt: plan.updatedAt,
+      faqItems: faqItems,
+    );
+  }
 }
