@@ -10,14 +10,21 @@ enum AdventureCardVariant {
   builder,
 }
 
-/// Modern adventure card component with multiple variants
-/// Used across Home (carousel), My Trips (grid), and Builder (with actions)
+enum AdventureCardTheme {
+  light,
+  dark,
+}
+
+/// Modern cabin-style adventure card with portrait 4:5 aspect ratio
+/// Inspired by premium booking platforms with dramatic gradient and social proof
 class AdventureCard extends StatefulWidget {
   final Plan plan;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
   final AdventureCardVariant variant;
   final bool showFavoriteButton;
+  final String? statusLabel; // For My Trips: "Upcoming", "Completed", etc.
+  final AdventureCardTheme? theme;
 
   const AdventureCard({
     super.key,
@@ -26,6 +33,8 @@ class AdventureCard extends StatefulWidget {
     this.onDelete,
     this.variant = AdventureCardVariant.standard,
     this.showFavoriteButton = false,
+    this.statusLabel,
+    this.theme,
   });
 
   @override
@@ -37,19 +46,18 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   late Animation<double> _scaleAnimation;
   late Animation<double> _imageScaleAnimation;
   bool _isHovered = false;
-  bool _isPressed = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
     _scaleAnimation = Tween<double>(begin: 1.0, end: 1.02).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
-    _imageScaleAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
+    _imageScaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
   }
@@ -69,81 +77,58 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     }
   }
 
-  void _onTapDown(TapDownDetails details) {
-    setState(() => _isPressed = true);
-  }
-
-  void _onTapUp(TapUpDetails details) {
-    setState(() => _isPressed = false);
-  }
-
-  void _onTapCancel() {
-    setState(() => _isPressed = false);
-  }
-
-  double get _aspectRatio {
-    switch (widget.variant) {
-      case AdventureCardVariant.fullWidth:
-        return 16 / 9;
-      case AdventureCardVariant.builder:
-        return 4 / 5;
-      case AdventureCardVariant.standard:
-      default:
-        return 16 / 10;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    // Detect theme automatically unless manually overridden
+    final bool isDark = widget.theme == null
+        ? Theme.of(context).brightness == Brightness.dark
+        : widget.theme == AdventureCardTheme.dark;
+    
     return MouseRegion(
       onEnter: (_) => _onHoverChanged(true),
       onExit: (_) => _onHoverChanged(false),
+      cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        onTapDown: _onTapDown,
-        onTapUp: _onTapUp,
-        onTapCancel: _onTapCancel,
         child: AnimatedBuilder(
           animation: _scaleAnimation,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: _isPressed ? 0.98 : (_isHovered ? _scaleAnimation.value : 1.0),
-              child: child,
-            );
-          },
+          builder: (context, child) => Transform.scale(
+            scale: _isHovered ? _scaleAnimation.value : 1.0,
+            child: child,
+          ),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 300),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
+              color: isDark ? const Color(0xFF1F2937) : Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: isDark
+                  ? Border.all(color: Colors.white.withValues(alpha: 0.05), width: 1)
+                  : null,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: _isHovered ? 0.12 : 0.08),
-                  blurRadius: _isHovered ? 24 : 16,
-                  offset: Offset(0, _isHovered ? 8 : 4),
-                  spreadRadius: 0,
+                  color: Colors.black.withValues(alpha: isDark
+                      ? (_isHovered ? 0.35 : 0.3)
+                      : (_isHovered ? 0.16 : 0.12)),
+                  blurRadius: isDark
+                      ? (_isHovered ? 20 : 16)
+                      : (_isHovered ? 32 : 24),
+                  offset: Offset(0, _isHovered ? 12 : 8),
                 ),
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              child: AspectRatio(
-                aspectRatio: _aspectRatio,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _buildImage(context),
-                    _buildGradientOverlay(context),
-                    _buildContent(context),
-                    if (widget.plan.isFeatured && widget.variant != AdventureCardVariant.builder)
-                      _buildFeaturedBadge(context),
-                    if (widget.variant == AdventureCardVariant.builder)
-                      _buildStatusBadge(context),
-                    if (widget.showFavoriteButton && !widget.plan.isFeatured)
-                      _buildFavoriteButton(context),
-                    if (widget.variant == AdventureCardVariant.builder && widget.onDelete != null)
-                      _buildDeleteButton(context),
-                  ],
-                ),
+              borderRadius: BorderRadius.circular(24),
+              child: Column(
+                children: [
+                  Expanded(
+                    flex: 60,
+                    child: _buildImageSection(context, isDark),
+                  ),
+                  Expanded(
+                    flex: 40,
+                    child: _buildBottomSection(context, isDark),
+                  ),
+                ],
               ),
             ),
           ),
@@ -152,242 +137,198 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     );
   }
 
-  Widget _buildImage(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _imageScaleAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _isHovered ? _imageScaleAnimation.value : 1.0,
-          child: child,
-        );
-      },
-      child: CachedNetworkImage(
-        imageUrl: widget.plan.heroImageUrl,
-        fit: BoxFit.cover,
-        placeholder: (context, url) => Container(
-          color: context.colors.surfaceContainerHighest,
-          child: Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: context.colors.primary.withValues(alpha: 0.5),
-            ),
-          ),
-        ),
-        errorWidget: (context, url, error) => Container(
-          color: context.colors.surfaceContainerHighest,
-          child: Icon(
-            Icons.terrain,
-            size: 48,
-            color: context.colors.onSurface.withValues(alpha: 0.3),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGradientOverlay(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.black.withValues(alpha: 0.1),
-            Colors.black.withValues(alpha: 0.7),
-          ],
-          stops: const [0.35, 0.65, 1.0],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContent(BuildContext context) {
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildLocation(context),
-            const SizedBox(height: 6),
-            _buildTitle(context),
-            const SizedBox(height: 10),
-            _buildFooter(context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLocation(BuildContext context) {
-    final location = widget.plan.location.isNotEmpty
-        ? widget.plan.location.toUpperCase()
-        : 'NO LOCATION SET';
-
-    return Row(
+  Widget _buildImageSection(BuildContext context, bool isDark) {
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        Icon(
-          FontAwesomeIcons.locationDot,
-          color: Colors.white.withValues(alpha: 0.85),
-          size: 11,
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            location,
-            style: context.textStyles.labelSmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.9),
-              letterSpacing: 1.0,
-              fontWeight: FontWeight.w600,
+        AnimatedBuilder(
+          animation: _imageScaleAnimation,
+          builder: (context, child) => Transform.scale(
+            scale: _isHovered ? _imageScaleAnimation.value : 1.0,
+            child: child,
+          ),
+          child: CachedNetworkImage(
+            imageUrl: widget.plan.heroImageUrl,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => Container(
+              color: context.colors.surfaceContainerHighest,
+              child: Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: context.colors.primary.withValues(alpha: 0.5),
+                ),
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            errorWidget: (context, url, error) => Container(
+              color: context.colors.surfaceContainerHighest,
+              child: Icon(Icons.terrain, size: 48, color: context.colors.onSurface.withValues(alpha: 0.3)),
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            gradient: isDark
+                ? LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: const [0.0, 0.3, 0.5, 0.8, 1.0],
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.3),
+                      Colors.black.withValues(alpha: 0.6),
+                      const Color(0xFF1F2937).withValues(alpha: 0.85),
+                      const Color(0xFF1F2937).withValues(alpha: 0.98),
+                    ],
+                  )
+                : LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: const [0.0, 0.3, 0.6, 0.85, 1.0],
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.2),
+                      Colors.black.withValues(alpha: 0.5),
+                      Colors.black.withValues(alpha: 0.75),
+                      Colors.black.withValues(alpha: 0.8),
+                    ],
+                  ),
+          ),
+        ),
+        _buildPriceBadge(context),
+        if (widget.variant == AdventureCardVariant.builder) _buildStatusBadge(context),
+        if (widget.variant == AdventureCardVariant.builder && widget.onDelete != null) _buildDeleteButton(context),
+        Positioned(
+          left: 20,
+          right: 20,
+          bottom: 20,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.plan.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  height: 1.3,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black38,
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 8),
+              if (widget.plan.location.isNotEmpty)
+                Row(
+                  children: [
+                    Icon(
+                      FontAwesomeIcons.locationDot,
+                      color: Colors.white.withValues(alpha: 0.95),
+                      size: 12,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        widget.plan.location,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.95),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                          shadows: const [
+                            Shadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTitle(BuildContext context) {
-    return Text(
-      widget.plan.name,
-      style: context.textStyles.titleLarge?.copyWith(
-        color: Colors.white,
-        fontWeight: FontWeight.w700,
-        height: 1.2,
-      ),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-    );
-  }
-
-  Widget _buildFooter(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(child: _buildDifficultyBadge(context)),
-        const SizedBox(width: 8),
-        _buildPriceTag(context),
-      ],
-    );
-  }
-
-  Widget _buildDifficultyBadge(BuildContext context) {
-    if (widget.plan.difficultyRange.isEmpty) {
-      return const SizedBox.shrink();
+  // Mapping helpers kept intact
+  String _getActivityIcon(ActivityCategory category) {
+    switch (category) {
+      case ActivityCategory.hiking:
+        return '🥾';
+      case ActivityCategory.cycling:
+        return '🚴';
+      case ActivityCategory.skis:
+        return '⛷️';
+      case ActivityCategory.climbing:
+        return '🧗';
+      case ActivityCategory.cityTrips:
+        return '🏙️';
+      case ActivityCategory.tours:
+        return '🌏';
     }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.3),
-          width: 1,
-        ),
-      ),
-      child: Text(
-        widget.plan.difficultyRange,
-        style: context.textStyles.labelSmall?.copyWith(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
+  }
+  
+  String _getActivityLabel(ActivityCategory category) {
+    switch (category) {
+      case ActivityCategory.hiking:
+        return 'Hiking';
+      case ActivityCategory.cycling:
+        return 'Cycling';
+      case ActivityCategory.skis:
+        return 'Skiing';
+      case ActivityCategory.climbing:
+        return 'Climbing';
+      case ActivityCategory.cityTrips:
+        return 'City Trips';
+      case ActivityCategory.tours:
+        return 'Tours';
+    }
+  }
+  
+  String _getAccommodationIcon(AccommodationType type) {
+    return type == AccommodationType.comfort ? '💰' : '⛺';
+  }
+  
+  String _getAccommodationLabel(AccommodationType type) {
+    return type == AccommodationType.comfort ? 'Comfort' : 'Adventure';
   }
 
-  Widget _buildPriceTag(BuildContext context) {
+  Widget _buildPriceBadge(BuildContext context) {
     final isFree = widget.plan.minPrice == 0;
-    final bgColor = isFree ? context.colors.primary : context.colors.secondary;
+    final bgColor = isFree ? const Color(0xFF10B981) : const Color(0xFFF59E0B);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        boxShadow: [
-          BoxShadow(
-            color: bgColor.withValues(alpha: 0.4),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Text(
-        isFree ? 'FREE' : '€${widget.plan.minPrice.toStringAsFixed(0)}',
-        style: context.textStyles.titleSmall?.copyWith(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeaturedBadge(BuildContext context) {
     return Positioned(
-      top: 12,
-      right: 12,
+      top: 16,
+      right: 16,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: context.colors.primary,
-          borderRadius: BorderRadius.circular(AppRadius.full),
+          color: bgColor,
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: context.colors.primary.withValues(alpha: 0.4),
+              color: Colors.black.withValues(alpha: 0.15),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.star_rounded,
-              size: 14,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              'FEATURED',
-              style: context.textStyles.labelSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusBadge(BuildContext context) {
-    final isPublished = widget.plan.isPublished;
-
-    return Positioned(
-      top: 12,
-      left: 12,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: isPublished
-              ? context.colors.primary.withValues(alpha: 0.9)
-              : Colors.orange.withValues(alpha: 0.9),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
         child: Text(
-          isPublished ? 'Published' : 'Draft',
-          style: context.textStyles.labelSmall?.copyWith(
+          isFree ? 'FREE' : '€${widget.plan.minPrice.toStringAsFixed(0)}',
+          style: const TextStyle(
             color: Colors.white,
+            fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -395,20 +336,31 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     );
   }
 
-  Widget _buildFavoriteButton(BuildContext context) {
+  Widget _buildStatusBadge(BuildContext context) {
+    final isPublished = widget.plan.isPublished;
     return Positioned(
-      top: 12,
-      right: 12,
+      top: 16,
+      left: 16,
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.4),
-          shape: BoxShape.circle,
+          color: isPublished ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: Icon(
-          FontAwesomeIcons.heart,
-          size: 16,
-          color: Colors.white.withValues(alpha: 0.9),
+        child: Text(
+          isPublished ? 'Published' : 'Draft',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -416,14 +368,14 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
 
   Widget _buildDeleteButton(BuildContext context) {
     return Positioned(
-      top: 12,
-      right: 12,
+      top: 16,
+      right: 72,
       child: GestureDetector(
         onTap: widget.onDelete,
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.85),
+            color: Colors.red.withValues(alpha: 0.9),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
@@ -433,13 +385,148 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
               ),
             ],
           ),
-          child: const Icon(
-            Icons.delete_outline,
-            size: 18,
-            color: Colors.white,
-          ),
+          child: const Icon(Icons.delete_outline, size: 18, color: Colors.white),
         ),
       ),
+    );
+  }
+
+  Widget _buildBottomSection(BuildContext context, bool isDark) {
+    return Container(
+      color: isDark ? const Color(0xFF1F2937) : Colors.white,
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Badge Row (NEW position)
+          if (widget.plan.activityCategory != null || widget.plan.accommodationType != null) ...[
+            _buildBadgeRow(context, isDark),
+            const SizedBox(height: 12),
+          ],
+          if (widget.plan.description.isNotEmpty)
+            Text(
+              widget.plan.description,
+              style: TextStyle(
+                color: isDark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF374151),
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                height: 1.5,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          const Spacer(),
+          _buildRatingRow(context, isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadgeRow(BuildContext context, bool isDark) {
+    final activity = widget.plan.activityCategory;
+    final accom = widget.plan.accommodationType;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (activity != null)
+          _buildInfoBadge(
+            icon: _getActivityIcon(activity),
+            label: _getActivityLabel(activity),
+            isDark: isDark,
+          ),
+        if (accom != null)
+          _buildInfoBadge(
+            icon: _getAccommodationIcon(accom),
+            label: _getAccommodationLabel(accom),
+            isDark: isDark,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildInfoBadge({required String icon, required String label, required bool isDark}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? BadgeColors.darkBackground : BadgeColors.lightBackground,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 14, height: 1)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? BadgeColors.darkText : BadgeColors.lightText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRatingRow(BuildContext context, bool isDark) {
+    // Using fake data for now since Plan model doesn't have rating fields yet
+    final rating = 4.5;
+    final reviewCount = widget.plan.salesCount > 0 ? widget.plan.salesCount : 12;
+    
+    return Row(
+      children: [
+        _buildStarRating(rating),
+        const SizedBox(width: 8),
+        Text(
+          rating.toStringAsFixed(1),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white : const Color(0xFF1F2937),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '($reviewCount)',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+            color: isDark ? Colors.white.withValues(alpha: 0.7) : const Color(0xFF6B7280),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStarRating(double rating) {
+    final fullStars = rating.floor();
+    final hasHalfStar = rating - fullStars >= 0.5;
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (index) {
+        if (index < fullStars) {
+          return const Icon(
+            Icons.star,
+            size: 14,
+            color: Color(0xFFFCD34D),
+          );
+        } else if (index == fullStars && hasHalfStar) {
+          return const Icon(
+            Icons.star_half,
+            size: 14,
+            color: Color(0xFFFCD34D),
+          );
+        } else {
+          return const Icon(
+            Icons.star_border,
+            size: 14,
+            color: Color(0xFFE5E7EB),
+          );
+        }
+      }),
     );
   }
 }
@@ -578,13 +665,9 @@ class EmptyStateWidget extends StatelessWidget {
 }
 
 /// Skeleton card for loading states with shimmer animation
+/// Matches the new cabin-style 4:5 portrait card structure
 class SkeletonAdventureCard extends StatefulWidget {
-  final AdventureCardVariant variant;
-
-  const SkeletonAdventureCard({
-    super.key,
-    this.variant = AdventureCardVariant.standard,
-  });
+  const SkeletonAdventureCard({super.key});
 
   @override
   State<SkeletonAdventureCard> createState() => _SkeletonAdventureCardState();
@@ -613,89 +696,87 @@ class _SkeletonAdventureCardState extends State<SkeletonAdventureCard>
     super.dispose();
   }
 
-  double get _aspectRatio {
-    switch (widget.variant) {
-      case AdventureCardVariant.fullWidth:
-        return 16 / 9;
-      case AdventureCardVariant.builder:
-        return 4 / 5;
-      case AdventureCardVariant.standard:
-      default:
-        return 16 / 10;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return AnimatedBuilder(
       animation: _animation,
-      builder: (context, child) {
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            color: context.colors.surfaceContainerHighest.withValues(alpha: _animation.value),
-          ),
-          child: AspectRatio(
-            aspectRatio: _aspectRatio,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    height: 12,
-                    width: 80,
-                    decoration: BoxDecoration(
-                      color: context.colors.surfaceContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    height: 20,
-                    decoration: BoxDecoration(
-                      color: context.colors.surfaceContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    height: 20,
-                    width: 140,
-                    decoration: BoxDecoration(
-                      color: context.colors.surfaceContainer,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      builder: (context, child) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1F2937) : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: isDark
+              ? Border.all(color: Colors.white.withValues(alpha: 0.05), width: 1)
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.12),
+              blurRadius: isDark ? 16 : 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            children: [
+              Expanded(
+                flex: 60,
+                child: Container(
+                  color: context.colors.surfaceContainerHighest.withValues(alpha: _animation.value),
+                ),
+              ),
+              Expanded(
+                flex: 40,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        height: 24,
-                        width: 60,
+                        height: 14,
+                        width: double.infinity,
                         decoration: BoxDecoration(
-                          color: context.colors.surfaceContainer,
+                          color: context.colors.surfaceContainer.withValues(alpha: _animation.value),
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
+                      const SizedBox(height: 8),
                       Container(
-                        height: 28,
-                        width: 50,
+                        height: 14,
+                        width: double.infinity,
                         decoration: BoxDecoration(
-                          color: context.colors.surfaceContainer,
-                          borderRadius: BorderRadius.circular(6),
+                          color: context.colors.surfaceContainer.withValues(alpha: _animation.value),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 14,
+                        width: 150,
+                        decoration: BoxDecoration(
+                          color: context.colors.surfaceContainer.withValues(alpha: _animation.value),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        height: 18,
+                        width: 120,
+                        decoration: BoxDecoration(
+                          color: context.colors.surfaceContainer.withValues(alpha: _animation.value),
+                          borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

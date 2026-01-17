@@ -447,10 +447,26 @@ class PlanService {
   }
 
   /// Get plan by ID (legacy format)
+  /// This now automatically detects and loads from subcollections if available
   Future<Plan?> getPlanById(String planId) async {
     try {
       final doc = await _firestore.collection(_collection).doc(planId).get();
       if (!doc.exists) return null;
+      
+      // Check if plan uses subcollection structure
+      final versionsSnap = await _firestore
+          .collection(_collection)
+          .doc(planId)
+          .collection(_versionsCollection)
+          .limit(1)
+          .get();
+      
+      if (versionsSnap.docs.isNotEmpty) {
+        // Plan uses subcollections - load full plan with versions
+        return await loadFullPlan(planId);
+      }
+      
+      // Legacy format - versions embedded in document
       return Plan.fromJson(doc.data()!);
     } catch (e) {
       debugPrint('Error getting plan: $e');
@@ -475,21 +491,24 @@ class PlanService {
   }
 
   /// Get plans by IDs (legacy format)
+  /// This now automatically detects and loads from subcollections if available
   Future<List<Plan>> getPlansByIds(List<String> planIds) async {
     if (planIds.isEmpty) return [];
     try {
-      final chunks = <List<String>>[];
-      for (var i = 0; i < planIds.length; i += 30) {
-        chunks.add(planIds.sublist(i, i + 30 > planIds.length ? planIds.length : i + 30));
-      }
       final plans = <Plan>[];
-      for (final chunk in chunks) {
-        final snapshot = await _firestore
-            .collection(_collection)
-            .where(FieldPath.documentId, whereIn: chunk)
-            .get();
-        plans.addAll(snapshot.docs.map((doc) => Plan.fromJson(doc.data())));
+      
+      // Load each plan individually to properly handle subcollections
+      for (final planId in planIds) {
+        try {
+          final plan = await getPlanById(planId);
+          if (plan != null) {
+            plans.add(plan);
+          }
+        } catch (e) {
+          debugPrint('[PlanService] Error loading plan $planId: $e');
+        }
       }
+      
       return plans;
     } catch (e) {
       debugPrint('Error getting plans by IDs: $e');
@@ -533,6 +552,7 @@ class PlanService {
   }
 
   /// Update a plan metadata (does not update subcollections)
+  /// NOTE: Use updatePlanWithVersions for full CRUD operations including versions/days
   Future<void> updatePlan(Plan plan) async {
     try {
       // Only update metadata, not subcollections
@@ -540,6 +560,79 @@ class PlanService {
       await _firestore.collection(_collection).doc(plan.id).update(planMeta.toJson());
     } catch (e) {
       debugPrint('Error updating plan: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a plan including all versions and days (full CRUD)
+  /// This properly saves versions to subcollections and days within each version
+  Future<void> updatePlanWithVersions(Plan plan) async {
+    try {
+      final planId = plan.id;
+      final updatedPlan = plan.copyWith(updatedAt: DateTime.now());
+      
+      // Use a batch for atomic writes
+      final batch = _firestore.batch();
+      
+      // 1. Update main plan metadata document
+      final planMeta = PlanMeta.fromPlan(updatedPlan);
+      final planRef = _firestore.collection(_collection).doc(planId);
+      batch.set(planRef, planMeta.toJson(), SetOptions(merge: true));
+      
+      // 2. Get existing versions to handle deletions
+      final existingVersionsSnap = await planRef.collection(_versionsCollection).get();
+      final existingVersionIds = existingVersionsSnap.docs.map((d) => d.id).toSet();
+      final newVersionIds = updatedPlan.versions.map((v) => v.id).toSet();
+      
+      // Delete versions that no longer exist
+      for (final oldVersionId in existingVersionIds.difference(newVersionIds)) {
+        // Delete all days in this version first
+        final daysSnap = await planRef
+            .collection(_versionsCollection)
+            .doc(oldVersionId)
+            .collection(_daysCollection)
+            .get();
+        for (final dayDoc in daysSnap.docs) {
+          batch.delete(dayDoc.reference);
+        }
+        // Delete the version
+        batch.delete(planRef.collection(_versionsCollection).doc(oldVersionId));
+      }
+      
+      await batch.commit();
+      
+      // 3. Update/create versions and days (in a new batch to avoid size limits)
+      for (final version in updatedPlan.versions) {
+        final versionBatch = _firestore.batch();
+        
+        // Convert and save version document
+        final versionDoc = PlanVersionDoc.fromPlanVersion(version, planId);
+        final versionRef = planRef.collection(_versionsCollection).doc(version.id);
+        versionBatch.set(versionRef, versionDoc.toJson());
+        
+        // Get existing days to handle deletions
+        final existingDaysSnap = await versionRef.collection(_daysCollection).get();
+        final existingDayIds = existingDaysSnap.docs.map((d) => d.id).toSet();
+        final newDayIds = version.days.map((d) => 'day_${d.dayNum}').toSet();
+        
+        // Delete days that no longer exist
+        for (final oldDayId in existingDayIds.difference(newDayIds)) {
+          versionBatch.delete(versionRef.collection(_daysCollection).doc(oldDayId));
+        }
+        
+        // Update/create days
+        for (final day in version.days) {
+          final dayDoc = DayItineraryDoc.fromDayItinerary(day, planId, version.id);
+          final dayRef = versionRef.collection(_daysCollection).doc(dayDoc.id);
+          versionBatch.set(dayRef, dayDoc.toJson());
+        }
+        
+        await versionBatch.commit();
+      }
+      
+      debugPrint('Successfully updated plan with versions: $planId');
+    } catch (e) {
+      debugPrint('Error updating plan with versions: $e');
       rethrow;
     }
   }
@@ -694,10 +787,23 @@ class PlanService {
       }
       
       // New format - load from subcollections
-      // Load FAQ items from plan document (plan-level, not version-level)
+      // Load plan-level data (FAQ items, price, categorization)
       final planFaqItems = (planData['faq_items'] as List<dynamic>?)
           ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
           .toList() ?? <FAQItem>[];
+      final planPrice = (planData['base_price'] as num?)?.toDouble() ?? 0.0;
+      final ActivityCategory? activityCategory = planData['activity_category'] != null
+          ? ActivityCategory.values.firstWhere(
+              (e) => e.name == planData['activity_category'],
+              orElse: () => ActivityCategory.hiking,
+            )
+          : null;
+      final AccommodationType? accommodationType = planData['accommodation_type'] != null
+          ? AccommodationType.values.firstWhere(
+              (e) => e.name == planData['accommodation_type'],
+              orElse: () => AccommodationType.comfort,
+            )
+          : null;
       
       final versions = <PlanVersion>[];
       for (final versionDoc in versionsSnap.docs) {
@@ -717,23 +823,24 @@ class PlanService {
             .map((d) => DayItineraryDoc.fromJson(d.data()).toDayItinerary())
             .toList();
         
-        // Convert to PlanVersion and inject plan-level FAQ items for backward compatibility
+        // Convert to PlanVersion and inject plan-level data (FAQ items and price)
         final planVersion = versionData.toPlanVersion(days);
         versions.add(PlanVersion(
           id: planVersion.id,
           name: planVersion.name,
           durationDays: planVersion.durationDays,
-          difficulty: planVersion.difficulty,
-          comfortType: planVersion.comfortType,
-          price: planVersion.price,
+          difficulty: Difficulty.none, // Deprecated - use default
+          comfortType: ComfortType.none, // Deprecated - use default
+          price: planPrice, // Price from plan level
           days: planVersion.days,
           packingCategories: planVersion.packingCategories,
           transportationOptions: planVersion.transportationOptions,
-          faqItems: planFaqItems, // Inject plan-level FAQ items
+          faqItems: planFaqItems, // FAQ from plan level
         ));
       }
       
-      // Build Plan from metadata + loaded versions
+      // Build Plan from metadata + loaded versions. IMPORTANT: include plan-level
+      // fields like faq_items and categorization so editors show saved values.
       return Plan(
         id: planData['id'] as String,
         name: planData['name'] as String,
@@ -751,6 +858,9 @@ class PlanService {
         salesCount: (planData['sales_count'] as num?)?.toInt() ?? 0,
         createdAt: (planData['created_at'] as Timestamp).toDate(),
         updatedAt: (planData['updated_at'] as Timestamp).toDate(),
+        activityCategory: activityCategory,
+        accommodationType: accommodationType,
+        faqItems: planFaqItems,
       );
     } catch (e) {
       debugPrint('Error loading full plan: $e');
@@ -767,27 +877,30 @@ class PlanService {
       final days = await getDays(planId, versionId);
       final dayItineraries = days.map((d) => d.toDayItinerary()).toList();
       
-      // Load FAQ items from plan document (plan-level, not version-level)
+      // Load plan-level data (FAQ items and price)
       final planDoc = await _firestore.collection(_collection).doc(planId).get();
       final planFaqItems = planDoc.exists
           ? (planDoc.data()!['faq_items'] as List<dynamic>?)
               ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
               .toList() ?? <FAQItem>[]
           : <FAQItem>[];
+      final planPrice = planDoc.exists
+          ? (planDoc.data()!['base_price'] as num?)?.toDouble() ?? 0.0
+          : 0.0;
       
-      // Convert to PlanVersion and inject plan-level FAQ items
+      // Convert to PlanVersion and inject plan-level data (FAQ, price)
       final planVersion = versionDoc.toPlanVersion(dayItineraries);
       return PlanVersion(
         id: planVersion.id,
         name: planVersion.name,
         durationDays: planVersion.durationDays,
-        difficulty: planVersion.difficulty,
-        comfortType: planVersion.comfortType,
-        price: planVersion.price,
+        difficulty: Difficulty.none, // Deprecated - use default
+        comfortType: ComfortType.none, // Deprecated - use default
+        price: planPrice, // Price from plan level
         days: planVersion.days,
         packingCategories: planVersion.packingCategories,
         transportationOptions: planVersion.transportationOptions,
-        faqItems: planFaqItems, // Inject plan-level FAQ items
+        faqItems: planFaqItems, // FAQ from plan level
       );
     } catch (e) {
       debugPrint('Error loading full version: $e');

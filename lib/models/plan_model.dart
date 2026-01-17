@@ -1,8 +1,30 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:waypoint/models/review_model.dart';
 
 enum Difficulty { none, easy, moderate, hard, extreme }
 enum ComfortType { none, comfort, extreme }
-enum TransportationType { car, flying, boat, foot, bike, train }
+enum TransportationType { car, flying, boat, foot, bike, train, bus, taxi }
+
+// Activity categorization enums
+enum ActivityCategory {
+  hiking,    // 🥾 Hiking
+  cycling,   // 🚴 Cycling
+  skis,      // ⛷️ Skiing
+  climbing,  // 🧗 Climbing
+  cityTrips, // 🏙️ City Trips
+  tours      // 🌏 Tours
+}
+
+enum AccommodationType {
+  comfort,  // Stay at local accommodations (hotels, hostels, huts, lodges)
+  adventure // Bring your own shelter (tent, campervan, bivouac)
+}
+
+enum ExperienceLevel {
+  beginner,     // 🟢 First-time adventurers, easy pace
+  intermediate, // 🟡 Some experience needed, moderate challenge
+  expert        // 🔴 Advanced skills required, high difficulty
+}
 
 /// Represents a trekking/travel plan
 class Plan {
@@ -22,6 +44,14 @@ class Plan {
   final int salesCount;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final ActivityCategory? activityCategory;
+  final AccommodationType? accommodationType;
+  /// Optional maximum group size for trips using this plan (null = unlimited)
+  final int? maxGroupSize;
+  /// FAQ items shared across all versions (plan-level)
+  final List<FAQItem> faqItems;
+  /// Review statistics for this plan
+  final ReviewStats? reviewStats;
 
   Plan({
     required this.id,
@@ -40,6 +70,11 @@ class Plan {
     this.salesCount = 0,
     required this.createdAt,
     required this.updatedAt,
+    this.activityCategory,
+    this.accommodationType,
+    this.maxGroupSize,
+    this.faqItems = const [],
+    this.reviewStats,
   });
 
   double get minPrice => versions.isEmpty 
@@ -79,6 +114,25 @@ class Plan {
       salesCount: (json['sales_count'] as num?)?.toInt() ?? 0,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
+      activityCategory: json['activity_category'] != null
+          ? ActivityCategory.values.firstWhere(
+              (e) => e.name == json['activity_category'],
+              orElse: () => ActivityCategory.hiking,
+            )
+          : null,
+      accommodationType: json['accommodation_type'] != null
+          ? AccommodationType.values.firstWhere(
+              (e) => e.name == json['accommodation_type'],
+              orElse: () => AccommodationType.comfort,
+            )
+          : null,
+      maxGroupSize: json['max_group_size'] as int?,
+      faqItems: (json['faq_items'] as List<dynamic>?)
+          ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
+          .toList() ?? [],
+      reviewStats: json['review_stats'] != null
+          ? ReviewStats.fromJson(json['review_stats'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -100,6 +154,11 @@ class Plan {
       'sales_count': salesCount,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
+      'activity_category': activityCategory?.name,
+      'accommodation_type': accommodationType?.name,
+      if (maxGroupSize != null) 'max_group_size': maxGroupSize,
+      'faq_items': faqItems.map((f) => f.toJson()).toList(),
+      if (reviewStats != null) 'review_stats': reviewStats!.toJson(),
     };
   }
 
@@ -120,6 +179,11 @@ class Plan {
     int? salesCount,
     DateTime? createdAt,
     DateTime? updatedAt,
+    ActivityCategory? activityCategory,
+    AccommodationType? accommodationType,
+    int? maxGroupSize,
+    List<FAQItem>? faqItems,
+    ReviewStats? reviewStats,
   }) {
     return Plan(
       id: id ?? this.id,
@@ -138,6 +202,11 @@ class Plan {
       salesCount: salesCount ?? this.salesCount,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      activityCategory: activityCategory ?? this.activityCategory,
+      accommodationType: accommodationType ?? this.accommodationType,
+      maxGroupSize: maxGroupSize ?? this.maxGroupSize,
+      faqItems: faqItems ?? this.faqItems,
+      reviewStats: reviewStats ?? this.reviewStats,
     );
   }
 }
@@ -288,6 +357,7 @@ class PlanVersion {
   final List<TransportationOption> transportationOptions;
   // Frequently asked questions
   final List<FAQItem> faqItems;
+  final ExperienceLevel? experienceLevel;
 
   PlanVersion({
     required this.id,
@@ -300,6 +370,7 @@ class PlanVersion {
     this.packingCategories = const [],
     this.transportationOptions = const [],
     this.faqItems = const [],
+    this.experienceLevel,
   });
 
   factory PlanVersion.fromJson(Map<String, dynamic> json) {
@@ -349,6 +420,12 @@ class PlanVersion {
       faqItems: (json['faq_items'] as List<dynamic>?)
           ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
           .toList() ?? [],
+      experienceLevel: json['experience_level'] != null
+          ? ExperienceLevel.values.firstWhere(
+              (e) => e.name == json['experience_level'],
+              orElse: () => ExperienceLevel.beginner,
+            )
+          : null,
     );
   }
 
@@ -364,6 +441,7 @@ class PlanVersion {
       'packing_categories': packingCategories.map((c) => c.toJson()).toList(),
       'transportation_options': transportationOptions.map((t) => t.toJson()).toList(),
       'faq_items': faqItems.map((f) => f.toJson()).toList(),
+      'experience_level': experienceLevel?.name,
     };
   }
 }
@@ -456,13 +534,37 @@ class DayItinerary {
   }
 }
 
+/// A single elevation point with distance and elevation
+class ElevationPoint {
+  final double distance; // meters from start
+  final double elevation; // meters
+
+  const ElevationPoint(this.distance, this.elevation);
+
+  factory ElevationPoint.fromJson(Map<String, dynamic> json) => ElevationPoint(
+    (json['d'] as num).toDouble(),
+    (json['e'] as num).toDouble(),
+  );
+
+  Map<String, dynamic> toJson() => {'d': distance, 'e': elevation};
+
+  /// Create from legacy [distance, elevation] array format
+  factory ElevationPoint.fromList(List<double> list) => ElevationPoint(
+    list[0],
+    list[1],
+  );
+
+  /// Convert to legacy [distance, elevation] array format for backwards compatibility
+  List<double> toList() => [distance, elevation];
+}
+
 /// Route polyline + metrics stored for a given day
 class DayRoute {
   final Map<String, dynamic> geometry; // GeoJSON LineString
   final double distance; // meters
   final int duration; // seconds
   final List<Map<String, double>> routePoints; // lat/lng points for the route path
-  final List<List<double>>? elevationProfile; // [distance_m, elevation_m]
+  final List<ElevationPoint>? elevationProfile; // elevation points along route
   final double? ascent; // meters
   final double? descent; // meters
   final List<Map<String, dynamic>> poiWaypoints; // Points of interest waypoints
@@ -481,33 +583,110 @@ class DayRoute {
   // Backwards compatibility getter
   List<Map<String, double>> get waypoints => routePoints;
 
-  factory DayRoute.fromJson(Map<String, dynamic> json) => DayRoute(
-    geometry: Map<String, dynamic>.from(json['geometry'] as Map),
-    distance: (json['distance'] as num?)?.toDouble() ?? 0,
-    duration: (json['duration'] as num?)?.toInt() ?? 0,
-    // Support both old 'waypoints' and new 'routePoints' field names
-    routePoints: ((json['routePoints'] ?? json['waypoints'] as List?) ?? const [])
-        .map((e) => {
-          'lat': (e['lat'] as num).toDouble(),
-          'lng': (e['lng'] as num).toDouble(),
-        })
-        .toList(),
-    elevationProfile: (json['elevationProfile'] as List?)?.map((p) => (p as List).map((n) => (n as num).toDouble()).toList()).toList(),
-    ascent: (json['ascent'] as num?)?.toDouble(),
-    descent: (json['descent'] as num?)?.toDouble(),
-    poiWaypoints: ((json['poiWaypoints'] as List?) ?? const [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList(),
-  );
+  /// Get elevation profile as list of [distance, elevation] arrays (legacy format)
+  List<List<double>>? get elevationProfileAsLists =>
+      elevationProfile?.map((p) => p.toList()).toList();
+
+  factory DayRoute.fromJson(Map<String, dynamic> json) {
+    // Parse elevation profile - support both old nested array format and new map format
+    List<ElevationPoint>? elevationProfile;
+    final rawElevation = json['elevationProfile'] as List?;
+    if (rawElevation != null && rawElevation.isNotEmpty) {
+      if (rawElevation.first is List) {
+        // Legacy format: [[distance, elevation], ...]
+        elevationProfile = rawElevation
+            .map((p) => ElevationPoint.fromList(
+                  (p as List).map((n) => (n as num).toDouble()).toList(),
+                ))
+            .toList();
+      } else if (rawElevation.first is Map) {
+        // New format: [{d: distance, e: elevation}, ...]
+        elevationProfile = rawElevation
+            .map((p) => ElevationPoint.fromJson(p as Map<String, dynamic>))
+            .toList();
+      }
+    }
+
+    // Normalize geometry: support Firestore-safe representation where coordinates
+    // can be a list of maps instead of nested arrays.
+    Map<String, dynamic> normalizedGeometry = const {};
+    try {
+      final raw = json['geometry'];
+      if (raw is Map) {
+        final g = Map<String, dynamic>.from(raw);
+        final coords = g['coordinates'];
+        if (coords is List && coords.isNotEmpty) {
+          normalizedGeometry = {
+            'type': g['type'] ?? 'LineString',
+            'coordinates': List.from(coords),
+          };
+        } else {
+          normalizedGeometry = {'type': g['type'] ?? 'LineString', 'coordinates': const []};
+        }
+      }
+    } catch (_) {
+      normalizedGeometry = const {};
+    }
+
+    return DayRoute(
+      geometry: normalizedGeometry,
+      distance: (json['distance'] as num?)?.toDouble() ?? 0,
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
+      // Support both old 'waypoints' and new 'routePoints' field names
+      routePoints: ((json['routePoints'] ?? json['waypoints']) as List? ?? const [])
+          .map((e) => {
+            'lat': (e['lat'] as num).toDouble(),
+            'lng': (e['lng'] as num).toDouble(),
+          })
+          .toList(),
+      elevationProfile: elevationProfile,
+      ascent: (json['ascent'] as num?)?.toDouble(),
+      descent: (json['descent'] as num?)?.toDouble(),
+      poiWaypoints: ((json['poiWaypoints'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
-    'geometry': geometry,
+    // Ensure Firestore-safe geometry (no nested arrays)
+    'geometry': {
+      'type': geometry['type'] ?? 'LineString',
+      'coordinates': routePoints.isNotEmpty
+          ? routePoints
+              .map((p) => {'lng': p['lng'], 'lat': p['lat']})
+              .toList()
+          : (() {
+              final coords = geometry['coordinates'];
+              if (coords is List && coords.isNotEmpty) {
+                if (coords.first is List && (coords.first as List).length >= 2) {
+                  // Convert [[lng,lat], ...] -> [{lng,lat}, ...]
+                  return coords
+                      .map((c) => {
+                            'lng': (c[0] as num).toDouble(),
+                            'lat': (c[1] as num).toDouble(),
+                          })
+                      .toList();
+                } else if (coords.first is Map) {
+                  // Already Firestore-safe
+                  return coords
+                      .map((c) => {
+                            'lng': ((c as Map)['lng'] as num).toDouble(),
+                            'lat': ((c)['lat'] as num).toDouble(),
+                          })
+                      .toList();
+                }
+              }
+              return const <Map<String, double>>[];
+            })(),
+    },
     'distance': distance,
     'duration': duration,
     'routePoints': routePoints.map((w) => {'lat': w['lat'], 'lng': w['lng']}).toList(),
     // Also write as 'waypoints' for backwards compatibility
     'waypoints': routePoints.map((w) => {'lat': w['lat'], 'lng': w['lng']}).toList(),
-    if (elevationProfile != null) 'elevationProfile': elevationProfile,
+    // Store elevation profile as list of maps (Firestore-compatible, no nested arrays)
+    if (elevationProfile != null) 'elevationProfile': elevationProfile!.map((p) => p.toJson()).toList(),
     if (ascent != null) 'ascent': ascent,
     if (descent != null) 'descent': descent,
     if (poiWaypoints.isNotEmpty) 'poiWaypoints': poiWaypoints,
@@ -518,7 +697,7 @@ class DayRoute {
     double? distance,
     int? duration,
     List<Map<String, double>>? routePoints,
-    List<List<double>>? elevationProfile,
+    List<ElevationPoint>? elevationProfile,
     double? ascent,
     double? descent,
     List<Map<String, dynamic>>? poiWaypoints,

@@ -126,6 +126,17 @@ class DarkModeColors {
   static const info = Color(0xFF5ACFC5);
 }
 
+/// Badge color tokens used by cards and chips (centralized)
+class BadgeColors {
+  // Light mode
+  static const lightBackground = Color(0xFFF3F4F6); // neutral.100
+  static const lightText = Color(0xFF374151);       // neutral.700
+
+  // Dark mode
+  static const darkBackground = Color(0xFF374151);  // neutral.700
+  static const darkText = Color(0xFFE5E7EB);        // neutral.200
+}
+
 class FontSizes {
   static const double displayLarge = 48.0;
   static const double displayMedium = 40.0;

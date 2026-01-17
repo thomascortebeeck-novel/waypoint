@@ -1,11 +1,9 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:waypoint/models/plan_model.dart';
 
-class ElevationPoint {
-  final double distance; // meters
-  final double elevation; // meters
-  const ElevationPoint(this.distance, this.elevation);
-}
+// Re-export ElevationPoint for backwards compatibility
+export 'package:waypoint/models/plan_model.dart' show ElevationPoint;
 
 class ElevationChart extends StatelessWidget {
   final List<ElevationPoint> data;

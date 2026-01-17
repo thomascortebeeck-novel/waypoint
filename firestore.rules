@@ -245,6 +245,41 @@ service cloud.firestore {
                         get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
                         isAdmin();
       }
+      
+      // ============================================
+      // DAY SELECTIONS SUBCOLLECTION (Waypoint choices)
+      // ============================================
+      match /selections/{selectionId} {
+        // Trip members can read selections
+        allow read: if isTripMember(tripId) || isAdmin();
+        
+        // Trip members can create/update selections
+        allow create, update: if isTripMember(tripId) || isAdmin();
+        
+        // Only trip owner or admin can delete selections
+        allow delete: if (isSignedIn() && 
+                        get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
+                        isAdmin();
+      }
+      
+      // ============================================
+      // MEMBER PACKING SUBCOLLECTION (Individual checklists)
+      // ============================================
+      match /member_packing/{memberId} {
+        // Trip members can read member packing
+        allow read: if isTripMember(tripId) || isAdmin();
+        
+        // Members can create/update their own packing checklist
+        // Trip owner can manage all member packing
+        allow create, update: if (isSignedIn() && request.auth.uid == memberId) ||
+                                (isSignedIn() && get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
+                                isAdmin();
+        
+        // Only trip owner or admin can delete member packing
+        allow delete: if (isSignedIn() && 
+                        get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
+                        isAdmin();
+      }
     }
   }
 }

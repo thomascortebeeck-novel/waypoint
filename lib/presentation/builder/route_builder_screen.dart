@@ -15,6 +15,7 @@ import 'package:waypoint/presentation/widgets/elevation_chart.dart';
 import 'package:waypoint/utils/logger.dart';
 import 'package:waypoint/utils/google_link_parser.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/components.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
@@ -99,7 +100,10 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final center = _points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5);
+    // Use first waypoint position if available, otherwise first route point, otherwise default
+    final center = _poiWaypoints.isNotEmpty 
+        ? _poiWaypoints.first.position 
+        : (_points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5));
     return Scaffold(
       backgroundColor: context.colors.surface,
       appBar: AppBar(
@@ -125,7 +129,6 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
         final isDesktopSidebar = constraints.maxWidth >= 1280;
         // Desktop (>=1280px): Sidebar + Map layout
         if (isDesktopSidebar) {
-          final center = _points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5);
           return Row(
             children: [
               SizedBox(
@@ -143,7 +146,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                   onAddWaypoint: _showAddWaypointDialog,
                   onEditWaypoint: _editWaypoint,
                   onPreview: _points.length < 2 ? null : _updatePreview,
-                  onSave: _points.length < 2 ? null : _buildAndSave,
+                  onSave: (_points.length < 2 && _poiWaypoints.isEmpty) ? null : _buildAndSave,
                   onReorder: (oldIndex, newIndex) {
                     setState(() {
                       if (newIndex > oldIndex) newIndex -= 1;
@@ -453,7 +456,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
             onAddWaypoint: _showAddWaypointDialog,
             onEditWaypoint: _editWaypoint,
             onPreview: _points.length < 2 ? null : _updatePreview,
-            onSave: _points.length < 2 ? null : _buildAndSave,
+            onSave: (_points.length < 2 && _poiWaypoints.isEmpty) ? null : _buildAndSave,
             onReorder: (oldIndex, newIndex) {
               setState(() {
                 if (newIndex > oldIndex) newIndex -= 1;
@@ -643,7 +646,8 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   Future<void> _buildAndSave() async {
-    if (_previewGeometry == null) {
+    // If we have route points but no preview yet, generate it
+    if (_points.length >= 2 && _previewGeometry == null) {
       await _updatePreview();
       if (_previewGeometry == null) {
         if (mounted) {
@@ -657,12 +661,33 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
 
     setState(() => _busy = true);
     try {
+      // Create geometry - either from preview or empty if only waypoints
+      Map<String, dynamic> geometry;
+      if (_previewGeometry != null) {
+        geometry = _previewGeometry!;
+      } else if (_poiWaypoints.isNotEmpty) {
+        // Create empty geometry centered on first waypoint
+        final firstWp = _poiWaypoints.first;
+        geometry = {
+          'type': 'LineString',
+          'coordinates': [[firstWp.position.longitude, firstWp.position.latitude]],
+        };
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please add waypoints or route points first')),
+          );
+        }
+        setState(() => _busy = false);
+        return;
+      }
+
       final route = DayRoute(
-        geometry: _previewGeometry!,
+        geometry: geometry,
         distance: _previewDistance ?? 0,
         duration: _previewDuration ?? 0,
         routePoints: _points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
-        elevationProfile: _previewElevation.map((p) => [p.distance, p.elevation]).toList(),
+        elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : null,
         ascent: _previewAscent,
         descent: _previewDescent,
         poiWaypoints: _poiWaypoints.map((w) => w.toJson()).toList(),
@@ -726,8 +751,24 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   List<ll.LatLng> _coordsToLatLng(dynamic coordinates) {
-    final list = (coordinates as List).map((e) => (e as List).map((n) => (n as num).toDouble()).toList()).toList();
-    return list.map((c) => ll.LatLng(c[1], c[0])).toList();
+    if (coordinates is! List) return const <ll.LatLng>[];
+    if (coordinates.isEmpty) return const <ll.LatLng>[];
+    // Support both [[lng,lat], ...] and [{lng,lat}, ...]
+    if (coordinates.first is List) {
+      final list = coordinates
+          .map((e) => (e as List).map((n) => (n as num).toDouble()).toList())
+          .toList();
+      return list.map((c) => ll.LatLng(c[1], c[0])).toList();
+    } else if (coordinates.first is Map) {
+      final list = coordinates
+          .map((e) => {
+                'lat': ((e as Map)['lat'] as num).toDouble(),
+                'lng': (e['lng'] as num).toDouble(),
+              })
+          .toList();
+      return list.map((c) => ll.LatLng(c['lat']!, c['lng']!)).toList();
+    }
+    return const <ll.LatLng>[];
   }
 
   String _formatDuration(int seconds) {
@@ -850,6 +891,33 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     }
   }
 
+  Future<void> _deleteWaypoint(RouteWaypoint waypoint) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Waypoint'),
+        content: Text('Are you sure you want to delete "${waypoint.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() {
+        _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
+      });
+    }
+  }
+
   Widget _buildWaypointsSection() {
     return Container(
       decoration: BoxDecoration(
@@ -896,7 +964,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
             ),
           if (_waypointsExpanded && _poiWaypoints.isNotEmpty)
             Container(
-              constraints: const BoxConstraints(maxHeight: 250),
+              constraints: const BoxConstraints(maxHeight: 400),
               child: ReorderableListView.builder(
                 shrinkWrap: true,
                 itemCount: _poiWaypoints.length,
@@ -912,71 +980,22 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                 },
                 itemBuilder: (context, index) {
                   final wp = _poiWaypoints[index];
-                  return Card(
+                  return Container(
                     key: ValueKey(wp.id),
                     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    child: ListTile(
-                      leading: const Icon(Icons.drag_handle, color: Colors.grey),
-                      title: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: getWaypointColor(wp.type),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(getWaypointIcon(wp.type), color: Colors.white, size: 20),
+                    child: Row(
+                      children: [
+                        Icon(Icons.drag_handle, color: Colors.grey.shade600),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: UnifiedWaypointCard(
+                            waypoint: wp,
+                            showActions: true,
+                            onEdit: () => _editWaypoint(wp),
+                            onDelete: () => _deleteWaypoint(wp),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  wp.name,
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                                if (wp.rating != null)
-                                  Row(
-                                    children: [
-                                      Icon(Icons.star, size: 14, color: Colors.amber.shade700),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        wp.rating!.toStringAsFixed(1),
-                                        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                                      ),
-                                    ],
-                                  ),
-                                if (wp.type == WaypointType.accommodation && wp.accommodationType != null)
-                                  Container(
-                                    margin: const EdgeInsets.only(top: 4),
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: wp.accommodationType == AccommodationType.hotel
-                                          ? Colors.blue.shade50
-                                          : Colors.pink.shade50,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      wp.accommodationType == AccommodationType.hotel ? 'Hotel' : 'Airbnb',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: wp.accommodationType == AccommodationType.hotel
-                                            ? Colors.blue.shade900
-                                            : Colors.pink.shade900,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.more_vert),
-                        onPressed: () => _editWaypoint(wp),
-                      ),
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -1674,7 +1693,7 @@ class _WaypointTile extends StatelessWidget {
   const _WaypointTile({super.key, required this.waypoint, required this.onEdit, this.onMoveUp, this.onMoveDown});
   @override
   Widget build(BuildContext context) => Container(
-        height: 56,
+        padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
         child: Row(children: [
           const SizedBox(width: 8),
@@ -1688,10 +1707,62 @@ class _WaypointTile extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(waypoint.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(getWaypointLabel(waypoint.type), style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            ]),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(waypoint.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Text(getWaypointLabel(waypoint.type), style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    if (waypoint.mealTime != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: getWaypointColor(waypoint.type).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(getMealTimeIcon(waypoint.mealTime!), size: 10, color: getWaypointColor(waypoint.type)),
+                            const SizedBox(width: 3),
+                            Text(
+                              getMealTimeLabel(waypoint.mealTime!),
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: getWaypointColor(waypoint.type)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (waypoint.activityTime != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: getWaypointColor(waypoint.type).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(getActivityTimeIcon(waypoint.activityTime!), size: 10, color: getWaypointColor(waypoint.type)),
+                            const SizedBox(width: 3),
+                            Text(
+                              getActivityTimeLabel(waypoint.activityTime!),
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: getWaypointColor(waypoint.type)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
           ),
           if (onMoveUp != null)
             IconButton(onPressed: onMoveUp, icon: const Icon(Icons.arrow_upward, size: 18)),
@@ -1768,7 +1839,9 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   final _airbnbAddressController = TextEditingController();
   final _placesService = GooglePlacesService();
   late WaypointType _selectedType;
-  AccommodationType? _accommodationType;
+  POIAccommodationType? _accommodationType;
+  MealTime? _mealTime;
+  ActivityTime? _activityTime;
   List<PlacePrediction> _searchResults = [];
   PlaceDetails? _selectedPlace;
   bool _searching = false;
@@ -1936,10 +2009,15 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
           typeFilters = ['lodging', 'hotel'];
           break;
         case WaypointType.activity:
-          typeFilters = ['tourist_attraction', 'point_of_interest'];
+          typeFilters = ['tourist_attraction'];
           break;
         case WaypointType.viewingPoint:
-          typeFilters = ['tourist_attraction', 'natural_feature'];
+          typeFilters = ['tourist_attraction'];
+          break;
+        case WaypointType.servicePoint:
+          // Don't filter by type for service points to avoid API errors
+          // Let the search query determine the results
+          typeFilters = null;
           break;
       }
       
@@ -2349,8 +2427,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                               child: _ModernSubtypeChip(
                                 icon: Icons.apartment_rounded,
                                 label: 'Hotel',
-                                isSelected: _accommodationType == AccommodationType.hotel,
-                                onTap: () => setState(() => _accommodationType = AccommodationType.hotel),
+                                isSelected: _accommodationType == POIAccommodationType.hotel,
+                                onTap: () => setState(() => _accommodationType = POIAccommodationType.hotel),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -2358,13 +2436,13 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                               child: _ModernSubtypeChip(
                                 icon: Icons.home_rounded,
                                 label: 'Airbnb',
-                                isSelected: _accommodationType == AccommodationType.airbnb,
-                                onTap: () => setState(() => _accommodationType = AccommodationType.airbnb),
+                                isSelected: _accommodationType == POIAccommodationType.airbnb,
+                                onTap: () => setState(() => _accommodationType = POIAccommodationType.airbnb),
                               ),
                             ),
                           ],
                         ),
-                        if (_accommodationType == AccommodationType.airbnb) ...[
+                        if (_accommodationType == POIAccommodationType.airbnb) ...[
                           const SizedBox(height: 16),
                           const Text('Airbnb Property', style: TextStyle(fontWeight: FontWeight.w600)),
                           const SizedBox(height: 8),
@@ -2400,6 +2478,48 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                               ),
                             ),
                         ],
+                      ],
+                      if (_selectedType == WaypointType.restaurant) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                            const SizedBox(width: 8),
+                            Text('Meal Time', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: MealTime.values.map((time) => _ModernSubtypeChip(
+                            icon: getMealTimeIcon(time),
+                            label: getMealTimeLabel(time),
+                            isSelected: _mealTime == time,
+                            onTap: () => setState(() => _mealTime = time),
+                          )).toList(),
+                        ),
+                      ],
+                      if (_selectedType == WaypointType.activity) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+                            const SizedBox(width: 8),
+                            Text('Activity Time', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: ActivityTime.values.map((time) => _ModernSubtypeChip(
+                            icon: getActivityTimeIcon(time),
+                            label: getActivityTimeLabel(time),
+                            isSelected: _activityTime == time,
+                            onTap: () => setState(() => _activityTime = time),
+                          )).toList(),
+                        ),
                       ],
                       const SizedBox(height: 20),
                       Container(height: 1, color: Colors.grey.shade100, margin: const EdgeInsets.only(bottom: 20)),
@@ -2458,7 +2578,7 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                           ],
                         ),
                       )
-                    else if (_accommodationType == AccommodationType.airbnb && _airbnbAddressConfirmed)
+                    else if (_accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed)
                       Expanded(
                         child: Row(
                           children: [
@@ -2535,8 +2655,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   bool _canSave() {
     if (_nameController.text.trim().isEmpty) return false;
     if (_selectedType == WaypointType.accommodation && _accommodationType == null) return false;
-    if (_accommodationType == AccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
-    if (_accommodationType != AccommodationType.airbnb && _selectedPlace == null) return false;
+    if (_accommodationType == POIAccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
+    if (_accommodationType != POIAccommodationType.airbnb && _selectedPlace == null) return false;
     return true;
   }
 
@@ -2571,7 +2691,7 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     }
 
     ll.LatLng position;
-    if (_accommodationType == AccommodationType.airbnb && _airbnbLocation != null) {
+    if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
       position = _airbnbLocation!;
     } else if (_selectedPlace != null) {
       position = _selectedPlace!.location;
@@ -2586,7 +2706,7 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
       description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
       order: 0,
       googlePlaceId: _selectedPlace?.placeId,
-      address: _accommodationType == AccommodationType.airbnb 
+      address: _accommodationType == POIAccommodationType.airbnb 
           ? _airbnbAddressController.text.trim()
           : _selectedPlace?.address,
       rating: _selectedPlace?.rating,
@@ -2594,6 +2714,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
       phoneNumber: _selectedPlace?.phoneNumber,
       photoUrl: photoUrl,
       accommodationType: _selectedType == WaypointType.accommodation ? _accommodationType : null,
+      mealTime: _selectedType == WaypointType.restaurant ? _mealTime : null,
+      activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
     );
 
     Navigator.of(context).pop(waypoint);
@@ -2837,7 +2959,9 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
 
   double? _rating;
   List<String> _amenities = [];
-  AccommodationType? _accommodationType;
+  POIAccommodationType? _accommodationType;
+  MealTime? _mealTime;
+  ActivityTime? _activityTime;
   final List<String> _availableAmenities = [
     'WiFi',
     'Parking',
@@ -2857,6 +2981,8 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
     final wp = widget.existingWaypoint;
     _selectedType = wp?.type ?? widget.type;
     _accommodationType = wp?.accommodationType;
+    _mealTime = wp?.mealTime;
+    _activityTime = wp?.activityTime;
     _nameController = TextEditingController(text: wp?.name ?? '');
     _descriptionController = TextEditingController(text: wp?.description ?? '');
     _photoUrlController = TextEditingController(text: wp?.photoUrl ?? '');
@@ -3013,9 +3139,9 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
                         Text('Hotel'),
                       ],
                     ),
-                    selected: _accommodationType == AccommodationType.hotel,
+                    selected: _accommodationType == POIAccommodationType.hotel,
                     onSelected: (selected) {
-                      if (selected) setState(() => _accommodationType = AccommodationType.hotel);
+                      if (selected) setState(() => _accommodationType = POIAccommodationType.hotel);
                     },
                   ),
                 ),
@@ -3030,13 +3156,59 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
                         Text('Airbnb'),
                       ],
                     ),
-                    selected: _accommodationType == AccommodationType.airbnb,
+                    selected: _accommodationType == POIAccommodationType.airbnb,
                     onSelected: (selected) {
-                      if (selected) setState(() => _accommodationType = AccommodationType.airbnb);
+                      if (selected) setState(() => _accommodationType = POIAccommodationType.airbnb);
                     },
                   ),
                 ),
               ],
+            ),
+          ],
+          if (_selectedType == WaypointType.restaurant) ...[
+            const SizedBox(height: 16),
+            const Text('Meal Time', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: MealTime.values.map((time) => ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(getMealTimeIcon(time), size: 16),
+                    const SizedBox(width: 4),
+                    Text(getMealTimeLabel(time)),
+                  ],
+                ),
+                selected: _mealTime == time,
+                onSelected: (selected) {
+                  setState(() => _mealTime = selected ? time : null);
+                },
+              )).toList(),
+            ),
+          ],
+          if (_selectedType == WaypointType.activity) ...[
+            const SizedBox(height: 16),
+            const Text('Activity Time', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ActivityTime.values.map((time) => ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(getActivityTimeIcon(time), size: 16),
+                    const SizedBox(width: 4),
+                    Text(getActivityTimeLabel(time)),
+                  ],
+                ),
+                selected: _activityTime == time,
+                onSelected: (selected) {
+                  setState(() => _activityTime = selected ? time : null);
+                },
+              )).toList(),
             ),
           ],
           const SizedBox(height: 16),
@@ -3151,7 +3323,7 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
           const SizedBox(height: 16),
           const Text('Accommodation Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 16),
-          if (_accommodationType == AccommodationType.hotel) ...[
+          if (_accommodationType == POIAccommodationType.hotel) ...[
             const Text('Hotel Chain', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             TextField(
@@ -3254,7 +3426,7 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
             ],
           ),
           const SizedBox(height: 16),
-          if (_accommodationType == AccommodationType.hotel) ...[
+          if (_accommodationType == POIAccommodationType.hotel) ...[
             const Text('Booking.com URL', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             TextField(
@@ -3266,7 +3438,7 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
               ),
             ),
           ],
-          if (_accommodationType == AccommodationType.airbnb) ...[
+          if (_accommodationType == POIAccommodationType.airbnb) ...[
             const Text('Airbnb Property URL *', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             TextField(
@@ -3296,7 +3468,7 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
       return;
     }
 
-    if (_accommodationType == AccommodationType.airbnb && _airbnbUrlController.text.trim().isEmpty) {
+    if (_accommodationType == POIAccommodationType.airbnb && _airbnbUrlController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter Airbnb URL')),
       );
@@ -3354,6 +3526,8 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
       estimatedPriceRange: priceRange,
       bookingComUrl: bookingUrl.isEmpty ? null : bookingUrl,
       airbnbPropertyUrl: airbnbUrl.isEmpty ? null : airbnbUrl,
+      mealTime: _selectedType == WaypointType.restaurant ? _mealTime : null,
+      activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
     );
     Navigator.of(context).pop(waypoint);
   }

@@ -197,6 +197,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "selections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "trip_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "day_num",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

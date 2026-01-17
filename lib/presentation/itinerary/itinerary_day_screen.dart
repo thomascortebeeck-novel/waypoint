@@ -2,12 +2,15 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart' as ll;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/components.dart';
 
 class ItineraryDayScreen extends StatefulWidget {
   final String planId;
@@ -65,7 +68,7 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.go('/itinerary/${widget.planId}'),
+            onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
           ),
         ),
         body: const Center(child: Text('Failed to load day info')),
@@ -75,11 +78,11 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
     final days = _version!.days;
     if (days.isEmpty || widget.dayIndex >= days.length) {
       return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.go('/itinerary/${widget.planId}'),
-          ),
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+            ),
           title: const Text('Day not found'),
         ),
         body: Center(
@@ -389,8 +392,8 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
               if (isLastDay)
                 ElevatedButton.icon(
                   onPressed: () {
-                    // Navigate to map or finish
-                    context.go('/itinerary/${widget.planId}');
+                    // Finish viewing days, go back to Trip Dashboard
+                    context.go('/itinerary/${widget.planId}/setup/${widget.tripId}');
                   },
                   icon: const Icon(Icons.check_circle, size: 18),
                   label: const Text('Finish'),
@@ -445,37 +448,65 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
         'title': 'Start',
         'icon': Icons.play_circle_filled,
         'color': context.colors.primary,
+        'order': -1, // Start is always first
       });
     }
 
-    // Activities as waypoints
-    for (final activity in day.activities) {
-      waypoints.add({
-        'type': 'activity',
-        'title': activity.name,
-        'icon': Icons.local_activity,
-        'color': context.colors.tertiary,
-      });
-    }
+    // POI Waypoints from route (chronologically ordered)
+    if (day.route != null && day.route!.poiWaypoints.isNotEmpty) {
+      final poiWaypoints = day.route!.poiWaypoints
+          .map((w) => RouteWaypoint.fromJson(w))
+          .toList();
+      
+      // Sort by chronological order
+      poiWaypoints.sort((a, b) => 
+        getWaypointChronologicalOrder(a).compareTo(getWaypointChronologicalOrder(b))
+      );
+      
+      for (final wp in poiWaypoints) {
+        waypoints.add({
+          'type': wp.type.name,
+          'title': wp.name,
+          'icon': getWaypointIcon(wp.type),
+          'color': getWaypointColor(wp.type),
+          'order': getWaypointChronologicalOrder(wp),
+          'waypoint': wp, // Store the full waypoint for tags
+        });
+      }
+    } else {
+      // Fallback to old structure if no POI waypoints
+      // Activities as waypoints
+      for (final activity in day.activities) {
+        waypoints.add({
+          'type': 'activity',
+          'title': activity.name,
+          'icon': Icons.local_activity,
+          'color': context.colors.tertiary,
+          'order': 13,
+        });
+      }
 
-    // Restaurants
-    for (final restaurant in day.restaurants) {
-      waypoints.add({
-        'type': 'restaurant',
-        'title': restaurant.name,
-        'icon': Icons.restaurant,
-        'color': context.colors.error,
-      });
-    }
+      // Restaurants
+      for (final restaurant in day.restaurants) {
+        waypoints.add({
+          'type': 'restaurant',
+          'title': restaurant.name,
+          'icon': Icons.restaurant,
+          'color': context.colors.error,
+          'order': 12,
+        });
+      }
 
-    // Accommodation
-    for (final acc in day.accommodations) {
-      waypoints.add({
-        'type': 'accommodation',
-        'title': acc.name,
-        'icon': Icons.hotel,
-        'color': context.colors.secondary,
-      });
+      // Accommodation
+      for (final acc in day.accommodations) {
+        waypoints.add({
+          'type': 'accommodation',
+          'title': acc.name,
+          'icon': Icons.hotel,
+          'color': context.colors.secondary,
+          'order': 22,
+        });
+      }
     }
 
     // End point
@@ -485,6 +516,7 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
         'title': 'End',
         'icon': Icons.flag_circle,
         'color': context.colors.primary,
+        'order': 99, // End is always last
       });
     }
 
@@ -537,11 +569,20 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
                   Expanded(
                     child: Padding(
                       padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
-                      child: Text(
-                        wp['title'] as String,
-                        style: context.textStyles.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            wp['title'] as String,
+                            style: context.textStyles.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (wp['waypoint'] != null) ...[
+                            const SizedBox(height: 4),
+                            _buildWaypointTags(context, wp['waypoint'] as RouteWaypoint),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -550,6 +591,61 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
             }).toList(),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildWaypointTags(BuildContext context, RouteWaypoint waypoint) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: [
+        if (waypoint.mealTime != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: getWaypointColor(waypoint.type).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(getMealTimeIcon(waypoint.mealTime!), size: 12, color: getWaypointColor(waypoint.type)),
+                const SizedBox(width: 4),
+                Text(
+                  getMealTimeLabel(waypoint.mealTime!),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: getWaypointColor(waypoint.type),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (waypoint.activityTime != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: getWaypointColor(waypoint.type).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(getActivityTimeIcon(waypoint.activityTime!), size: 12, color: getWaypointColor(waypoint.type)),
+                const SizedBox(width: 4),
+                Text(
+                  getActivityTimeLabel(waypoint.activityTime!),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: getWaypointColor(waypoint.type),
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -580,132 +676,62 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
   }
 
   Widget _buildAccommodationCard(BuildContext context, AccommodationInfo acc) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: context.colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.colors.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: context.colors.secondaryContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.hotel, color: context.colors.secondary),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  acc.name,
-                  style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  acc.type,
-                  style: context.textStyles.bodySmall?.copyWith(color: context.colors.onSurfaceVariant),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final waypoint = RouteWaypoint(
+      type: WaypointType.accommodation,
+      position: const ll.LatLng(0, 0),
+      name: acc.name,
+      description: acc.linkDescription,
+      order: 0,
+      photoUrl: acc.linkImageUrl,
+      website: acc.bookingLink,
+    );
+    
+    return UnifiedWaypointCard(
+      waypoint: waypoint,
+      isViewOnly: true,
     );
   }
 
   Widget _buildRestaurantCard(BuildContext context, RestaurantInfo restaurant) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: context.colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.colors.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: context.colors.errorContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.restaurant, color: context.colors.error),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  restaurant.name,
-                  style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  restaurant.mealType.name[0].toUpperCase() + restaurant.mealType.name.substring(1),
-                  style: context.textStyles.bodySmall?.copyWith(color: context.colors.onSurfaceVariant),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final waypoint = RouteWaypoint(
+      type: WaypointType.restaurant,
+      position: const ll.LatLng(0, 0),
+      name: restaurant.name,
+      description: restaurant.linkDescription,
+      order: 0,
+      photoUrl: restaurant.linkImageUrl,
+      website: restaurant.bookingLink,
+      mealTime: _convertMealTypeToMealTime(restaurant.mealType),
     );
+    
+    return UnifiedWaypointCard(
+      waypoint: waypoint,
+      isViewOnly: true,
+    );
+  }
+  
+  MealTime _convertMealTypeToMealTime(MealType type) {
+    switch (type) {
+      case MealType.breakfast: return MealTime.breakfast;
+      case MealType.lunch: return MealTime.lunch;
+      case MealType.dinner: return MealTime.dinner;
+    }
   }
 
   Widget _buildActivityCard(BuildContext context, ActivityInfo activity) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: context.colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: context.colors.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: context.colors.tertiaryContainer,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.local_activity, color: context.colors.tertiary),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  activity.name,
-                  style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                if (activity.description.isNotEmpty)
-                  Text(
-                    activity.description,
-                    style: context.textStyles.bodySmall?.copyWith(color: context.colors.onSurfaceVariant),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final waypoint = RouteWaypoint(
+      type: WaypointType.activity,
+      position: const ll.LatLng(0, 0),
+      name: activity.name,
+      description: activity.description.isNotEmpty ? activity.description : activity.linkDescription,
+      order: 0,
+      photoUrl: activity.linkImageUrl,
+      website: activity.bookingLink,
+    );
+    
+    return UnifiedWaypointCard(
+      waypoint: waypoint,
+      isViewOnly: true,
     );
   }
 

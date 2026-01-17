@@ -8,6 +8,10 @@ class CheckoutSuccessScreen extends StatefulWidget {
   final String? orderId;
   final String? planName;
   final bool isFree;
+  /// If true, user came from invite flow and should return to join
+  final bool returnToJoin;
+  /// Invite code to redirect back to
+  final String? inviteCode;
 
   const CheckoutSuccessScreen({
     super.key,
@@ -15,6 +19,8 @@ class CheckoutSuccessScreen extends StatefulWidget {
     this.orderId,
     this.planName,
     this.isFree = false,
+    this.returnToJoin = false,
+    this.inviteCode,
   });
 
   @override
@@ -201,33 +207,64 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                   opacity: _fadeAnimation,
                   child: Column(
                     children: [
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          onPressed: () => context.go('/itinerary/${widget.planId}'),
-                          icon: const Icon(Icons.explore, size: 20),
-                          label: const Text(
-                            'Start Adventure',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: TextButton(
-                          onPressed: () => context.go('/details/${widget.planId}'),
-                          child: Text(
-                            'View Adventure Details',
-                            style: TextStyle(
-                              color: context.colors.primary,
-                              fontWeight: FontWeight.w500,
+                      // Show "Join Trip" button if user came from invite flow
+                      if (widget.returnToJoin && widget.inviteCode != null) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: () => context.go('/join/${widget.inviteCode}'),
+                            icon: const Icon(Icons.group_add, size: 20),
+                            label: const Text(
+                              'Continue to Join Trip',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: TextButton(
+                            onPressed: () => context.go('/itinerary/${widget.planId}/new'),
+                            child: Text(
+                              'Start Your Own Adventure Instead',
+                              style: TextStyle(
+                                color: context.colors.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: () => context.go('/itinerary/${widget.planId}/new'),
+                            icon: const Icon(Icons.explore, size: 20),
+                            label: const Text(
+                              'Start Adventure',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: TextButton(
+                            onPressed: () => context.go('/details/${widget.planId}'),
+                            child: Text(
+                              'View Adventure Details',
+                              style: TextStyle(
+                                color: context.colors.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       TextButton(
                         onPressed: () => context.go('/'),

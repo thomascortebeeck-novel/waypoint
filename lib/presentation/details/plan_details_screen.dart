@@ -1,16 +1,24 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/presentation/widgets/like_button.dart';
-import 'package:waypoint/presentation/widgets/share_bottom_sheet.dart';
 import 'package:waypoint/presentation/widgets/sign_in_bottom_sheet.dart';
 import 'package:waypoint/services/favorite_service.dart';
 import 'package:waypoint/services/order_service.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/services/review_service.dart';
+import 'package:waypoint/models/review_model.dart';
 import 'package:waypoint/theme.dart';
 
 class PlanDetailsScreen extends StatefulWidget {
@@ -26,10 +34,11 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
   final PlanService _planService = PlanService();
   final FavoriteService _favoriteService = FavoriteService();
   final OrderService _orderService = OrderService();
+  final ReviewService _reviewService = ReviewService();
   Plan? plan;
   PlanVersion? selectedVersion;
   final ScrollController _scrollController = ScrollController();
-  bool _isSticky = false;
+  bool _showStickyNav = false;
   bool _isDescriptionExpanded = false;
   bool _isLoading = true;
   String? _errorMessage;
@@ -38,6 +47,11 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
   bool _isLikedOptimistic = false;
   int _favoriteCountOptimistic = 0;
   bool _hasPurchasedOptimistic = false;
+  
+  // Review data
+  List<Review> _reviews = [];
+  bool _canUserReview = false;
+  bool _hasUserReviewed = false;
 
   @override
   void initState() {
@@ -52,7 +66,8 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
 
   Future<void> _loadPlan() async {
     try {
-      final loadedPlan = await _planService.getPlanById(widget.planId);
+      // Use loadFullPlan to properly load from subcollections
+      final loadedPlan = await _planService.loadFullPlan(widget.planId);
       if (!mounted) return;
       
       setState(() {
@@ -74,6 +89,9 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
           _hasPurchasedOptimistic = hasPurchased;
         });
       }
+      
+      // Load reviews
+      await _loadReviews();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -83,10 +101,39 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     }
   }
 
+  Future<void> _loadReviews() async {
+    if (plan == null) return;
+    
+    try {
+      final reviews = await _reviewService.getReviewsForPlan(
+        planId: plan!.id,
+        limit: 5,
+        sort: ReviewSortOption.mostRecent,
+      );
+      
+      if (_isAuthenticated) {
+        final canReview = await _reviewService.canUserReview(_currentUserId!, plan!.id);
+        final hasReviewed = await _reviewService.hasUserReviewed(_currentUserId!, plan!.id);
+        
+        if (!mounted) return;
+        setState(() {
+          _reviews = reviews;
+          _canUserReview = canReview;
+          _hasUserReviewed = hasReviewed;
+        });
+      } else {
+        if (!mounted) return;
+        setState(() => _reviews = reviews);
+      }
+    } catch (e) {
+      debugPrint('Failed to load reviews: $e');
+    }
+  }
+
   void _handleScroll() {
-    final shouldBeSticky = _scrollController.hasClients && _scrollController.offset > 300;
-    if (shouldBeSticky != _isSticky) {
-      setState(() => _isSticky = shouldBeSticky);
+    final shouldShowNav = _scrollController.hasClients && _scrollController.offset > 400;
+    if (shouldShowNav != _showStickyNav) {
+      setState(() => _showStickyNav = shouldShowNav);
     }
   }
 
@@ -204,14 +251,16 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
               _buildHeroSection(context),
               SliverToBoxAdapter(child: _buildQuickStatsBar(context)),
               SliverToBoxAdapter(child: _buildDescriptionSection(context)),
-              SliverToBoxAdapter(child: _buildWaypointsSummary(context)),
+              SliverToBoxAdapter(child: _buildRouteMapSection(context)),
               SliverToBoxAdapter(child: _buildDaysCarousel(context)),
+              SliverToBoxAdapter(child: _buildWaypointsSummary(context)),
               SliverToBoxAdapter(child: _buildVersionsSection(context)),
+              SliverToBoxAdapter(child: _buildReviewsSection(context)),
               SliverToBoxAdapter(child: _buildFAQSection(context)),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           ),
-          if (_isSticky) _buildStickyStatsBar(context),
+          if (_showStickyNav) _buildStickyNavBar(context),
         ],
       ),
       bottomSheet: _buildStickyBottomBar(context),
@@ -403,26 +452,71 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     );
   }
 
-  Widget _buildStickyStatsBar(BuildContext context) {
+  Widget _buildStickyNavBar(BuildContext context) {
     return Positioned(
       top: 0,
       left: 0,
       right: 0,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: context.colors.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 300),
+        offset: _showStickyNav ? Offset.zero : const Offset(0, -1),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 300),
+          opacity: _showStickyNav ? 1.0 : 0.0,
+          child: Container(
+            height: 64,
+            decoration: BoxDecoration(
+              color: context.colors.surface,
+              border: Border(
+                bottom: BorderSide(
+                  color: context.colors.outline.withValues(alpha: 0.2),
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: _buildQuickStatsBar(context),
+            child: SafeArea(
+              bottom: false,
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.pop(context),
+                    tooltip: 'Back',
+                  ),
+                  Expanded(
+                    child: Text(
+                      plan!.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.textStyles.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.share),
+                    onPressed: _handleShare,
+                    tooltip: 'Share',
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      _isLikedOptimistic ? Icons.favorite : Icons.favorite_border,
+                      color: _isLikedOptimistic ? Colors.red : null,
+                    ),
+                    onPressed: _handleLikeToggle,
+                    tooltip: _isLikedOptimistic ? 'Unlike' : 'Like',
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -447,34 +541,49 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
   }
 
   Widget _buildDescriptionSection(BuildContext context) {
-    // Check if description has markdown or is long enough to need expansion
+    final isMobile = MediaQuery.of(context).size.width < 640;
     final hasMultipleParagraphs = plan!.description.contains('\n\n') || plan!.description.length > 200;
     
-    return Padding(
-      padding: AppSpacing.paddingLg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('About this adventure', style: context.textStyles.headlineSmall),
-          const SizedBox(height: 12),
-          _isDescriptionExpanded
-              ? MarkdownBody(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('About this adventure', style: context.textStyles.headlineSmall),
+              const SizedBox(height: 12),
+              // Desktop/Tablet: Show full description always
+              // Mobile: Show expandable description
+              if (!isMobile)
+                MarkdownBody(
                   data: plan!.description,
                   styleSheet: MarkdownStyleSheet(
-                    p: context.textStyles.bodyLarge,
+                    p: context.textStyles.bodyLarge?.copyWith(height: 1.7),
                     strong: context.textStyles.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
                     em: context.textStyles.bodyLarge?.copyWith(fontStyle: FontStyle.italic),
                   ),
                 )
-              : MarkdownBody(
-                  data: _truncateMarkdown(plan!.description, 200),
-                  styleSheet: MarkdownStyleSheet(
-                    p: context.textStyles.bodyLarge,
-                    strong: context.textStyles.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
-                    em: context.textStyles.bodyLarge?.copyWith(fontStyle: FontStyle.italic),
-                  ),
-                ),
-          if (hasMultipleParagraphs) ...[
+              else
+                _isDescriptionExpanded
+                    ? MarkdownBody(
+                        data: plan!.description,
+                        styleSheet: MarkdownStyleSheet(
+                          p: context.textStyles.bodyLarge?.copyWith(height: 1.7),
+                          strong: context.textStyles.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+                          em: context.textStyles.bodyLarge?.copyWith(fontStyle: FontStyle.italic),
+                        ),
+                      )
+                    : MarkdownBody(
+                        data: _truncateMarkdown(plan!.description, 200),
+                        styleSheet: MarkdownStyleSheet(
+                          p: context.textStyles.bodyLarge?.copyWith(height: 1.7),
+                          strong: context.textStyles.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+                          em: context.textStyles.bodyLarge?.copyWith(fontStyle: FontStyle.italic),
+                        ),
+                      ),
+              if (isMobile && hasMultipleParagraphs) ...[
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => setState(() => _isDescriptionExpanded = !_isDescriptionExpanded),
@@ -500,12 +609,9 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 16),
-          Text(
-            'Last updated: ${_formatDate(plan!.updatedAt)}',
-            style: context.textStyles.bodySmall?.copyWith(color: Colors.grey),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -523,17 +629,20 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     final waypointCounts = _getWaypointCounts(selectedVersion!);
     if (waypointCounts.isEmpty) return const SizedBox.shrink();
 
-    return Padding(
-      padding: AppSpacing.paddingLg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("What's included", style: context.textStyles.headlineSmall),
-          const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final crossAxisCount = constraints.maxWidth > 600 ? 4 : 2;
-              return GridView.count(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("What's included", style: context.textStyles.headlineSmall),
+              const SizedBox(height: 16),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final crossAxisCount = constraints.maxWidth > 600 ? 4 : 2;
+                  return GridView.count(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisCount: crossAxisCount,
@@ -544,13 +653,15 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
                   _buildWaypointCard(context, Icons.restaurant, 'Restaurants', waypointCounts['restaurants'] ?? 0, Colors.pink),
                   _buildWaypointCard(context, Icons.hotel, 'Accommodations', waypointCounts['accommodations'] ?? 0, Colors.purple),
                   _buildWaypointCard(context, Icons.local_activity, 'Activities', waypointCounts['activities'] ?? 0, Colors.blue),
-                  _buildWaypointCard(context, Icons.photo_camera, 'Waypoints', waypointCounts['waypoints'] ?? 0, Colors.cyan),
-                ],
-              );
-            },
-          ),
-        ],
+                    _buildWaypointCard(context, Icons.photo_camera, 'Waypoints', waypointCounts['waypoints'] ?? 0, Colors.cyan),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
       ),
+    ),
     );
   }
 
@@ -588,40 +699,213 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     );
   }
 
+  Widget _buildRouteMapSection(BuildContext context) {
+    if (selectedVersion == null) return const SizedBox.shrink();
+
+    // Check if we have route coordinates
+    final allCoordinates = _getAllRouteCoordinates();
+    if (allCoordinates.isEmpty) return const SizedBox.shrink();
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Route Overview', style: context.textStyles.headlineSmall),
+              const SizedBox(height: 8),
+              Text(
+                'Preview of the complete trail',
+                style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              Container(
+                height: 400,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: context.colors.outline),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: _buildStaticMap(allCoordinates),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<LatLng> _getAllRouteCoordinates() {
+    final coordinates = <LatLng>[];
+    if (selectedVersion == null) return coordinates;
+
+    for (final day in selectedVersion!.days) {
+      if (day.route != null && day.route!.routePoints.isNotEmpty) {
+        for (final point in day.route!.routePoints) {
+          final lat = point['lat'];
+          final lng = point['lng'];
+          if (lat != null && lng != null) {
+            coordinates.add(LatLng(lat, lng));
+          }
+        }
+      }
+    }
+
+    return coordinates;
+  }
+
+  Widget _buildStaticMap(List<LatLng> coordinates) {
+    if (coordinates.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.map_outlined, size: 48, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              'Route map not available',
+              style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Calculate bounds
+    final bounds = _calculateBounds(coordinates);
+    final center = LatLng(
+      (bounds.north + bounds.south) / 2,
+      (bounds.east + bounds.west) / 2,
+    );
+
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: center,
+        initialZoom: _calculateZoomLevel(bounds),
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.none,
+        ),
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
+          userAgentPackageName: 'com.waypoint.app',
+        ),
+        PolylineLayer(
+          polylines: [
+            Polyline(
+              points: coordinates,
+              strokeWidth: 4.0,
+              color: context.colors.primary,
+            ),
+          ],
+        ),
+        // Start marker
+        if (coordinates.isNotEmpty)
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: coordinates.first,
+                width: 30,
+                height: 30,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.flag, color: Colors.white, size: 16),
+                ),
+              ),
+              Marker(
+                point: coordinates.last,
+                width: 30,
+                height: 30,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.flag, color: Colors.white, size: 16),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  LatLngBounds _calculateBounds(List<LatLng> coordinates) {
+    double minLat = coordinates.first.latitude;
+    double maxLat = coordinates.first.latitude;
+    double minLng = coordinates.first.longitude;
+    double maxLng = coordinates.first.longitude;
+
+    for (final coord in coordinates) {
+      if (coord.latitude < minLat) minLat = coord.latitude;
+      if (coord.latitude > maxLat) maxLat = coord.latitude;
+      if (coord.longitude < minLng) minLng = coord.longitude;
+      if (coord.longitude > maxLng) maxLng = coord.longitude;
+    }
+
+    return LatLngBounds(
+      LatLng(minLat, minLng),
+      LatLng(maxLat, maxLng),
+    );
+  }
+
+  double _calculateZoomLevel(LatLngBounds bounds) {
+    // Calculate appropriate zoom level based on bounds
+    final latDiff = bounds.north - bounds.south;
+    final lngDiff = bounds.east - bounds.west;
+    final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+
+    // Rough zoom level calculation
+    if (maxDiff > 10) return 5;
+    if (maxDiff > 5) return 6;
+    if (maxDiff > 2) return 7;
+    if (maxDiff > 1) return 8;
+    if (maxDiff > 0.5) return 9;
+    if (maxDiff > 0.25) return 10;
+    if (maxDiff > 0.1) return 11;
+    return 12;
+  }
+
   Widget _buildDaysCarousel(BuildContext context) {
     if (selectedVersion == null) return const SizedBox.shrink();
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: AppSpacing.horizontalLg,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('The itinerary', style: context.textStyles.headlineSmall),
-                const SizedBox(height: 4),
-                Text(
-                  '${selectedVersion!.days.length} days of adventure through ${plan!.location}',
-                  style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('The itinerary', style: context.textStyles.headlineSmall),
+              const SizedBox(height: 8),
+              Text(
+                '${selectedVersion!.days.length} days of adventure through ${plan!.location}',
+                style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 380,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: selectedVersion!.days.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 20),
+                  itemBuilder: (context, index) => _buildDayCard(context, selectedVersion!.days[index]),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 380,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: AppSpacing.horizontalLg,
-              itemCount: selectedVersion!.days.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 20),
-              itemBuilder: (context, index) => _buildDayCard(context, selectedVersion!.days[index]),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -731,28 +1015,38 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
   }
 
   Widget _buildVersionsSection(BuildContext context) {
-    return Padding(
-      padding: AppSpacing.paddingLg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Select your adventure', style: context.textStyles.headlineSmall),
-          const SizedBox(height: 16),
-          SizedBox(
+    // Hide version section if only 1 version
+    if (plan!.versions.length <= 1) {
+      return const SizedBox.shrink();
+    }
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Select your adventure', style: context.textStyles.headlineSmall),
+              const SizedBox(height: 16),
+              SizedBox(
             height: 160,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: plan!.versions.length,
               separatorBuilder: (_, __) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                final version = plan!.versions[index];
-                final isSelected = selectedVersion == version;
-                return _buildVersionCard(version, isSelected);
-              },
+                itemBuilder: (context, index) {
+                  final version = plan!.versions[index];
+                  final isSelected = selectedVersion == version;
+                  return _buildVersionCard(version, isSelected);
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+    ),
     );
   }
 
@@ -833,18 +1127,169 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     );
   }
 
+  Widget _buildReviewsSection(BuildContext context) {
+    final reviewStats = plan?.reviewStats ?? ReviewStats.empty();
+    
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Reviews', style: context.textStyles.headlineSmall),
+                      if (reviewStats.totalReviews > 0) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Row(
+                              children: List.generate(5, (index) {
+                                final rating = reviewStats.averageRating;
+                                if (index < rating.floor()) {
+                                  return Icon(Icons.star, size: 18, color: Colors.amber.shade600);
+                                } else if (index < rating) {
+                                  return Icon(Icons.star_half, size: 18, color: Colors.amber.shade600);
+                                } else {
+                                  return Icon(Icons.star_border, size: 18, color: Colors.grey.shade400);
+                                }
+                              }),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${reviewStats.averageRating.toStringAsFixed(1)} (${reviewStats.totalReviews} review${reviewStats.totalReviews != 1 ? 's' : ''})',
+                              style: context.textStyles.bodyMedium?.copyWith(
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (_isAuthenticated && _canUserReview && !_hasUserReviewed)
+                    TextButton.icon(
+                      onPressed: _showWriteReviewSheet,
+                      icon: const Icon(Icons.rate_review, size: 18),
+                      label: const Text('Write Review'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              
+              if (_reviews.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Column(
+                      children: [
+                        Icon(Icons.rate_review_outlined, size: 48, color: Colors.grey.shade400),
+                        const SizedBox(height: 12),
+                        Text(
+                          'No reviews yet',
+                          style: context.textStyles.titleMedium?.copyWith(
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        if (_isAuthenticated && _canUserReview && !_hasUserReviewed) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Be the first to review this adventure!',
+                            style: context.textStyles.bodySmall?.copyWith(
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ..._reviews.map((review) => _ReviewCard(
+                  review: review,
+                  onHelpful: () => _handleReviewHelpful(review.id),
+                  onReport: () => _handleReportReview(review.id),
+                )),
+              
+              if (_reviews.length >= 5 && reviewStats.totalReviews > _reviews.length)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Center(
+                    child: TextButton(
+                      onPressed: () => _showAllReviews(),
+                      child: Text('View all ${reviewStats.totalReviews} reviews'),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  void _showWriteReviewSheet() {
+    // TODO: Implement write review bottom sheet
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Write review feature coming soon')),
+    );
+  }
+  
+  Future<void> _handleReviewHelpful(String reviewId) async {
+    if (!_isAuthenticated) {
+      showModalBottomSheet(
+        context: context,
+        builder: (context) => const SignInBottomSheet(),
+      );
+      return;
+    }
+    
+    try {
+      await _reviewService.markHelpful(reviewId, _currentUserId!);
+      await _loadReviews();
+    } catch (e) {
+      debugPrint('Failed to mark review helpful: $e');
+    }
+  }
+  
+  void _handleReportReview(String reviewId) {
+    // TODO: Implement report review dialog
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Report feature coming soon')),
+    );
+  }
+  
+  void _showAllReviews() {
+    // TODO: Navigate to full reviews screen
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('View all reviews coming soon')),
+    );
+  }
+
   Widget _buildFAQSection(BuildContext context) {
     if (selectedVersion == null || selectedVersion!.faqItems.isEmpty) return const SizedBox.shrink();
 
-    return Padding(
-      padding: AppSpacing.paddingLg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("FAQ's", style: context.textStyles.headlineSmall),
-          const SizedBox(height: 16),
-          ...selectedVersion!.faqItems.map((faq) => _buildFAQItem(context, faq)),
-        ],
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1400),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("FAQ's", style: context.textStyles.headlineSmall),
+              const SizedBox(height: 16),
+              ...selectedVersion!.faqItems.map((faq) => _buildFAQItem(context, faq)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -962,8 +1407,8 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
               child: ElevatedButton(
                 onPressed: () {
                   if (_hasPurchasedOptimistic) {
-                    // Purchased: jump to Itinerary flow
-                    context.go('/itinerary/${plan!.id}');
+                    // Purchased: start a new itinerary for this plan
+                    context.go('/itinerary/${plan!.id}/new');
                   } else {
                     // Not purchased: go through checkout (free or paid)
                     _handleCheckout();
@@ -1073,7 +1518,7 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
       final newStatus = await _favoriteService.toggleFavorite(_currentUserId!, plan!.id);
       
       // Reload plan to get accurate favorite count
-      final updatedPlan = await _planService.getPlanById(plan!.id);
+      final updatedPlan = await _planService.loadFullPlan(plan!.id);
       if (!mounted) return;
       
       if (updatedPlan != null) {
@@ -1104,10 +1549,29 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     }
   }
   
-  /// Handle share button tap
+  /// Handle share button tap - show centered dialog
   Future<void> _handleShare() async {
     if (plan == null) return;
-    await ShareBottomSheet.show(context, plan!);
+    await _showShareDialog(context, plan!);
+  }
+  
+  /// Show share dialog as centered modal
+  Future<void> _showShareDialog(BuildContext context, Plan plan) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    return showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: isMobile ? double.infinity : 450,
+          ),
+          child: _ShareDialogContent(plan: plan),
+        ),
+      ),
+    );
   }
   
   /// Handle checkout button tap - navigates to full-page checkout
@@ -1126,5 +1590,520 @@ class _PlanDetailsScreenState extends State<PlanDetailsScreen> {
     
     // Navigate to full-page checkout
     context.push('/checkout/${plan!.id}', extra: {'plan': plan});
+  }
+}
+
+/// Share dialog content widget
+class _ShareDialogContent extends StatelessWidget {
+  final Plan plan;
+
+  const _ShareDialogContent({required this.plan});
+
+  /// Get the base URL for sharing based on current environment
+  static String get _baseUrl {
+    if (kIsWeb) {
+      // On web, use the current domain
+      final uri = Uri.base;
+      final baseUrl = '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}';
+      return baseUrl;
+    }
+    // On mobile, use production URL
+    return 'https://waypoint.app';
+  }
+
+  /// Generate the deep link URL for the plan
+  String get shareUrl => '$_baseUrl/plan/${plan.id}';
+
+  /// Generate share text
+  String get shareText => '${plan.name}\n\n${plan.description.length > 100 ? '${plan.description.substring(0, 100)}...' : plan.description}\n\n$shareUrl';
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    
+    return Container(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with close button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Share Adventure',
+                style: context.textStyles.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+                iconSize: 24,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          
+          // Plan preview card
+          _buildPreviewCard(context),
+          const SizedBox(height: 24),
+          
+          // Share options grid
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final crossAxisCount = isMobile ? 2 : 4;
+              return GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.1,
+                children: [
+                  _buildShareButton(
+                    context,
+                    icon: Icons.link,
+                    label: 'Copy Link',
+                    color: Colors.green,
+                    onTap: () => _copyLink(context),
+                  ),
+                  _buildShareButton(
+                    context,
+                    icon: Icons.share,
+                    label: 'Share',
+                    color: Colors.blue,
+                    onTap: () => _systemShare(context),
+                  ),
+                  _buildShareButton(
+                    context,
+                    icon: Icons.message,
+                    label: 'SMS',
+                    color: Colors.green.shade700,
+                    onTap: () => _sendSms(context),
+                  ),
+                  _buildShareButton(
+                    context,
+                    icon: Icons.email_outlined,
+                    label: 'Email',
+                    color: Colors.orange,
+                    onTap: () => _sendEmail(context),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          // Thumbnail
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: CachedNetworkImage(
+              imageUrl: plan.heroImageUrl,
+              width: 80,
+              height: 80,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => Container(
+                width: 80,
+                height: 80,
+                color: Colors.grey.shade300,
+              ),
+              errorWidget: (_, __, ___) => Container(
+                width: 80,
+                height: 80,
+                color: Colors.grey.shade300,
+                child: const Icon(Icons.image, color: Colors.grey),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Plan info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  plan.name,
+                  style: context.textStyles.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(Icons.location_on, size: 14, color: Colors.grey.shade600),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        plan.location,
+                        style: context.textStyles.bodySmall?.copyWith(
+                          color: Colors.grey.shade600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: plan.basePrice == 0 
+                        ? Colors.green.withValues(alpha: 0.1) 
+                        : context.colors.secondaryContainer,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    plan.basePrice == 0 ? 'Free' : '€${plan.basePrice.toStringAsFixed(0)}',
+                    style: context.textStyles.labelMedium?.copyWith(
+                      color: plan.basePrice == 0 ? Colors.green.shade700 : context.colors.onSecondaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShareButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: context.colors.outline.withValues(alpha: 0.3)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: context.textStyles.bodySmall?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyLink(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: shareUrl));
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Text('Link Copied!'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _systemShare(BuildContext context) async {
+    Navigator.pop(context);
+    await Share.share(shareText);
+  }
+
+  Future<void> _sendSms(BuildContext context) async {
+    Navigator.pop(context);
+    final uri = Uri(
+      scheme: 'sms',
+      path: '',
+      queryParameters: {'body': shareText},
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  Future<void> _sendEmail(BuildContext context) async {
+    Navigator.pop(context);
+    final uri = Uri(
+      scheme: 'mailto',
+      path: '',
+      queryParameters: {
+        'subject': 'Check out this adventure: ${plan.name}',
+        'body': shareText,
+      },
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+}
+
+class _ReviewCard extends StatelessWidget {
+  final Review review;
+  final VoidCallback onHelpful;
+  final VoidCallback onReport;
+
+  const _ReviewCard({
+    required this.review,
+    required this.onHelpful,
+    required this.onReport,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.colors.outline.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // User info and rating
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: context.colors.primaryContainer,
+                backgroundImage: review.userAvatar != null
+                    ? CachedNetworkImageProvider(review.userAvatar!)
+                    : null,
+                child: review.userAvatar == null
+                    ? Text(
+                        review.userName.isNotEmpty ? review.userName[0].toUpperCase() : '?',
+                        style: context.textStyles.titleMedium?.copyWith(
+                          color: context.colors.onPrimaryContainer,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          review.userName,
+                          style: context.textStyles.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (review.isVerified) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.verified,
+                            size: 16,
+                            color: context.colors.primary,
+                          ),
+                        ],
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Row(
+                          children: List.generate(5, (index) {
+                            return Icon(
+                              index < review.rating ? Icons.star : Icons.star_border,
+                              size: 14,
+                              color: index < review.rating ? Colors.amber.shade600 : Colors.grey.shade400,
+                            );
+                          }),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _formatDate(review.createdAt),
+                          style: context.textStyles.bodySmall?.copyWith(
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 20),
+                onSelected: (value) {
+                  if (value == 'report') onReport();
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'report',
+                    child: Row(
+                      children: [
+                        Icon(Icons.flag, size: 18),
+                        SizedBox(width: 8),
+                        Text('Report'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          
+          if (review.title != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              review.title!,
+              style: context.textStyles.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          
+          const SizedBox(height: 8),
+          Text(
+            review.text,
+            style: context.textStyles.bodyMedium?.copyWith(
+              color: Colors.grey.shade800,
+              height: 1.5,
+            ),
+          ),
+          
+          // Photos
+          if (review.photos.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 80,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: review.photos.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedNetworkImage(
+                      imageUrl: review.photos[index],
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey.shade200,
+                        child: const Center(child: CircularProgressIndicator()),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey.shade200,
+                        child: const Icon(Icons.broken_image),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          
+          // Tags
+          if (review.tags.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: review.tags.map((tag) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: context.colors.primaryContainer.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    tag,
+                    style: context.textStyles.labelSmall?.copyWith(
+                      color: context.colors.onPrimaryContainer,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+          
+          // Actions
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              TextButton.icon(
+                onPressed: onHelpful,
+                icon: const Icon(Icons.thumb_up_outlined, size: 16),
+                label: Text(
+                  review.helpfulCount > 0
+                      ? 'Helpful (${review.helpfulCount})'
+                      : 'Helpful',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return '$weeks week${weeks > 1 ? 's' : ''} ago';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return '$months month${months > 1 ? 's' : ''} ago';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return '$years year${years > 1 ? 's' : ''} ago';
+    }
   }
 }

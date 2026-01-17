@@ -6,6 +6,7 @@ import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/presentation/marketplace/marketplace_components.dart';
 
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
@@ -39,20 +40,55 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   stream: _planService.streamFeaturedPlans(),
                   isDesktop: isDesktop,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 24),
+                ActivityCategoriesCarousel(isDesktop: isDesktop),
+                const SizedBox(height: 32),
                 _SwimmingLane(
                   title: 'Discover More',
                   subtitle: 'Popular routes from our community',
                   stream: _planService.streamDiscoverPlans(),
                   isDesktop: isDesktop,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 32),
+                const PromoCard(
+                  variant: PromoVariant.upgrade,
+                ),
+                const SizedBox(height: 32),
                 _YourPlansLane(
                   auth: _auth,
                   userService: _userService,
                   planService: _planService,
                   isDesktop: isDesktop,
                 ),
+                const SizedBox(height: 32),
+                TestimonialsSection(isDesktop: isDesktop),
+                const SizedBox(height: 32),
+                if (isDesktop)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: PromoCard(
+                            variant: PromoVariant.gift,
+                            removeMargin: true,
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: _buildStatsBar(context, isDesktop),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  const PromoCard(
+                    variant: PromoVariant.gift,
+                  ),
+                  const SizedBox(height: 32),
+                  _buildStatsBar(context, isDesktop),
+                ],
               ]),
             ),
           ),
@@ -185,6 +221,78 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       ],
     );
   }
+
+  Widget _buildStatsBar(BuildContext context, bool isDesktop) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 48 : 24,
+        vertical: isDesktop ? 32 : 24,
+      ),
+      margin: isDesktop ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: context.colors.primaryContainer.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: context.colors.primary.withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: isDesktop
+          ? Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatItem(context, '500,000+', 'Routes'),
+                _buildStatDivider(context),
+                _buildStatItem(context, '90M+', 'Reviews'),
+                _buildStatDivider(context),
+                _buildStatItem(context, '2M+', 'Adventurers'),
+              ],
+            )
+          : Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _buildStatItem(context, '500,000+', 'Routes')),
+                    const SizedBox(width: 24),
+                    Expanded(child: _buildStatItem(context, '90M+', 'Reviews')),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildStatItem(context, '2M+', 'Adventurers'),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildStatItem(BuildContext context, String value, String label) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: context.textStyles.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: context.colors.primary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: context.textStyles.bodyMedium?.copyWith(
+            color: context.colors.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatDivider(BuildContext context) {
+    return Container(
+      height: 40,
+      width: 1,
+      color: context.colors.onSurface.withValues(alpha: 0.1),
+    );
+  }
 }
 
 class _SwimmingLane extends StatelessWidget {
@@ -208,7 +316,7 @@ class _SwimmingLane extends StatelessWidget {
         SectionHeader(title: title, subtitle: subtitle),
         const SizedBox(height: 16),
         SizedBox(
-          height: isDesktop ? 280 : 260,
+          height: isDesktop ? 380 : 350,
           child: StreamBuilder<List<Plan>>(
             stream: stream,
             builder: (context, snapshot) {
@@ -229,14 +337,14 @@ class _SwimmingLane extends StatelessWidget {
   }
 
   Widget _buildCarousel(BuildContext context, List<Plan> plans) {
-    final cardWidth = isDesktop ? 280.0 : 260.0;
+    final cardWidth = isDesktop ? 300.0 : 280.0;
 
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       scrollDirection: Axis.horizontal,
       clipBehavior: Clip.none,
       itemCount: plans.length,
-      separatorBuilder: (_, __) => const SizedBox(width: 16),
+      separatorBuilder: (_, __) => const SizedBox(width: 24),
       itemBuilder: (context, index) => SizedBox(
         width: cardWidth,
         child: AdventureCard(
@@ -254,10 +362,10 @@ class _SwimmingLane extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       scrollDirection: Axis.horizontal,
       itemCount: 3,
-      separatorBuilder: (_, __) => const SizedBox(width: 16),
+      separatorBuilder: (_, __) => const SizedBox(width: 24),
       itemBuilder: (_, __) => SizedBox(
-        width: isDesktop ? 280.0 : 260.0,
-        child: const SkeletonAdventureCard(variant: AdventureCardVariant.standard),
+        width: isDesktop ? 300.0 : 280.0,
+        child: const SkeletonAdventureCard(),
       ),
     );
   }
@@ -312,7 +420,7 @@ class _YourPlansLane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final userId = auth.currentUserId;
-    final cardWidth = isDesktop ? 280.0 : 260.0;
+    final cardWidth = isDesktop ? 300.0 : 280.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,7 +434,7 @@ class _YourPlansLane extends StatelessWidget {
           _buildSignedOutState(context)
         else
           SizedBox(
-            height: isDesktop ? 280 : 260,
+            height: isDesktop ? 380 : 350,
             child: StreamBuilder(
               stream: userService.streamUser(userId),
               builder: (context, snapshot) {
@@ -359,7 +467,7 @@ class _YourPlansLane extends StatelessWidget {
                         child: AdventureCard(
                           plan: plans[index],
                           variant: AdventureCardVariant.standard,
-                          onTap: () => context.go('/itinerary/${plans[index].id}'),
+                          onTap: () => context.go('/details/${plans[index].id}'),
                         ),
                       ),
                     );
@@ -426,7 +534,7 @@ class _YourPlansLane extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(width: 16),
       itemBuilder: (_, __) => SizedBox(
         width: cardWidth,
-        child: const SkeletonAdventureCard(variant: AdventureCardVariant.standard),
+        child: const SkeletonAdventureCard(),
       ),
     );
   }

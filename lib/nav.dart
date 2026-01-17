@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:waypoint/presentation/marketplace/marketplace_screen.dart';
 import 'package:waypoint/presentation/mytrips/my_trips_screen.dart';
+import 'package:waypoint/presentation/mytrips/create_itinerary_screen.dart';
 import 'package:waypoint/presentation/builder/builder_screen.dart' as builder;
 import 'package:waypoint/presentation/builder/builder_home_screen.dart';
 import 'package:waypoint/presentation/builder/edit_plan_screen.dart';
@@ -15,12 +16,20 @@ import 'package:waypoint/presentation/tracking/tracking_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_success_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_error_screen.dart';
-import 'package:waypoint/presentation/itinerary/itinerary_home_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_setup_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_pack_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_travel_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_define_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_day_screen.dart';
+import 'package:waypoint/presentation/itinerary/itinerary_select_screen.dart';
+import 'package:waypoint/presentation/itinerary/itinerary_review_screen.dart';
+import 'package:waypoint/presentation/trips/member_packing_screen.dart';
+import 'package:waypoint/presentation/mytrips/onboarding/onboarding_name_screen.dart';
+import 'package:waypoint/presentation/mytrips/onboarding/onboarding_version_screen.dart';
+import 'package:waypoint/presentation/mytrips/onboarding/onboarding_date_screen.dart';
+import 'package:waypoint/presentation/mytrips/onboarding/onboarding_image_screen.dart';
+import 'package:waypoint/presentation/trips/join_trip_screen.dart';
+import 'package:waypoint/presentation/trips/trip_members_screen.dart';
 import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'theme.dart';
@@ -31,18 +40,24 @@ class AppRoutes {
   static const String myTrips = '/mytrips';
   static const String builder = '/builder';
   static const String profile = '/profile';
-  static const String planDetails = 'details/:planId';
-  static const String map = 'map';
+  static const String planDetails = '/details/:planId';
+  static const String map = '/map';
   static const String tracking = 'tracking';
   static const String checkout = '/checkout/:planId';
   static const String checkoutSuccess = '/checkout/success/:planId';
   static const String checkoutError = '/checkout/error/:planId';
-  static const String itineraryHome = '/itinerary/:planId';
   static const String itineraryNew = '/itinerary/:planId/new';
   static const String itinerarySetup = '/itinerary/:planId/setup/:tripId';
   static const String itineraryPack = '/itinerary/:planId/pack/:tripId';
   static const String itineraryTravel = '/itinerary/:planId/travel/:tripId';
   static const String itineraryDay = '/itinerary/:planId/day/:tripId/:dayIndex';
+  // Trip customization routes
+  static const String itinerarySelect = '/itinerary/:planId/select/:tripId';
+  static const String itineraryReview = '/itinerary/:planId/review/:tripId';
+  static const String memberPacking = '/trip/:tripId/packing';
+  // Trip sharing routes
+  static const String joinTrip = '/join/:inviteCode';
+  static const String tripMembers = '/trip/:tripId/members';
   static const String adminMigration = '/admin/migration';
 }
 
@@ -58,12 +73,29 @@ class AppRouter {
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/builder/create',
-        builder: (context, state) => const builder.BuilderScreen(),
+        redirect: (context, state) {
+          // Create a temporary ID for new plans
+          return '/builder/new';
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/builder/:planId',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          if (planId == 'new') {
+            return const builder.BuilderScreen();
+          }
+          return builder.BuilderScreen(editPlanId: planId);
+        },
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/builder/edit/:planId',
-        builder: (context, state) => EditPlanScreen(planId: state.pathParameters['planId'] ?? ''),
+        redirect: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          return '/builder/$planId';
+        },
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
@@ -99,9 +131,16 @@ class AppRouter {
           final extra = state.extra as Map<String, dynamic>?;
           final plan = extra?['plan'];
           final buyerId = FirebaseAuth.instance.currentUser?.uid ?? '';
+          final returnToJoin = extra?['returnToJoin'] as bool? ?? false;
+          final inviteCode = extra?['inviteCode'] as String?;
           
           if (plan != null) {
-            return CheckoutScreen(plan: plan, buyerId: buyerId);
+            return CheckoutScreen(
+              plan: plan,
+              buyerId: buyerId,
+              returnToJoin: returnToJoin,
+              inviteCode: inviteCode,
+            );
           }
           
           return FutureBuilder(
@@ -131,7 +170,12 @@ class AppRouter {
                   ),
                 );
               }
-              return CheckoutScreen(plan: snapshot.data!, buyerId: buyerId);
+              return CheckoutScreen(
+                plan: snapshot.data!,
+                buyerId: buyerId,
+                returnToJoin: returnToJoin,
+                inviteCode: inviteCode,
+              );
             },
           );
         },
@@ -147,6 +191,8 @@ class AppRouter {
             orderId: extra?['orderId'],
             planName: extra?['planName'],
             isFree: extra?['isFree'] ?? false,
+            returnToJoin: extra?['returnToJoin'] ?? false,
+            inviteCode: extra?['inviteCode'],
           );
         },
       ),
@@ -163,14 +209,7 @@ class AppRouter {
           );
         },
       ),
-      GoRoute(
-        parentNavigatorKey: _rootNavigatorKey,
-        path: AppRoutes.itineraryHome,
-        builder: (context, state) {
-          final planId = state.pathParameters['planId'] ?? '';
-          return ItineraryHomeScreen(planId: planId);
-        },
-      ),
+      // Removed legacy ItineraryHome route
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: AppRoutes.itineraryNew,
@@ -216,10 +255,119 @@ class AppRouter {
           return ItineraryDayScreen(planId: planId, tripId: tripId, dayIndex: dayIndex);
         },
       ),
+      // Trip customization routes
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.itinerarySelect,
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return ItinerarySelectScreen(planId: planId, tripId: tripId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.itineraryReview,
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return ItineraryReviewScreen(planId: planId, tripId: tripId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.memberPacking,
+        builder: (context, state) {
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return MemberPackingScreen(tripId: tripId);
+        },
+      ),
+      // Trip sharing routes
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.joinTrip,
+        builder: (context, state) {
+          final inviteCode = state.pathParameters['inviteCode'] ?? '';
+          return JoinTripScreen(inviteCode: inviteCode);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.tripMembers,
+        builder: (context, state) {
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return TripMembersScreen(tripId: tripId);
+        },
+      ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: AppRoutes.adminMigration,
         builder: (context, state) => const AdminMigrationScreen(),
+      ),
+      // Onboarding routes without nav bar
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/mytrips/create',
+        builder: (context, state) => const CreateItineraryScreen(),
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/mytrips/onboarding/:planId/name',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          return OnboardingNameScreen(planId: planId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/mytrips/onboarding/:planId/version',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final tripName = state.extra as String? ?? '';
+          return OnboardingVersionScreen(planId: planId, tripName: tripName);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/mytrips/onboarding/:planId/date',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final extra = state.extra as Map<String, dynamic>?;
+          final tripName = extra?['tripName'] as String? ?? '';
+          final versionId = extra?['versionId'] as String? ?? '';
+          return OnboardingDateScreen(
+            planId: planId,
+            tripName: tripName,
+            versionId: versionId,
+          );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/mytrips/onboarding/:planId/image',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final extra = state.extra as Map<String, dynamic>?;
+          final tripId = extra?['tripId'] as String? ?? '';
+          return OnboardingImageScreen(
+            planId: planId,
+            tripId: tripId,
+          );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/details/:planId',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          return PlanDetailsScreen(planId: planId);
+        },
+        routes: [
+          GoRoute(
+            path: 'map',
+            builder: (context, state) => const MapScreen(),
+          ),
+        ],
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -231,21 +379,6 @@ class AppRouter {
               GoRoute(
                 path: AppRoutes.marketplace,
                 builder: (context, state) => const MarketplaceScreen(),
-                routes: [
-                  GoRoute(
-                    path: AppRoutes.planDetails,
-                    builder: (context, state) {
-                      final planId = state.pathParameters['planId'] ?? '';
-                      return PlanDetailsScreen(planId: planId);
-                    },
-                    routes: [
-                      GoRoute(
-                        path: AppRoutes.map,
-                        builder: (context, state) => const MapScreen(),
-                      ),
-                    ],
-                  ),
-                ],
               ),
             ],
           ),

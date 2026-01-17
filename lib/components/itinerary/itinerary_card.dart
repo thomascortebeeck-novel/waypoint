@@ -12,6 +12,10 @@ class ItineraryCard extends StatelessWidget {
   final VoidCallback? onTap;
   final List<PopupMenuEntry<String>>? menuItems;
   final void Function(String value)? onMenuSelected;
+  /// Number of members in the trip (for group travel)
+  final int? memberCount;
+  /// Whether current user is the owner of this trip
+  final bool isOwner;
 
   const ItineraryCard({
     super.key,
@@ -23,6 +27,8 @@ class ItineraryCard extends StatelessWidget {
     this.onTap,
     this.menuItems,
     this.onMenuSelected,
+    this.memberCount,
+    this.isOwner = true,
   });
 
   @override
@@ -85,9 +91,26 @@ class ItineraryCard extends StatelessWidget {
               const SizedBox(height: 8),
               Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
                 if (days != null)
-                  _badge(context, icon: Icons.calendar_today, label: '${days} days'),
+                  _badge(context, icon: Icons.calendar_today, label: '$days days'),
                 if (versionName != null)
                   _badge(context, icon: Icons.label_rounded, label: versionName!),
+                if (memberCount != null && memberCount! > 1)
+                  _badge(context, icon: Icons.group, label: '$memberCount members'),
+                if (!isOwner)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: context.colors.tertiaryContainer.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Joined',
+                      style: context.textStyles.labelSmall?.copyWith(
+                        color: context.colors.tertiary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(12)),

@@ -63,7 +63,8 @@ class MigrationService {
       var versionsCreated = 0;
       var daysCreated = 0;
 
-      // Plan metadata remains unchanged (no version_summaries needed)
+      // Migrate activity category values at plan level
+      await _migrateActivityCategory(planId, batch);
 
       // Create version documents and day documents
       for (final version in plan.versions) {
@@ -102,6 +103,128 @@ class MigrationService {
         versionsCreated: 0,
         daysCreated: 0,
       );
+    }
+  }
+
+  /// Migrate activity category and experience level values
+  Future<void> _migrateActivityCategory(String planId, WriteBatch batch) async {
+    final planRef = _firestore.collection('plans').doc(planId);
+    final planDoc = await planRef.get();
+    if (!planDoc.exists) return;
+
+    final data = planDoc.data()!;
+    final updates = <String, dynamic>{};
+
+    // Migrate activity_category
+    final activityCategory = data['activity_category'] as String?;
+    if (activityCategory != null) {
+      String? newValue;
+      switch (activityCategory) {
+        case 'hikingTrekking':
+        case 'hiking_trekking':
+          newValue = 'hiking';
+          break;
+        case 'winterSports':
+        case 'winter_sports':
+          newValue = 'skis';
+          break;
+        case 'regionalTours':
+        case 'regional_tours':
+          newValue = 'tours';
+          break;
+        case 'cityTrips':
+        case 'city_trips':
+          newValue = 'cityTrips';
+          break;
+        case 'cycling':
+          newValue = 'cycling';
+          break;
+        case 'climbing':
+          newValue = 'climbing';
+          break;
+        // Old values to remove
+        case 'paddling':
+        case 'trailRunning':
+        case 'trail_running':
+        case 'overlanding':
+        case 'horsebackTrekking':
+        case 'horseback_trekking':
+          newValue = null; // Remove deprecated values
+          break;
+        default:
+          newValue = activityCategory; // Keep if already migrated
+      }
+      
+      if (newValue != activityCategory) {
+        updates['activity_category'] = newValue;
+      }
+    }
+
+    if (updates.isNotEmpty) {
+      batch.update(planRef, updates);
+    }
+  }
+
+  /// Migrate experience level values across all versions
+  Future<void> migrateExperienceLevels() async {
+    try {
+      final plansSnap = await _firestore.collection('plans').get();
+      
+      for (final planDoc in plansSnap.docs) {
+        final versionsSnap = await _firestore
+            .collection('plans')
+            .doc(planDoc.id)
+            .collection('versions')
+            .get();
+
+        final batch = _firestore.batch();
+        var updateCount = 0;
+
+        for (final versionDoc in versionsSnap.docs) {
+          final data = versionDoc.data();
+          final experienceLevel = data['experience_level'] as String?;
+          
+          if (experienceLevel != null) {
+            String? newValue;
+            switch (experienceLevel) {
+              case 'easy':
+                newValue = 'beginner';
+                break;
+              case 'moderate':
+                newValue = 'intermediate';
+                break;
+              case 'hard':
+                newValue = 'expert';
+                break;
+              case 'expert':
+                newValue = 'expert';
+                break;
+              default:
+                newValue = experienceLevel; // Keep if already migrated
+            }
+            
+            if (newValue != experienceLevel) {
+              batch.update(versionDoc.reference, {'experience_level': newValue});
+              updateCount++;
+            }
+          }
+
+          // Remove accommodation_style field
+          if (data.containsKey('accommodation_style')) {
+            batch.update(versionDoc.reference, {'accommodation_style': FieldValue.delete()});
+            updateCount++;
+          }
+        }
+
+        if (updateCount > 0) {
+          await batch.commit();
+          debugPrint('Migrated $updateCount fields in plan ${planDoc.id}');
+        }
+      }
+      
+      debugPrint('Experience level migration completed');
+    } catch (e) {
+      debugPrint('Error migrating experience levels: $e');
     }
   }
 

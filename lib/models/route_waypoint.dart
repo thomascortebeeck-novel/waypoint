@@ -8,12 +8,28 @@ enum WaypointType {
   accommodation,
   activity,
   viewingPoint,
+  servicePoint,
 }
 
-/// Accommodation sub-type
-enum AccommodationType {
+/// Accommodation sub-type for POI waypoints
+enum POIAccommodationType {
   hotel,
   airbnb,
+}
+
+/// Meal time for restaurant waypoints
+enum MealTime {
+  breakfast,
+  lunch,
+  dinner,
+}
+
+/// Activity time for activity waypoints
+enum ActivityTime {
+  morning,
+  afternoon,
+  night,
+  allDay,
 }
 
 /// Price range for accommodation
@@ -59,7 +75,7 @@ class RouteWaypoint {
   String? address;
 
   // Accommodation-specific fields
-  AccommodationType? accommodationType; // Only for accommodation type
+  POIAccommodationType? accommodationType; // Only for accommodation type
   String? amadeusPropertyId; // Will be used in Phase 3 for hotels
   List<String>? amenities;
   String? hotelChain;
@@ -67,6 +83,12 @@ class RouteWaypoint {
   String? bookingComUrl;
   String? airbnbPropertyUrl;
   String? airbnbPropertyId;
+
+  // Restaurant-specific fields
+  MealTime? mealTime; // Only for restaurant type
+
+  // Activity-specific fields
+  ActivityTime? activityTime; // Only for activity type
 
   RouteWaypoint({
     String? id,
@@ -89,6 +111,8 @@ class RouteWaypoint {
     this.bookingComUrl,
     this.airbnbPropertyUrl,
     this.airbnbPropertyId,
+    this.mealTime,
+    this.activityTime,
   }) : id = id ?? const Uuid().v4();
 
   Map<String, dynamic> toJson() => {
@@ -112,6 +136,8 @@ class RouteWaypoint {
         if (bookingComUrl != null) 'bookingComUrl': bookingComUrl,
         if (airbnbPropertyUrl != null) 'airbnbPropertyUrl': airbnbPropertyUrl,
         if (airbnbPropertyId != null) 'airbnbPropertyId': airbnbPropertyId,
+        if (mealTime != null) 'mealTime': mealTime!.name,
+        if (activityTime != null) 'activityTime': activityTime!.name,
       };
 
   factory RouteWaypoint.fromJson(Map<String, dynamic> json) => RouteWaypoint(
@@ -134,9 +160,9 @@ class RouteWaypoint {
         phoneNumber: json['phoneNumber'] as String?,
         address: json['address'] as String?,
         accommodationType: json['accommodationType'] != null
-            ? AccommodationType.values.firstWhere(
+            ? POIAccommodationType.values.firstWhere(
                 (e) => e.name == json['accommodationType'],
-                orElse: () => AccommodationType.hotel,
+                orElse: () => POIAccommodationType.hotel,
               )
             : null,
         amadeusPropertyId: json['amadeusPropertyId'] as String?,
@@ -148,6 +174,18 @@ class RouteWaypoint {
         bookingComUrl: json['bookingComUrl'] as String?,
         airbnbPropertyUrl: json['airbnbPropertyUrl'] as String?,
         airbnbPropertyId: json['airbnbPropertyId'] as String?,
+        mealTime: json['mealTime'] != null
+            ? MealTime.values.firstWhere(
+                (e) => e.name == json['mealTime'],
+                orElse: () => MealTime.lunch,
+              )
+            : null,
+        activityTime: json['activityTime'] != null
+            ? ActivityTime.values.firstWhere(
+                (e) => e.name == json['activityTime'],
+                orElse: () => ActivityTime.allDay,
+              )
+            : null,
       );
 
   RouteWaypoint copyWith({
@@ -163,7 +201,7 @@ class RouteWaypoint {
     String? website,
     String? phoneNumber,
     String? address,
-    AccommodationType? accommodationType,
+    POIAccommodationType? accommodationType,
     String? amadeusPropertyId,
     List<String>? amenities,
     String? hotelChain,
@@ -171,6 +209,8 @@ class RouteWaypoint {
     String? bookingComUrl,
     String? airbnbPropertyUrl,
     String? airbnbPropertyId,
+    MealTime? mealTime,
+    ActivityTime? activityTime,
   }) =>
       RouteWaypoint(
         id: id ?? this.id,
@@ -193,6 +233,8 @@ class RouteWaypoint {
         bookingComUrl: bookingComUrl ?? this.bookingComUrl,
         airbnbPropertyUrl: airbnbPropertyUrl ?? this.airbnbPropertyUrl,
         airbnbPropertyId: airbnbPropertyId ?? this.airbnbPropertyId,
+        mealTime: mealTime ?? this.mealTime,
+        activityTime: activityTime ?? this.activityTime,
       );
 }
 
@@ -207,6 +249,8 @@ IconData getWaypointIcon(WaypointType type) {
       return Icons.local_activity;
     case WaypointType.viewingPoint:
       return Icons.visibility;
+    case WaypointType.servicePoint:
+      return Icons.local_convenience_store;
   }
 }
 
@@ -221,6 +265,8 @@ Color getWaypointColor(WaypointType type) {
       return const Color(0xFF9C27B0); // Purple
     case WaypointType.viewingPoint:
       return const Color(0xFFFFC107); // Yellow/Gold
+    case WaypointType.servicePoint:
+      return const Color(0xFF4CAF50); // Green
   }
 }
 
@@ -235,5 +281,97 @@ String getWaypointLabel(WaypointType type) {
       return 'Activity';
     case WaypointType.viewingPoint:
       return 'Viewing Point';
+    case WaypointType.servicePoint:
+      return 'Service Point';
   }
+}
+
+/// Get the display label for a meal time
+String getMealTimeLabel(MealTime mealTime) {
+  switch (mealTime) {
+    case MealTime.breakfast:
+      return 'Breakfast';
+    case MealTime.lunch:
+      return 'Lunch';
+    case MealTime.dinner:
+      return 'Dinner';
+  }
+}
+
+/// Get the icon for a meal time
+IconData getMealTimeIcon(MealTime mealTime) {
+  switch (mealTime) {
+    case MealTime.breakfast:
+      return Icons.free_breakfast;
+    case MealTime.lunch:
+      return Icons.lunch_dining;
+    case MealTime.dinner:
+      return Icons.dinner_dining;
+  }
+}
+
+/// Get the display label for an activity time
+String getActivityTimeLabel(ActivityTime activityTime) {
+  switch (activityTime) {
+    case ActivityTime.morning:
+      return 'Morning';
+    case ActivityTime.afternoon:
+      return 'Afternoon';
+    case ActivityTime.night:
+      return 'Night';
+    case ActivityTime.allDay:
+      return 'All Day';
+  }
+}
+
+/// Get the icon for an activity time
+IconData getActivityTimeIcon(ActivityTime activityTime) {
+  switch (activityTime) {
+    case ActivityTime.morning:
+      return Icons.wb_sunny;
+    case ActivityTime.afternoon:
+      return Icons.wb_cloudy;
+    case ActivityTime.night:
+      return Icons.nightlight_round;
+    case ActivityTime.allDay:
+      return Icons.schedule;
+  }
+}
+
+/// Get chronological order value for sorting waypoints
+/// Returns a value between 0-23 representing hour of day
+int getWaypointChronologicalOrder(RouteWaypoint waypoint) {
+  // Restaurants
+  if (waypoint.mealTime != null) {
+    switch (waypoint.mealTime!) {
+      case MealTime.breakfast:
+        return 7; // 7 AM
+      case MealTime.lunch:
+        return 12; // 12 PM
+      case MealTime.dinner:
+        return 19; // 7 PM
+    }
+  }
+  
+  // Activities
+  if (waypoint.activityTime != null) {
+    switch (waypoint.activityTime!) {
+      case ActivityTime.morning:
+        return 9; // 9 AM
+      case ActivityTime.afternoon:
+        return 14; // 2 PM
+      case ActivityTime.night:
+        return 20; // 8 PM
+      case ActivityTime.allDay:
+        return 8; // 8 AM (start of day)
+    }
+  }
+  
+  // Accommodations - typically evening/night
+  if (waypoint.type == WaypointType.accommodation) {
+    return 22; // 10 PM
+  }
+  
+  // Viewing points and service points - default to midday
+  return 13;
 }

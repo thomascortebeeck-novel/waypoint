@@ -21,6 +21,10 @@ class PlanMeta {
   final DateTime updatedAt;
   /// FAQ items shared across all versions
   final List<FAQItem> faqItems;
+  /// Activity category (optional)
+  final ActivityCategory? activityCategory;
+  /// Accommodation type (optional, auto-set to comfort for city/regional tours)
+  final AccommodationType? accommodationType;
 
   PlanMeta({
     required this.id,
@@ -39,6 +43,8 @@ class PlanMeta {
     required this.createdAt,
     required this.updatedAt,
     this.faqItems = const [],
+    this.activityCategory,
+    this.accommodationType,
   });
 
   factory PlanMeta.fromJson(Map<String, dynamic> json) => PlanMeta(
@@ -60,6 +66,18 @@ class PlanMeta {
     faqItems: (json['faq_items'] as List<dynamic>?)
         ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
         .toList() ?? [],
+    activityCategory: json['activity_category'] != null
+        ? ActivityCategory.values.firstWhere(
+            (e) => e.name == json['activity_category'],
+            orElse: () => ActivityCategory.hiking,
+          )
+        : null,
+    accommodationType: json['accommodation_type'] != null
+        ? AccommodationType.values.firstWhere(
+            (e) => e.name == json['accommodation_type'],
+            orElse: () => AccommodationType.comfort,
+          )
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -79,6 +97,8 @@ class PlanMeta {
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
     'faq_items': faqItems.map((f) => f.toJson()).toList(),
+    'activity_category': activityCategory?.name,
+    'accommodation_type': accommodationType?.name,
   };
 
   PlanMeta copyWith({
@@ -98,6 +118,8 @@ class PlanMeta {
     DateTime? createdAt,
     DateTime? updatedAt,
     List<FAQItem>? faqItems,
+    ActivityCategory? activityCategory,
+    AccommodationType? accommodationType,
   }) => PlanMeta(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -115,16 +137,12 @@ class PlanMeta {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     faqItems: faqItems ?? this.faqItems,
+    activityCategory: activityCategory ?? this.activityCategory,
+    accommodationType: accommodationType ?? this.accommodationType,
   );
 
   /// Convert legacy Plan to PlanMeta (for migration)
   factory PlanMeta.fromPlan(Plan plan) {
-    // Collect FAQ items from all versions (for backward compatibility)
-    // In the new architecture, FAQ is plan-level
-    final faqItems = plan.versions.isNotEmpty && plan.versions.first.faqItems.isNotEmpty
-        ? plan.versions.first.faqItems
-        : const <FAQItem>[];
-    
     return PlanMeta(
       id: plan.id,
       name: plan.name,
@@ -141,7 +159,9 @@ class PlanMeta {
       salesCount: plan.salesCount,
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
-      faqItems: faqItems,
+      faqItems: plan.faqItems,
+      activityCategory: plan.activityCategory,
+      accommodationType: plan.accommodationType,
     );
   }
 }

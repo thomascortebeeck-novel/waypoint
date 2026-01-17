@@ -13,6 +13,8 @@ class TripMeta {
   final DateTime? startDate;
   final DateTime? endDate;
   final bool isActive;
+  final String inviteCode;
+  final bool inviteEnabled;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -26,9 +28,17 @@ class TripMeta {
     this.startDate,
     this.endDate,
     this.isActive = true,
+    String? inviteCode,
+    this.inviteEnabled = true,
     required this.createdAt,
     required this.updatedAt,
-  });
+  }) : inviteCode = inviteCode ?? Trip.generateInviteCode();
+
+  /// Check if a user is the trip owner
+  bool isOwner(String userId) => ownerId == userId;
+
+  /// Check if a user is a member of the trip
+  bool isMember(String userId) => memberIds.contains(userId);
 
   factory TripMeta.fromJson(Map<String, dynamic> json) => TripMeta(
     id: json['id'] as String,
@@ -40,6 +50,8 @@ class TripMeta {
     startDate: (json['start_date'] as Timestamp?)?.toDate(),
     endDate: (json['end_date'] as Timestamp?)?.toDate(),
     isActive: json['is_active'] as bool? ?? true,
+    inviteCode: json['invite_code'] as String? ?? Trip.generateInviteCode(),
+    inviteEnabled: json['invite_enabled'] as bool? ?? true,
     createdAt: (json['created_at'] as Timestamp).toDate(),
     updatedAt: (json['updated_at'] as Timestamp).toDate(),
   );
@@ -54,6 +66,8 @@ class TripMeta {
     if (startDate != null) 'start_date': Timestamp.fromDate(startDate!),
     if (endDate != null) 'end_date': Timestamp.fromDate(endDate!),
     'is_active': isActive,
+    'invite_code': inviteCode,
+    'invite_enabled': inviteEnabled,
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
   };
@@ -68,6 +82,8 @@ class TripMeta {
     DateTime? startDate,
     DateTime? endDate,
     bool? isActive,
+    String? inviteCode,
+    bool? inviteEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => TripMeta(
@@ -80,6 +96,8 @@ class TripMeta {
     startDate: startDate ?? this.startDate,
     endDate: endDate ?? this.endDate,
     isActive: isActive ?? this.isActive,
+    inviteCode: inviteCode ?? this.inviteCode,
+    inviteEnabled: inviteEnabled ?? this.inviteEnabled,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -95,6 +113,8 @@ class TripMeta {
     startDate: trip.startDate,
     endDate: trip.endDate,
     isActive: trip.isActive,
+    inviteCode: trip.inviteCode,
+    inviteEnabled: trip.inviteEnabled,
     createdAt: trip.createdAt,
     updatedAt: trip.updatedAt,
   );
@@ -111,6 +131,8 @@ class TripMeta {
     endDate: endDate,
     packingChecklist: packingChecklist,
     isActive: isActive,
+    inviteCode: inviteCode,
+    inviteEnabled: inviteEnabled,
     createdAt: createdAt,
     updatedAt: updatedAt,
   );

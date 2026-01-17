@@ -169,7 +169,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
               return AdventureCard(
                 plan: plan,
                 variant: AdventureCardVariant.builder,
-                onTap: () => context.push('/builder/edit/${plan.id}'),
+                onTap: () => context.go('/builder/${plan.id}'),
                 onDelete: () => _confirmDelete(context, plan),
               );
             },
@@ -292,7 +292,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       if (!mounted) return;
 
       Navigator.of(context).pop();
-      context.go('/builder/edit/$planId');
+      context.go('/builder/$planId');
     } catch (e) {
       debugPrint('Failed to create draft: $e');
       if (!mounted) return;

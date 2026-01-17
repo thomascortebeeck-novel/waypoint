@@ -104,8 +104,14 @@ export const placesSearch = onCall({
       };
     }
 
+    // Only include types if they exist and are valid
+    // Google Places API (New) has different type names than legacy API
     if (types && types.length > 0) {
-      requestBody.includedPrimaryTypes = types;
+      // Filter out any potentially invalid types
+      const validTypes = types.filter((t) => t && t.length > 0);
+      if (validTypes.length > 0) {
+        requestBody.includedPrimaryTypes = validTypes;
+      }
     }
 
     // Call Google Places API (Autocomplete)
@@ -133,7 +139,23 @@ export const placesSearch = onCall({
 
     return {predictions};
   } catch (error: any) {
-    console.error("Places search failed:", error.response?.data || error.message);
+    // Log detailed error information for debugging
+    if (error.response) {
+      console.error("Places API error:", {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+        request: requestBody,
+      });
+    } else {
+      console.error("Places search failed:", error.message);
+    }
+    
+    // Return more helpful error message
+    if (error.response?.status === 400) {
+      throw new HttpsError("invalid-argument", "Invalid search parameters. Some place types may not be supported.");
+    }
+    
     throw new HttpsError("internal", error.message || "Search failed");
   }
 });

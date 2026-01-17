@@ -98,6 +98,21 @@ class StorageService {
   /// Generates a storage path for day images
   String dayImagePath(String planId, int dayNumber, String extension) =>
       'plans/$planId/days/day_$dayNumber.$extension';
+
+  /// Upload a review photo
+  Future<String> uploadReviewPhoto({
+    required String reviewId,
+    required String userId,
+    required Uint8List photoBytes,
+    required int index,
+  }) async {
+    final path = 'reviews/$userId/$reviewId/photo_$index.jpg';
+    return await uploadImage(
+      path: path,
+      bytes: photoBytes,
+      contentType: 'image/jpeg',
+    );
+  }
 }
 
 /// Result of picking an image

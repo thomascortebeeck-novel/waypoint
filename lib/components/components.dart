@@ -29,3 +29,6 @@ export 'dialogs/waypoint_bottom_sheet.dart';
 
 // Lists
 export 'lists/settings_item.dart';
+
+// Waypoint cards
+export 'waypoint/unified_waypoint_card.dart';

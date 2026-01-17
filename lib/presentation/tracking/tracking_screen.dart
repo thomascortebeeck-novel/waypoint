@@ -246,11 +246,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
     for (int i = 0; i < profile.length - 1; i++) {
       final a = profile[i];
       final b = profile[i + 1];
-      if (a[0] <= alongMeters && alongMeters <= b[0]) {
-        d1 = a[0];
-        d2 = b[0];
-        e1 = a[1];
-        e2 = b[1];
+      if (a.distance <= alongMeters && alongMeters <= b.distance) {
+        d1 = a.distance;
+        d2 = b.distance;
+        e1 = a.elevation;
+        e2 = b.elevation;
         break;
       }
     }

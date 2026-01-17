@@ -271,9 +271,7 @@ class ShareBottomSheet extends StatelessWidget {
 
   Future<void> _systemShare(BuildContext context) async {
     Navigator.pop(context);
-    await SharePlus.instance.share(
-      ShareParams(text: shareText),
-    );
+    await Share.share(shareText);
   }
 
   Future<void> _sendSms(BuildContext context) async {

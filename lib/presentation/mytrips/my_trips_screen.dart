@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
-import 'package:waypoint/presentation/widgets/adventure_card.dart';
+import 'package:waypoint/presentation/mytrips/widgets/itinerary_overview_card.dart';
+import 'package:waypoint/presentation/mytrips/widgets/horizontal_trip_card.dart';
+import 'package:waypoint/components/feedback/waypoint_skeleton.dart';
+import 'package:waypoint/components/feedback/waypoint_empty_state.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
@@ -27,27 +31,44 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     final isDesktop = screenWidth >= 1024;
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          _buildHeader(context, isDesktop),
-          SliverPadding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 32 : 16,
-              vertical: 8,
-            ),
-            sliver: uid == null
-                ? SliverToBoxAdapter(child: _SignedOutState())
-                : _buildTripsContent(context, uid, isDesktop),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 32)),
-        ],
-      ),
+      floatingActionButton: uid == null
+          ? null
+          : (isDesktop
+              ? FloatingActionButton.extended(onPressed: () => context.go('/mytrips/create'), icon: const Icon(Icons.add), label: const Text('New Itinerary'))
+              : FloatingActionButton(onPressed: () => context.go('/mytrips/create'), child: const Icon(Icons.add))),
+      body: CustomScrollView(slivers: [
+        _buildHeader(context, isDesktop),
+        SliverPadding(
+          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16, vertical: 8),
+          sliver: uid == null 
+              ? SliverToBoxAdapter(child: _SignedOutState()) 
+              : StreamBuilder<List<Trip>>(
+                  stream: _trips.streamTripsForUser(uid),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return SliverToBoxAdapter(child: _LoadingState(isDesktop: isDesktop));
+                    }
+                    if (snapshot.hasError) {
+                      return SliverToBoxAdapter(
+                        child: WaypointEmptyState.error(
+                          message: 'Error loading trips: ${snapshot.error}',
+                          onRetry: () => setState(() {}),
+                        ),
+                      );
+                    }
+                    final trips = snapshot.data ?? [];
+                    return _buildTripsContent(context, uid, isDesktop, trips);
+                  },
+                ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+      ]),
     );
   }
 
   Widget _buildHeader(BuildContext context, bool isDesktop) {
     return SliverAppBar(
-      expandedHeight: isDesktop ? 140 : 120,
+      expandedHeight: isDesktop ? 160 : 130,
       floating: false,
       pinned: true,
       elevation: 0,
@@ -85,7 +106,7 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Your planned trips and itineraries',
+                    'Your personalized trip plans',
                     style: context.textStyles.bodyLarge?.copyWith(
                       color: context.colors.onSurface.withValues(alpha: 0.6),
                     ),
@@ -115,82 +136,93 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     );
   }
 
-  Widget _buildTripsContent(BuildContext context, String uid, bool isDesktop) {
-    return StreamBuilder<List<Trip>>(
-      stream: _trips.streamTripsForUser(uid),
+  Widget _buildTripsContent(BuildContext context, String uid, bool isDesktop, List<Trip> trips) {
+    if (trips.isEmpty) {
+      return SliverToBoxAdapter(child: _EmptyTripsState());
+    }
+
+    // Get plans for these trips
+    final planIds = trips.map((t) => t.planId).toSet().toList();
+    
+    return FutureBuilder<List<Plan>>(
+      future: _plans.getPlansByIds(planIds),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
+          return SliverToBoxAdapter(child: _LoadingState(isDesktop: isDesktop));
+        }
+        
+        if (snapshot.hasError) {
           return SliverToBoxAdapter(
-            child: _LoadingState(isDesktop: isDesktop),
+            child: WaypointEmptyState.error(
+              message: 'Error loading plans: ${snapshot.error}',
+              onRetry: () => setState(() {}),
+            ),
           );
         }
-
-        final trips = snapshot.data ?? [];
-        if (trips.isEmpty) {
+        
+        final plans = snapshot.data ?? [];
+        if (plans.isEmpty) {
           return SliverToBoxAdapter(child: _EmptyTripsState());
         }
 
-        final planIds = trips.map((t) => t.planId).toSet().toList();
+        // Merge plans by id for quick lookup
+        final map = {for (final p in plans) p.id: p};
+        
+        // Separate trips by ownership
+        final ownedTrips = trips.where((t) => t.isOwner(uid)).toList();
+        final joinedTrips = trips.where((t) => !t.isOwner(uid)).toList();
 
-        return FutureBuilder<List<Plan>>(
-          future: _plans.getPlansByIds(planIds),
-          builder: (context, plansSnapshot) {
-            if (!plansSnapshot.hasData) {
-              return SliverToBoxAdapter(
-                child: _LoadingState(isDesktop: isDesktop),
-              );
-            }
-
-            final plans = plansSnapshot.data ?? [];
-            if (plans.isEmpty) {
-              return SliverToBoxAdapter(child: _EmptyTripsState());
-            }
-
-            return _buildTripsGrid(context, plans, isDesktop);
-          },
+        return SliverList(
+          delegate: SliverChildListDelegate([
+            // Owned trips section
+            if (ownedTrips.isNotEmpty) ...[
+              ...ownedTrips.map((trip) {
+                final plan = map[trip.planId];
+                if (plan == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: HorizontalTripCard(trip: trip, plan: plan, userId: uid),
+                );
+              }),
+            ],
+            
+            // Joined trips section
+            if (joinedTrips.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              _SectionHeader(
+                title: 'Trips I\'ve Joined',
+                subtitle: '${joinedTrips.length} trip${joinedTrips.length != 1 ? 's' : ''} from others',
+                icon: Icons.group,
+              ),
+              const SizedBox(height: 12),
+              ...joinedTrips.map((trip) {
+                final plan = map[trip.planId];
+                if (plan == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: HorizontalTripCard(trip: trip, plan: plan, userId: uid),
+                );
+              }),
+            ],
+          ]),
         );
       },
     );
   }
 
-  Widget _buildTripsGrid(BuildContext context, List<Plan> plans, bool isDesktop) {
-    return SliverLayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.crossAxisExtent;
-        final crossAxisCount = width > 1200 ? 3 : (width > 700 ? 2 : 1);
-        final aspectRatio = crossAxisCount == 1 ? 16 / 12 : 4 / 5;
-
-        return SliverGrid(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            mainAxisSpacing: 20,
-            crossAxisSpacing: 20,
-            childAspectRatio: aspectRatio,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final plan = plans[index];
-              return AdventureCard(
-                plan: plan,
-                variant: AdventureCardVariant.fullWidth,
-                onTap: () => context.go('/itinerary/${plan.id}'),
-              );
-            },
-            childCount: plans.length,
-          ),
-        );
-      },
-    );
+  Widget _buildTripsGrid(BuildContext context, List<Trip> trips, Map<String, Plan> plansById, bool isDesktop, String userId) {
+    // Deprecated: grid layout no longer used. Kept for reference.
+    return const SizedBox.shrink();
   }
 }
 
 class _SignedOutState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return EmptyStateWidget(
+    return WaypointEmptyState(
       icon: Icons.lock_outline,
-      title: 'Sign in to track your adventures',
-      subtitle: 'Access your active trips, track progress, and manage your packing lists',
+      title: 'Sign in to view your itineraries',
+      description: 'Create and manage your personalized trip plans',
       actionLabel: 'Go to Profile',
       onAction: () => context.go('/profile'),
     );
@@ -200,12 +232,12 @@ class _SignedOutState extends StatelessWidget {
 class _EmptyTripsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return EmptyStateWidget(
+    return WaypointEmptyState(
       icon: Icons.backpack_outlined,
-      title: 'Start your first adventure',
-      subtitle: 'Browse expertly crafted routes and begin tracking your journey today',
-      actionLabel: 'Explore Adventures',
-      onAction: () => context.go('/'),
+      title: 'No itineraries yet',
+      description: 'Create your first personalized trip itinerary',
+      actionLabel: 'Create Itinerary',
+      onAction: () => context.go('/mytrips/create'),
     );
   }
 }
@@ -217,30 +249,64 @@ class _LoadingState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(48),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 32,
-              height: 32,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: context.colors.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Loading your adventures...',
-              style: context.textStyles.bodyMedium?.copyWith(
-                color: context.colors.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-          ],
+    // Skeleton list loading state to match horizontal list layout
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(children: const [
+        WaypointListItemSkeleton(),
+        SizedBox(height: 16),
+        WaypointListItemSkeleton(),
+        SizedBox(height: 16),
+        WaypointListItemSkeleton(),
+      ]),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  const _SectionHeader({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: context.colors.primaryContainer.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 18, color: context.colors.primary),
         ),
-      ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: context.textStyles.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: context.textStyles.bodySmall?.copyWith(
+                  color: context.colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

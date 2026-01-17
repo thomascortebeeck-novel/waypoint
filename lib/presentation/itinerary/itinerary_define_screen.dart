@@ -50,7 +50,6 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
       setState(() {
         _plan = plan;
         _selectedVersionId = plan?.versions.firstOrNull?.id;
-        _nameController.text = plan == null ? '' : 'Trip for ${plan.name}';
         _loading = false;
       });
     } catch (e) {
@@ -71,7 +70,7 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
     if (_plan == null) {
       return Scaffold(
         appBar: AppBar(
-          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/itinerary/${widget.planId}')),
+          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/mytrips')),
           title: const Text('New Itinerary'),
         ),
         body: const Center(child: Text('Could not load plan')),
@@ -80,7 +79,7 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/itinerary/${widget.planId}')),
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/mytrips')),
         title: const Text('New Itinerary'),
         centerTitle: false,
       ),
@@ -112,7 +111,10 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
           // Name
           Text('Itinerary name', style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          WaypointTextField(controller: _nameController, hint: 'e.g., Summer Adventure 2026'),
+          WaypointTextField(
+            controller: _nameController,
+            hint: 'Give your trip an original name',
+          ),
           const SizedBox(height: 24),
 
           // Version selection FIRST
@@ -169,7 +171,7 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
         ],
       ),
       bottomNavigationBar: ItineraryBottomBar(
-        onBack: () => context.go('/itinerary/${widget.planId}'),
+        onBack: () => context.go('/mytrips'),
         backLabel: 'Back',
         onNext: _saving || _selectedVersionId == null ? null : _onCreate,
         nextEnabled: !_saving && _selectedVersionId != null && _nameController.text.trim().isNotEmpty,
@@ -206,7 +208,7 @@ class _ItineraryDefineScreenState extends State<ItineraryDefineScreen> {
       final id = await _trips.createTrip(planId: widget.planId, ownerId: uid, title: name);
       await _trips.setTripVersionAndDates(tripId: id, versionId: _selectedVersionId!, start: _startDate, end: _endDate);
       if (!mounted) return;
-      context.push('/itinerary/${widget.planId}/pack/$id');
+      context.push('/itinerary/${widget.planId}/select/$id');
     } catch (e) {
       debugPrint('Create itinerary failed: $e');
       if (!mounted) return;
