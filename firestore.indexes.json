@@ -69,6 +69,20 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "invite_code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "invite_enabled",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "trips",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "member_ids",
           "arrayConfig": "CONTAINS"
         },

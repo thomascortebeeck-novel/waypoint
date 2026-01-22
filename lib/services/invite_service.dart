@@ -86,17 +86,21 @@ class InviteService {
   }
 
   /// Get trip by invite code
+  /// Note: Query includes invite_enabled filter to satisfy Firestore security rules
   Future<Trip?> getTripByInviteCode(String inviteCode) async {
     try {
       debugPrint('InviteService: Looking up trip with invite_code: $inviteCode');
+      // Must include invite_enabled == true in query to satisfy security rules
+      // Security rules allow reading trips where invite_enabled == true
       final snap = await _firestore
           .collection(_tripsCollection)
           .where('invite_code', isEqualTo: inviteCode)
+          .where('invite_enabled', isEqualTo: true)
           .limit(1)
           .get();
       
       if (snap.docs.isEmpty) {
-        debugPrint('InviteService: No trip found with invite_code: $inviteCode');
+        debugPrint('InviteService: No trip found with invite_code: $inviteCode (or invites disabled)');
         return null;
       }
       debugPrint('InviteService: Found trip: ${snap.docs.first.id}');
