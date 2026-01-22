@@ -68,14 +68,24 @@ class _ItinerarySetupScreenState extends State<ItinerarySetupScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/mytrips'),
+        leading: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: GestureDetector(
+            onTap: () => context.go('/mytrips'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.terrain, color: context.colors.primary, size: 24),
+                const SizedBox(width: 4),
+              ],
+            ),
+          ),
         ),
+        leadingWidth: 80,
         title: Text(_trip!.title ?? _plan!.name, style: context.textStyles.titleLarge),
         actions: [
-          // Share button (only if ready or owner)
-          if (isReady || isOwner)
+          // Share button (owner can always share/invite)
+          if (isOwner)
             IconButton(
               icon: const Icon(Icons.share),
               onPressed: () => showModalBottomSheet(
@@ -381,8 +391,8 @@ class _QuickActionsGrid extends StatelessWidget {
               Expanded(
                 child: _QuickActionCard(
                   icon: Icons.edit,
-                  label: 'Edit Selections',
-                  description: 'Modify waypoints',
+                  label: 'Plan & Book Accommodations',
+                  description: 'Customize your trip',
                   color: Colors.purple,
                   onTap: () => context.push('/itinerary/${plan.id}/select/${trip.id}'),
                 ),
@@ -495,8 +505,8 @@ class _CustomizationStatusCard extends StatelessWidget {
         borderColor = Colors.orange.shade200;
         icon = Icons.edit_note;
         title = 'Complete Your Trip Setup';
-        description = 'Select waypoints for each day before inviting friends.';
-        actionLabel = 'Start Customizing';
+        description = 'Select accommodations, restaurants, and activities.';
+        actionLabel = 'Start Planning';
         onAction = () => context.push('/itinerary/$planId/select/${trip.id}');
         break;
       case TripCustomizationStatus.customizing:
@@ -504,8 +514,8 @@ class _CustomizationStatusCard extends StatelessWidget {
         borderColor = Colors.blue.shade200;
         icon = Icons.tune;
         title = 'Continue Customizing';
-        description = 'Finish selecting waypoints for your trip.';
-        actionLabel = 'Continue';
+        description = 'Finish selecting accommodations and activities.';
+        actionLabel = 'Continue Planning';
         onAction = () => context.push('/itinerary/$planId/select/${trip.id}');
         break;
       case TripCustomizationStatus.ready:
@@ -514,7 +524,7 @@ class _CustomizationStatusCard extends StatelessWidget {
         icon = Icons.check_circle;
         title = 'Trip Ready!';
         description = 'Your trip is set up and ready to share with friends.';
-        actionLabel = 'Edit Selections';
+        actionLabel = 'Plan & Book Accommodations';
         onAction = () => context.push('/itinerary/$planId/select/${trip.id}');
         break;
     }

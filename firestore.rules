@@ -180,8 +180,11 @@ service cloud.firestore {
     // ============================================
     match /trips/{tripId} {
       // Trip members can read their trips
+      // Signed-in users can read trips with invites enabled (for invite code lookup)
       // Admins can read all trips
-      allow read: if (isSignedIn() && request.auth.uid in resource.data.member_ids) || isAdmin();
+      allow read: if (isSignedIn() && request.auth.uid in resource.data.member_ids) || 
+                    (isSignedIn() && resource.data.invite_enabled == true) ||
+                    isAdmin();
       
       // Only signed-in users can create trips
       // Must be the owner

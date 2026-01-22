@@ -63,6 +63,8 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   // POI waypoints
   final List<RouteWaypoint> _poiWaypoints = [];
   bool _waypointsExpanded = true;
+  bool _hintDismissed = false;
+  bool _addingWaypointViaMap = false; // True when waiting for user to tap map to add waypoint
 
   @override
   void initState() {
@@ -75,8 +77,13 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
         _previewGeometry = widget.initial!.geometry;
         _previewDistance = widget.initial!.distance;
         _previewDuration = widget.initial!.duration;
-        if (widget.initial!.waypoints.isNotEmpty && _points.isEmpty) {
+        // Only load route points if there's no preview geometry
+        // If geometry exists, it was already snapped and we don't want to lose that
+        if (widget.initial!.waypoints.isNotEmpty && _points.isEmpty && _previewGeometry == null) {
           _points.addAll(widget.initial!.waypoints.map((w) => ll.LatLng(w['lat']!, w['lng']!)));
+        } else if (widget.initial!.routePoints.isNotEmpty && _points.isEmpty) {
+          // Load routePoints for editing
+          _points.addAll(widget.initial!.routePoints.map((w) => ll.LatLng(w['lat']!, w['lng']!)));
         }
         // Load existing POI waypoints
         if (widget.initial!.poiWaypoints.isNotEmpty) {
@@ -98,9 +105,54 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     super.dispose();
   }
 
+  /// Handle back button press - return current route state to keep waypoint order in sync
+  void _handleBackPress() {
+    // If we have waypoints or route data, return the current state
+    if (_poiWaypoints.isNotEmpty || _points.isNotEmpty || _previewGeometry != null) {
+      // CRITICAL: Always preserve preview geometry (contains snapped route)
+      Map<String, dynamic> geometry;
+      if (_previewGeometry != null) {
+        geometry = _previewGeometry!;
+      } else if (_points.isNotEmpty) {
+        // Create geometry from route points if no preview exists
+        geometry = {
+          'type': 'LineString',
+          'coordinates': _points.map((p) => [p.longitude, p.latitude]).toList(),
+        };
+      } else if (_poiWaypoints.isNotEmpty) {
+        // Create empty geometry centered on first waypoint as last resort
+        final firstWp = _poiWaypoints.first;
+        geometry = {
+          'type': 'LineString',
+          'coordinates': [[firstWp.position.longitude, firstWp.position.latitude]],
+        };
+      } else {
+        // Nothing to save, just pop
+        context.pop();
+        return;
+      }
+
+      final route = DayRoute(
+        geometry: geometry,
+        distance: _previewDistance ?? 0,
+        duration: _previewDuration ?? 0,
+        routePoints: _points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+        elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : null,
+        ascent: _previewAscent,
+        descent: _previewDescent,
+        poiWaypoints: _poiWaypoints.map((w) => w.toJson()).toList(),
+      );
+      context.pop(route);
+    } else {
+      // No data to preserve, just pop normally
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Use first waypoint position if available, otherwise first route point, otherwise default
+    // Default to Norway coordinates if no points exist
     final center = _poiWaypoints.isNotEmpty 
         ? _poiWaypoints.first.position 
         : (_points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5));
@@ -111,7 +163,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
         scrolledUnderElevation: 0,
         elevation: 0,
         toolbarHeight: 56,
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()),
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _handleBackPress),
         title: Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
         actions: [
           Padding(
@@ -137,6 +189,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                   snapToTrail: _snapToTrail,
                   onToggleSnap: (v) => setState(() => _snapToTrail = v),
                   poiWaypoints: _poiWaypoints,
+                  routePoints: _points,
                   previewDistance: _previewDistance,
                   previewDuration: _previewDuration,
                   elevation: _previewElevation,
@@ -145,6 +198,21 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                   busy: _busy,
                   onAddWaypoint: _showAddWaypointDialog,
                   onEditWaypoint: _editWaypoint,
+                  onAddRoutePoint: _showAddRoutePointDialog,
+                  onDeleteRoutePoint: (index) {
+                    setState(() {
+                      _points.removeAt(index);
+                    });
+                    _updatePreview();
+                  },
+                  onReorderRoutePoints: (oldIndex, newIndex) {
+                    setState(() {
+                      if (newIndex > oldIndex) newIndex -= 1;
+                      final item = _points.removeAt(oldIndex);
+                      _points.insert(newIndex, item);
+                    });
+                    _updatePreview();
+                  },
                   onPreview: _points.length < 2 ? null : _updatePreview,
                   onSave: (_points.length < 2 && _poiWaypoints.isEmpty) ? null : _buildAndSave,
                   onReorder: (oldIndex, newIndex) {
@@ -157,6 +225,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                       }
                     });
                   },
+                  onCancel: _handleBackPress,
                 ),
               ),
               Expanded(
@@ -183,7 +252,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                           tileSize: 512,
                           zoomOffset: -1,
                         ),
-                        if (_previewGeometry != null)
+                        if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
                           fm.PolylineLayer(
                             polylines: [
                               fm.Polyline(
@@ -203,22 +272,25 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                                   point: _points[i],
                                   width: 44,
                                   height: 44,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: i == 0
-                                          ? const Color(0xFF4CAF50)
-                                          : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 3),
-                                      boxShadow: [
-                                        BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
-                                      ],
-                                    ),
-                                    child: Center(
-                                      child: Icon(
-                                        i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
-                                        color: Colors.white,
-                                        size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                                  child: GestureDetector(
+                                    onTap: () => _showRoutePointOptions(i),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: i == 0
+                                            ? const Color(0xFF4CAF50)
+                                            : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 3),
+                                        boxShadow: [
+                                          BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+                                        ],
+                                      ),
+                                      child: Center(
+                                        child: Icon(
+                                          i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
+                                          color: Colors.white,
+                                          size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -306,7 +378,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                   tileSize: 512,
                   zoomOffset: -1,
                 ),
-                if (_previewGeometry != null)
+                if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
                   fm.PolylineLayer(
                     polylines: [
                       fm.Polyline(
@@ -326,22 +398,25 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                           point: _points[i],
                           width: 44,
                           height: 44,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: i == 0
-                                  ? const Color(0xFF4CAF50)
-                                  : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
-                              boxShadow: [
-                                BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
-                              ],
-                            ),
-                            child: Center(
-                              child: Icon(
-                                i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
-                                color: Colors.white,
-                                size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                          child: GestureDetector(
+                            onTap: () => _showRoutePointOptions(i),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: i == 0
+                                    ? const Color(0xFF4CAF50)
+                                    : (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 3),
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+                                ],
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
+                                  color: Colors.white,
+                                  size: i == _points.length - 1 || i == 0 ? 20 : 14,
+                                ),
                               ),
                             ),
                           ),
@@ -447,6 +522,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
           // Bottom draggable panel
           _BottomPanel(
             poiWaypoints: _poiWaypoints,
+            routePoints: _points,
             previewDistance: _previewDistance,
             previewDuration: _previewDuration,
             elevation: _previewElevation,
@@ -455,6 +531,21 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
             busy: _busy,
             onAddWaypoint: _showAddWaypointDialog,
             onEditWaypoint: _editWaypoint,
+            onAddRoutePoint: _showAddRoutePointDialog,
+            onDeleteRoutePoint: (index) {
+              setState(() {
+                _points.removeAt(index);
+              });
+              _updatePreview();
+            },
+            onReorderRoutePoints: (oldIndex, newIndex) {
+              setState(() {
+                if (newIndex > oldIndex) newIndex -= 1;
+                final item = _points.removeAt(oldIndex);
+                _points.insert(newIndex, item);
+              });
+              _updatePreview();
+            },
             onPreview: _points.length < 2 ? null : _updatePreview,
             onSave: (_points.length < 2 && _poiWaypoints.isEmpty) ? null : _buildAndSave,
             onReorder: (oldIndex, newIndex) {
@@ -661,12 +752,19 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
 
     setState(() => _busy = true);
     try {
-      // Create geometry - either from preview or empty if only waypoints
+      // CRITICAL: Always use preview geometry if it exists (it contains the snapped route)
+      // Only create fallback geometry if there's no preview at all
       Map<String, dynamic> geometry;
       if (_previewGeometry != null) {
         geometry = _previewGeometry!;
+      } else if (_points.isNotEmpty) {
+        // Create geometry from route points if no preview exists
+        geometry = {
+          'type': 'LineString',
+          'coordinates': _points.map((p) => [p.longitude, p.latitude]).toList(),
+        };
       } else if (_poiWaypoints.isNotEmpty) {
-        // Create empty geometry centered on first waypoint
+        // Create empty geometry centered on first waypoint as last resort
         final firstWp = _poiWaypoints.first;
         geometry = {
           'type': 'LineString',
@@ -779,6 +877,13 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   Future<void> _showMapTapActionPicker(BuildContext context, ll.LatLng latLng) async {
+    // If we're in waypoint-adding mode, show the waypoint dialog directly
+    if (_addingWaypointViaMap) {
+      setState(() => _addingWaypointViaMap = false);
+      await _showWaypointDialogAtLocation(latLng);
+      return;
+    }
+
     final action = await showDialog<String>(
       context: context,
       builder: (context) => Dialog(
@@ -849,6 +954,32 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     }
   }
 
+  /// Show waypoint dialog at a specific location (when adding via map tap from + button)
+  Future<void> _showWaypointDialogAtLocation(ll.LatLng latLng) async {
+    final result = await showDialog<RouteWaypoint>(
+      context: context,
+      builder: (context) => _AddWaypointDialog(
+        proximityBias: latLng,
+      ),
+    );
+
+    if (result != null && mounted) {
+      // Check if it's a route point - if so, add to _points, otherwise to _poiWaypoints
+      if (result.type == WaypointType.routePoint) {
+        setState(() {
+          _points.add(result.position);
+          _hintDismissed = true;
+        });
+        await _updatePreview();
+      } else {
+        setState(() {
+          _poiWaypoints.add(result);
+          _map.move(result.position, _map.camera.zoom);
+        });
+      }
+    }
+  }
+
   Future<void> _addWaypointAtLocation(WaypointType type, ll.LatLng position) async {
     final result = await showDialog<RouteWaypoint>(
       context: context,
@@ -915,6 +1046,61 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
       setState(() {
         _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
       });
+    }
+  }
+
+  Future<void> _showAddRoutePointDialog() async {
+    // Just show a hint to tap the map
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Tap on the map to add a route point'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _showRoutePointOptions(int index) async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Route Point ${index + 1}',
+                style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${_points[index].latitude.toStringAsFixed(4)}, ${_points[index].longitude.toStringAsFixed(4)}',
+                style: context.textStyles.bodySmall?.copyWith(color: Colors.grey.shade600),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              _ActionTile(
+                icon: Icons.delete,
+                color: Colors.red,
+                label: 'Delete Point',
+                onTap: () => Navigator.of(context).pop('delete'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted || action == null) return;
+
+    if (action == 'delete') {
+      setState(() {
+        _points.removeAt(index);
+      });
+      await _updatePreview();
     }
   }
 
@@ -1007,24 +1193,29 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   Future<void> _showAddWaypointDialog() async {
-    ll.LatLng? proximityBias;
-    if (_points.isNotEmpty) {
-      final midIndex = _points.length ~/ 2;
-      proximityBias = _points[midIndex];
-    }
-    
+    // Show the waypoint dialog directly (using user's current map center as proximity bias)
+    final center = _map.camera.center;
     final result = await showDialog<RouteWaypoint>(
       context: context,
       builder: (context) => _AddWaypointDialog(
-        proximityBias: proximityBias,
+        proximityBias: center,
       ),
     );
 
     if (result != null && mounted) {
-      setState(() {
-        _poiWaypoints.add(result);
-        _map.move(result.position, _map.camera.zoom);
-      });
+      // Check if it's a route point - if so, add to _points, otherwise to _poiWaypoints
+      if (result.type == WaypointType.routePoint) {
+        setState(() {
+          _points.add(result.position);
+          _hintDismissed = true;
+        });
+        await _updatePreview();
+      } else {
+        setState(() {
+          _poiWaypoints.add(result);
+          _map.move(result.position, _map.camera.zoom);
+        });
+      }
     }
   }
 }
@@ -1295,15 +1486,19 @@ class _FloatingSearchBarState extends State<_FloatingSearchBar> {
 
 class _BottomPanel extends StatelessWidget {
   final List<RouteWaypoint> poiWaypoints;
+  final List<ll.LatLng> routePoints;
   final double? previewDistance; final int? previewDuration;
   final List<ElevationPoint> elevation; final double? ascent; final double? descent;
   final bool busy;
   final VoidCallback onAddWaypoint; final void Function(RouteWaypoint) onEditWaypoint;
+  final VoidCallback onAddRoutePoint; final void Function(int) onDeleteRoutePoint;
+  final void Function(int oldIndex, int newIndex) onReorderRoutePoints;
   final VoidCallback? onPreview; final VoidCallback? onSave;
   final void Function(int oldIndex, int newIndex) onReorder;
 
   const _BottomPanel({
     required this.poiWaypoints,
+    required this.routePoints,
     required this.previewDistance,
     required this.previewDuration,
     required this.elevation,
@@ -1312,6 +1507,9 @@ class _BottomPanel extends StatelessWidget {
     required this.busy,
     required this.onAddWaypoint,
     required this.onEditWaypoint,
+    required this.onAddRoutePoint,
+    required this.onDeleteRoutePoint,
+    required this.onReorderRoutePoints,
     required this.onPreview,
     required this.onSave,
     required this.onReorder,
@@ -1332,6 +1530,50 @@ class _BottomPanel extends StatelessWidget {
               Center(
                 child: Container(width: 44, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
               ),
+              // Route Points Section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
+                    child: Row(children: [
+                      Text('Route Points', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(999)),
+                        child: Text('${routePoints.length}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: onAddRoutePoint,
+                        style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.1)),
+                        icon: const Icon(Icons.add, color: Color(0xFF4CAF50)),
+                        tooltip: 'Add route point',
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+              if (routePoints.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(children: [
+                    for (int i = 0; i < routePoints.length; i++)
+                      _RoutePointTile(
+                        index: i,
+                        point: routePoints[i],
+                        isStart: i == 0,
+                        isEnd: i == routePoints.length - 1,
+                        onDelete: () => onDeleteRoutePoint(i),
+                        onMoveUp: i == 0 ? null : () => onReorderRoutePoints(i, i - 1),
+                        onMoveDown: i == routePoints.length - 1 ? null : () => onReorderRoutePoints(i, i + 2),
+                      ),
+                  ]),
+                ),
+              const SizedBox(height: 16),
+              // Waypoints Section
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Align(
@@ -1419,23 +1661,16 @@ class _BottomPanel extends StatelessWidget {
                   alignment: Alignment.center,
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: isDesktop ? 500 : double.infinity),
-                    child: Row(children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: busy ? null : onPreview,
-                          icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.visibility),
-                          label: const Text('Preview'),
-                        ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: busy ? null : onSave,
+                        icon: busy 
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.check_circle),
+                        label: const Text('Build & Save'),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: busy ? null : onSave,
-                          icon: const Icon(Icons.check_circle),
-                          label: const Text('Build & Save'),
-                        ),
-                      ),
-                    ]),
+                    ),
                   ),
                 ),
               ),
@@ -1465,17 +1700,22 @@ class _BottomPanel extends StatelessWidget {
 class _DesktopSidebar extends StatelessWidget {
   final bool snapToTrail; final ValueChanged<bool> onToggleSnap;
   final List<RouteWaypoint> poiWaypoints;
+  final List<ll.LatLng> routePoints;
   final double? previewDistance; final int? previewDuration;
   final List<ElevationPoint> elevation; final double? ascent; final double? descent;
   final bool busy;
   final VoidCallback onAddWaypoint; final void Function(RouteWaypoint) onEditWaypoint;
+  final VoidCallback onAddRoutePoint; final void Function(int) onDeleteRoutePoint;
+  final void Function(int oldIndex, int newIndex) onReorderRoutePoints;
   final VoidCallback? onPreview; final VoidCallback? onSave;
   final void Function(int oldIndex, int newIndex) onReorder;
+  final VoidCallback onCancel;
 
   const _DesktopSidebar({
     required this.snapToTrail,
     required this.onToggleSnap,
     required this.poiWaypoints,
+    required this.routePoints,
     required this.previewDistance,
     required this.previewDuration,
     required this.elevation,
@@ -1484,9 +1724,13 @@ class _DesktopSidebar extends StatelessWidget {
     required this.busy,
     required this.onAddWaypoint,
     required this.onEditWaypoint,
+    required this.onAddRoutePoint,
+    required this.onDeleteRoutePoint,
+    required this.onReorderRoutePoints,
     required this.onPreview,
     required this.onSave,
     required this.onReorder,
+    required this.onCancel,
   });
 
   @override
@@ -1532,12 +1776,64 @@ class _DesktopSidebar extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 16),
+                  // Route Points section
+                  Container(
+                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(children: [
+                      Text('Route Points', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(999)),
+                        child: Text('${routePoints.length}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: onAddRoutePoint,
+                        style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.1)),
+                        icon: const Icon(Icons.add, color: Color(0xFF4CAF50)),
+                        tooltip: 'Add route point',
+                      ),
+                    ]),
+                  ),
+                  if (routePoints.isEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.info_outline, size: 16),
+                        const SizedBox(width: 8),
+                        const Expanded(child: Text('Add points to define your route path')),
+                      ]),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    Column(children: [
+                      for (int i = 0; i < routePoints.length; i++)
+                        _RoutePointTile(
+                          index: i,
+                          point: routePoints[i],
+                          isStart: i == 0,
+                          isEnd: i == routePoints.length - 1,
+                          onDelete: () => onDeleteRoutePoint(i),
+                          onMoveUp: i == 0 ? null : () => onReorderRoutePoints(i, i - 1),
+                          onMoveDown: i == routePoints.length - 1 ? null : () => onReorderRoutePoints(i, i + 2),
+                        ),
+                    ]),
+                  ],
+                  const SizedBox(height: 16),
                   // Waypoints section
                   Container(
                     decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(children: [
-                      Text('Waypoints', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                      Text('POI Waypoints', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1588,15 +1884,17 @@ class _DesktopSidebar extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.grey.shade100))),
               child: Row(children: [
-                TextButton(onPressed: () => Navigator.of(context).maybePop(), child: const Text('Cancel')),
+                TextButton(onPressed: onCancel, child: const Text('Cancel')),
                 const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: busy ? null : onPreview,
-                  icon: busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.visibility),
-                  label: const Text('Preview'),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: busy ? null : onSave,
+                    icon: busy 
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_circle),
+                    label: const Text('Build & Save'),
+                  ),
                 ),
-                const SizedBox(width: 8),
-                FilledButton.icon(onPressed: busy ? null : onSave, icon: const Icon(Icons.check_circle), label: const Text('Save')),
               ]),
             ),
           ]),
@@ -1612,8 +1910,8 @@ class _StatsRow extends StatelessWidget {
     String dist = distanceMeters == null ? '-' : '${(distanceMeters! / 1000).toStringAsFixed(1)} km';
     String dur = durationSeconds == null ? '-' : _fmtDuration(durationSeconds!);
     String asc = ascentMeters == null ? '-' : '+${ascentMeters!.toStringAsFixed(0)} m';
-    TextStyle label = TextStyle(fontSize: 12, color: Colors.grey.shade600);
-    TextStyle value = const TextStyle(fontSize: 14, fontWeight: FontWeight.w700);
+    TextStyle label = TextStyle(fontSize: 11, color: Colors.grey.shade600);
+    TextStyle value = const TextStyle(fontSize: 13, fontWeight: FontWeight.w700);
     return Row(children: [
       _statTile(context, Icons.straighten, 'Length', dist, label, value),
       _divider(),
@@ -1630,10 +1928,12 @@ class _StatsRow extends StatelessWidget {
         child: Row(children: [
           Icon(icon, size: 16, color: context.colors.primary),
           const SizedBox(width: 6),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: l),
-            Text(value, style: v),
-          ]),
+          Flexible(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: l, overflow: TextOverflow.ellipsis),
+              Text(value, style: v, overflow: TextOverflow.ellipsis),
+            ]),
+          ),
         ]),
       );
 }
@@ -1664,7 +1964,15 @@ class _SidebarWaypointTile extends StatelessWidget {
           ])),
           if (onMoveUp != null) IconButton(onPressed: onMoveUp, icon: const Icon(Icons.arrow_upward, size: 16)),
           if (onMoveDown != null) IconButton(onPressed: onMoveDown, icon: const Icon(Icons.arrow_downward, size: 16)),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.more_vert, size: 18)),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 18),
+            onSelected: (value) {
+              if (value == 'edit') onEdit();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+            ],
+          ),
         ]),
       );
 }
@@ -1768,7 +2076,15 @@ class _WaypointTile extends StatelessWidget {
             IconButton(onPressed: onMoveUp, icon: const Icon(Icons.arrow_upward, size: 18)),
           if (onMoveDown != null)
             IconButton(onPressed: onMoveDown, icon: const Icon(Icons.arrow_downward, size: 18)),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.more_vert)),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'edit') onEdit();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+            ],
+          ),
         ]),
       );
 }
@@ -1818,6 +2134,78 @@ class _ActionTile extends StatelessWidget {
       );
 }
 
+/// Route point tile for the sidebar
+class _RoutePointTile extends StatelessWidget {
+  final int index;
+  final ll.LatLng point;
+  final bool isStart;
+  final bool isEnd;
+  final VoidCallback onDelete;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+
+  const _RoutePointTile({
+    required this.index,
+    required this.point,
+    required this.isStart,
+    required this.isEnd,
+    required this.onDelete,
+    this.onMoveUp,
+    this.onMoveDown,
+  });
+
+  @override
+  Widget build(BuildContext context) => Container(
+        height: 56,
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+        child: Row(children: [
+          Icon(Icons.drag_indicator, size: 18, color: Colors.grey.shade400),
+          const SizedBox(width: 6),
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: isStart ? const Color(0xFF4CAF50) : (isEnd ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              isStart ? Icons.play_arrow : (isEnd ? Icons.flag : Icons.circle),
+              color: Colors.white,
+              size: isStart || isEnd ? 16 : 12,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isStart ? 'Start Point' : (isEnd ? 'End Point' : 'Point ${index + 1}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  '${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ),
+          if (onMoveUp != null) IconButton(onPressed: onMoveUp, icon: const Icon(Icons.arrow_upward, size: 16)),
+          if (onMoveDown != null) IconButton(onPressed: onMoveDown, icon: const Icon(Icons.arrow_downward, size: 16)),
+          IconButton(
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete, size: 18),
+            color: Colors.red.shade400,
+            tooltip: 'Delete point',
+          ),
+        ]),
+      );
+}
+
+/// Dialog for adding route points via search
 /// Add waypoint dialog with Google Places search
 class _AddWaypointDialog extends StatefulWidget {
   final WaypointType? preselectedType;
@@ -2015,7 +2403,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
           typeFilters = ['tourist_attraction'];
           break;
         case WaypointType.servicePoint:
-          // Don't filter by type for service points to avoid API errors
+        case WaypointType.routePoint:
+          // Don't filter by type for service points and route points to avoid API errors
           // Let the search query determine the results
           typeFilters = null;
           break;
@@ -2603,6 +2992,18 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                           ],
                         ),
                       )
+                    else if (_selectedType == WaypointType.routePoint)
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, size: 16, color: Colors.green.shade600),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text('Location set from map', style: TextStyle(fontSize: 13, color: Colors.green.shade600)),
+                            ),
+                          ],
+                        ),
+                      )
                     else
                       Expanded(
                         child: Row(
@@ -2654,6 +3055,12 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
 
   bool _canSave() {
     if (_nameController.text.trim().isEmpty) return false;
+    
+    // Route points don't need Google Place selection - just name and location from proximity bias
+    if (_selectedType == WaypointType.routePoint) {
+      return widget.proximityBias != null; // Must have a location set
+    }
+    
     if (_selectedType == WaypointType.accommodation && _accommodationType == null) return false;
     if (_accommodationType == POIAccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
     if (_accommodationType != POIAccommodationType.airbnb && _selectedPlace == null) return false;
@@ -2691,7 +3098,10 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     }
 
     ll.LatLng position;
-    if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
+    if (_selectedType == WaypointType.routePoint && widget.proximityBias != null) {
+      // Route points use the proximity bias (map tap location) or selected place if searched
+      position = _selectedPlace?.location ?? widget.proximityBias!;
+    } else if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
       position = _airbnbLocation!;
     } else if (_selectedPlace != null) {
       position = _selectedPlace!.location;
@@ -2994,7 +3404,8 @@ class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
     _airbnbUrlController = TextEditingController(text: wp?.airbnbPropertyUrl ?? '');
     _priceMinController = TextEditingController(text: wp?.estimatedPriceRange?.min.toString() ?? '');
     _priceMaxController = TextEditingController(text: wp?.estimatedPriceRange?.max.toString() ?? '');
-    _rating = wp?.rating;
+    // Round rating to nearest 0.5 to match dropdown items
+    _rating = wp?.rating != null ? (wp!.rating! * 2).round() / 2 : null;
     _amenities = List.from(wp?.amenities ?? []);
   }
 

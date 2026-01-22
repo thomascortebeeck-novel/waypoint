@@ -17,6 +17,7 @@ import 'package:waypoint/presentation/checkout/checkout_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_success_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_error_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_setup_screen.dart';
+import 'package:waypoint/presentation/trips/trip_details_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_pack_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_travel_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_define_screen.dart';
@@ -30,8 +31,10 @@ import 'package:waypoint/presentation/mytrips/onboarding/onboarding_date_screen.
 import 'package:waypoint/presentation/mytrips/onboarding/onboarding_image_screen.dart';
 import 'package:waypoint/presentation/trips/join_trip_screen.dart';
 import 'package:waypoint/presentation/trips/trip_members_screen.dart';
+import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
 import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/models/plan_model.dart';
 import 'theme.dart';
 import 'package:waypoint/utils/logger.dart';
 
@@ -48,9 +51,11 @@ class AppRoutes {
   static const String checkoutError = '/checkout/error/:planId';
   static const String itineraryNew = '/itinerary/:planId/new';
   static const String itinerarySetup = '/itinerary/:planId/setup/:tripId';
+  static const String tripDetails = '/trip/:tripId';
   static const String itineraryPack = '/itinerary/:planId/pack/:tripId';
   static const String itineraryTravel = '/itinerary/:planId/travel/:tripId';
   static const String itineraryDay = '/itinerary/:planId/day/:tripId/:dayIndex';
+  static const String itineraryDayMap = '/itinerary/:planId/day/:tripId/:dayIndex/map';
   // Trip customization routes
   static const String itinerarySelect = '/itinerary/:planId/select/:tripId';
   static const String itineraryReview = '/itinerary/:planId/review/:tripId';
@@ -218,13 +223,22 @@ class AppRouter {
           return ItineraryDefineScreen(planId: planId);
         },
       ),
+      // Legacy route - redirect to new trip details
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: AppRoutes.itinerarySetup,
-        builder: (context, state) {
-          final planId = state.pathParameters['planId'] ?? '';
+        redirect: (context, state) {
           final tripId = state.pathParameters['tripId'] ?? '';
-          return ItinerarySetupScreen(planId: planId, tripId: tripId);
+          return '/trip/$tripId';
+        },
+      ),
+      // New trip details route
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.tripDetails,
+        builder: (context, state) {
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return TripDetailsScreen(tripId: tripId);
         },
       ),
       GoRoute(
@@ -253,6 +267,22 @@ class AppRouter {
           final tripId = state.pathParameters['tripId'] ?? '';
           final dayIndex = int.tryParse(state.pathParameters['dayIndex'] ?? '0') ?? 0;
           return ItineraryDayScreen(planId: planId, tripId: tripId, dayIndex: dayIndex);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.itineraryDayMap,
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final tripId = state.pathParameters['tripId'] ?? '';
+          final dayIndex = int.tryParse(state.pathParameters['dayIndex'] ?? '0') ?? 0;
+          final day = state.extra as DayItinerary?;
+          if (day == null) {
+            return const Scaffold(
+              body: Center(child: Text('Day data not provided')),
+            );
+          }
+          return TripDayMapFullscreen(day: day, dayNumber: dayIndex + 1);
         },
       ),
       // Trip customization routes
@@ -288,7 +318,13 @@ class AppRouter {
         path: AppRoutes.joinTrip,
         builder: (context, state) {
           final inviteCode = state.pathParameters['inviteCode'] ?? '';
-          return JoinTripScreen(inviteCode: inviteCode);
+          // Check if user came from auth redirect
+          final extra = state.extra as Map<String, dynamic>?;
+          final fromAuth = extra?['fromAuth'] as bool? ?? false;
+          return JoinTripScreen(
+            inviteCode: inviteCode,
+            fromAuthRedirect: fromAuth,
+          );
         },
       ),
       GoRoute(

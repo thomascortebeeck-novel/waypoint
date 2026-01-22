@@ -100,4 +100,30 @@ class UserService {
         .snapshots()
         .map((doc) => doc.exists ? UserModel.fromJson(doc.data()!) : null);
   }
+
+  /// Update email verification status
+  Future<void> updateEmailVerificationStatus(String userId, bool verified) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'email_verified': verified,
+        'updated_at': Timestamp.now(),
+      });
+    } catch (e) {
+      debugPrint('Error updating email verification status: $e');
+      rethrow;
+    }
+  }
+
+  /// Update marketing preferences
+  Future<void> updateMarketingOptIn(String userId, bool optIn) async {
+    try {
+      await _firestore.collection(_collection).doc(userId).update({
+        'marketing_opt_in': optIn,
+        'updated_at': Timestamp.now(),
+      });
+    } catch (e) {
+      debugPrint('Error updating marketing opt-in: $e');
+      rethrow;
+    }
+  }
 }

@@ -1571,27 +1571,14 @@ final hasImage = dayImageBytes != null || existingImageUrl != null;
 return Column(
 crossAxisAlignment: CrossAxisAlignment.start,
 children: [
-// Day Header
-Text(
-"Day $dayNum",
-style: context.textStyles.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
-),
-const SizedBox(height: 24),
-_buildTextField("Title", "e.g., Crossing the Pass", controller: titleCtrl, required: false),
-const SizedBox(height: 12),
-_buildTextField("Description", "What happens today...", maxLines: 5, controller: descCtrl, required: false),
-const SizedBox(height: 16),
-
-// Day Image Upload
-Text("Day Image", style: context.textStyles.titleSmall),
-const SizedBox(height: 8),
+// Day Image at the top
 GestureDetector(
 onTap: () => _pickDayImage(dayNum),
 child: Container(
-height: 120,
+height: 200,
 decoration: BoxDecoration(
 color: hasImage ? Colors.black : Colors.grey.shade100,
-borderRadius: BorderRadius.circular(8),
+borderRadius: BorderRadius.circular(12),
 border: Border.all(color: context.colors.outlineVariant),
 image: dayImageBytes != null
 ? DecorationImage(
@@ -1610,23 +1597,23 @@ child: !hasImage
 child: Column(
 mainAxisSize: MainAxisSize.min,
 children: [
-Icon(Icons.add_a_photo, size: 32, color: Colors.grey.shade600),
-const SizedBox(height: 4),
-Text("Add Day Image", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+Icon(Icons.add_a_photo, size: 40, color: Colors.grey.shade600),
+const SizedBox(height: 8),
+Text("Add Day Image", style: TextStyle(color: Colors.grey.shade600, fontSize: 14, fontWeight: FontWeight.w500)),
 ],
 ),
 )
 : Stack(
 children: [
 Positioned(
-top: 4,
-right: 4,
+top: 8,
+right: 8,
 child: CircleAvatar(
-radius: 14,
+radius: 18,
 backgroundColor: Colors.black54,
 child: IconButton(
 padding: EdgeInsets.zero,
-icon: const Icon(Icons.close, color: Colors.white, size: 16),
+icon: const Icon(Icons.close, color: Colors.white, size: 20),
 onPressed: () => setState(() {
 vf.dayImagesByDay.remove(dayNum);
 vf.dayImageExtByDay.remove(dayNum);
@@ -1639,7 +1626,18 @@ vf.existingDayImageUrls.remove(dayNum);
 ),
 ),
 ),
+const SizedBox(height: 24),
+
+// Day Header
+Text(
+"Day $dayNum",
+style: context.textStyles.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+),
+const SizedBox(height: 16),
+_buildTextField("Title", "e.g., Crossing the Pass", controller: titleCtrl, required: false),
 const SizedBox(height: 12),
+_buildTextField("Description", "What happens today...", maxLines: 5, controller: descCtrl, required: false),
+const SizedBox(height: 16),
 
 // MAP SECTION - Show the route map if route exists or if there are waypoints
 if (existingRoute != null || _hasWaypoints(dayNum, vf)) ...[
@@ -5134,7 +5132,8 @@ case WaypointType.viewingPoint:
 typeFilters = ['tourist_attraction'];
 break;
 case WaypointType.servicePoint:
-// Don't filter by type for service points to avoid API errors
+case WaypointType.routePoint:
+// Don't filter by type for service points and route points to avoid API errors
 // Let the search query determine the results
 typeFilters = null;
 break;
@@ -5213,46 +5212,143 @@ backgroundColor: Colors.orange,
 
 @override
 Widget build(BuildContext context) => Dialog(
+backgroundColor: Colors.transparent,
+elevation: 0,
 child: Container(
-constraints: const BoxConstraints(maxWidth: 500, maxHeight: 700),
+width: 480,
+constraints: BoxConstraints(
+maxWidth: MediaQuery.of(context).size.width * 0.95,
+maxHeight: MediaQuery.of(context).size.height * 0.85,
+),
+decoration: BoxDecoration(
+color: Colors.white,
+borderRadius: BorderRadius.circular(24),
+boxShadow: [
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.15),
+blurRadius: 40,
+offset: const Offset(0, 20),
+spreadRadius: 0,
+),
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.08),
+blurRadius: 12,
+offset: const Offset(0, 4),
+),
+],
+),
 child: Column(
 mainAxisSize: MainAxisSize.min,
 children: [
-Padding(
-padding: const EdgeInsets.all(16),
+// Modern header
+Container(
+padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+decoration: BoxDecoration(
+border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
+),
 child: Row(
 children: [
-Icon(getWaypointIcon(widget.type), color: getWaypointColor(widget.type)),
-const SizedBox(width: 8),
-Text('${widget.existingWaypoint != null ? 'Edit' : 'Add'} ${getWaypointLabel(widget.type)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-const Spacer(),
-IconButton(
-icon: const Icon(Icons.close),
-onPressed: () => Navigator.of(context).pop(),
+Container(
+width: 44,
+height: 44,
+decoration: BoxDecoration(
+gradient: const LinearGradient(
+colors: [Color(0xFF428A13), Color(0xFF2D5A27)],
+begin: Alignment.topLeft,
+end: Alignment.bottomRight,
+),
+borderRadius: BorderRadius.circular(12),
+boxShadow: [
+BoxShadow(
+color: const Color(0xFF428A13).withValues(alpha: 0.3),
+blurRadius: 8,
+offset: const Offset(0, 4),
+),
+],
+),
+child: Icon(getWaypointIcon(widget.type), color: Colors.white, size: 24),
+),
+const SizedBox(width: 16),
+Expanded(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+'${widget.existingWaypoint != null ? 'Edit' : 'Add'} ${getWaypointLabel(widget.type)}',
+style: TextStyle(
+fontSize: 20,
+fontWeight: FontWeight.w700,
+color: Colors.grey.shade900,
+letterSpacing: -0.5,
+),
+),
+const SizedBox(height: 2),
+Text(
+'Search or paste Google Maps link',
+style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
 ),
 ],
 ),
 ),
-const Divider(height: 1),
+Material(
+color: Colors.transparent,
+child: InkWell(
+borderRadius: BorderRadius.circular(12),
+onTap: () => Navigator.pop(context),
+child: Container(
+width: 40,
+height: 40,
+decoration: BoxDecoration(
+color: Colors.grey.shade100,
+borderRadius: BorderRadius.circular(12),
+),
+child: Icon(Icons.close_rounded, size: 20, color: Colors.grey.shade600),
+),
+),
+),
+],
+),
+),
 Expanded(
 child: SingleChildScrollView(
-padding: const EdgeInsets.all(16),
+padding: const EdgeInsets.all(20),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.stretch,
 children: [
-TextField(
+// Modern search section
+Container(
+decoration: BoxDecoration(
+color: Colors.white,
+borderRadius: BorderRadius.circular(14),
+border: Border.all(color: Colors.grey.shade200),
+boxShadow: [
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.04),
+blurRadius: 8,
+offset: const Offset(0, 2),
+),
+],
+),
+child: TextField(
 controller: _searchController,
 decoration: InputDecoration(
 hintText: 'Search for a place or paste Google Maps link',
+hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
 helperText: 'Tip: You can paste Google Maps share links directly',
-prefixIcon: const Icon(Icons.search),
+helperStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+prefixIcon: Padding(
+padding: const EdgeInsets.all(14),
+child: Icon(Icons.search, size: 20, color: Colors.grey.shade400),
+),
 suffixIcon: _searching
 ? const Padding(
 padding: EdgeInsets.all(12),
 child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
 )
 : null,
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+border: InputBorder.none,
+contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+),
 ),
 ),
 const SizedBox(height: 12),

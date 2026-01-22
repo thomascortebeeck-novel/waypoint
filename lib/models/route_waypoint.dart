@@ -9,6 +9,7 @@ enum WaypointType {
   activity,
   viewingPoint,
   servicePoint,
+  routePoint,
 }
 
 /// Accommodation sub-type for POI waypoints
@@ -251,6 +252,8 @@ IconData getWaypointIcon(WaypointType type) {
       return Icons.visibility;
     case WaypointType.servicePoint:
       return Icons.local_convenience_store;
+    case WaypointType.routePoint:
+      return Icons.navigation;
   }
 }
 
@@ -267,6 +270,8 @@ Color getWaypointColor(WaypointType type) {
       return const Color(0xFFFFC107); // Yellow/Gold
     case WaypointType.servicePoint:
       return const Color(0xFF4CAF50); // Green
+    case WaypointType.routePoint:
+      return const Color(0xFF4CAF50); // Green - same as route lines
   }
 }
 
@@ -283,6 +288,8 @@ String getWaypointLabel(WaypointType type) {
       return 'Viewing Point';
     case WaypointType.servicePoint:
       return 'Service Point';
+    case WaypointType.routePoint:
+      return 'Route Point';
   }
 }
 

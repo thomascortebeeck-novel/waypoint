@@ -43,11 +43,11 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
       return null;
     } on fb_auth.FirebaseAuthException catch (e) {
       debugPrint('Sign in error: ${e.code} - ${e.message}');
-      _showErrorSnackBar(context, _getAuthErrorMessage(e.code));
+      // Don't show snackbar here - let the UI handle error display
       return null;
     } catch (e) {
       debugPrint('Sign in error: $e');
-      _showErrorSnackBar(context, 'An unexpected error occurred');
+      // Don't show snackbar here - let the UI handle error display
       return null;
     }
   }
@@ -56,8 +56,12 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
   Future<UserModel?> createAccountWithEmail(
     BuildContext context,
     String email,
-    String password,
-  ) async {
+    String password, {
+    required String firstName,
+    required String lastName,
+    required bool agreedToTerms,
+    required bool marketingOptIn,
+  }) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -65,27 +69,83 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
       );
       
       if (credential.user != null) {
+        // Send email verification
+        await credential.user!.sendEmailVerification();
+        
+        // Update display name in Firebase Auth
+        final displayName = '$firstName $lastName'.trim();
+        await credential.user!.updateDisplayName(displayName);
+        
         // Create user document in Firestore
         final user = UserModel(
           id: credential.user!.uid,
           email: email,
-          displayName: email.split('@')[0],
+          displayName: displayName,
+          firstName: firstName,
+          lastName: lastName,
+          agreedToTerms: agreedToTerms,
+          marketingOptIn: marketingOptIn,
+          emailVerified: false,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
         );
         
         await _userService.createUser(user);
+        
         return user;
       }
       return null;
     } on fb_auth.FirebaseAuthException catch (e) {
       debugPrint('Create account error: ${e.code} - ${e.message}');
-      _showErrorSnackBar(context, _getAuthErrorMessage(e.code));
+      // Don't show snackbar here - let the UI handle error display
       return null;
     } catch (e) {
       debugPrint('Create account error: $e');
-      _showErrorSnackBar(context, 'An unexpected error occurred');
+      // Don't show snackbar here - let the UI handle error display
       return null;
+    }
+  }
+
+  @override
+  bool get isEmailVerified => _auth.currentUser?.emailVerified ?? false;
+
+  @override
+  Future<void> sendEmailVerification(BuildContext context) async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null && !user.emailVerified) {
+        await user.sendEmailVerification();
+        _showSuccessSnackBar(context, 'Verification email sent to ${user.email}');
+      }
+    } on fb_auth.FirebaseAuthException catch (e) {
+      debugPrint('Send verification error: ${e.code} - ${e.message}');
+      _showErrorSnackBar(context, _getAuthErrorMessage(e.code));
+    } catch (e) {
+      debugPrint('Send verification error: $e');
+      _showErrorSnackBar(context, 'Failed to send verification email');
+    }
+  }
+
+  @override
+  Future<void> resendEmailVerification(BuildContext context) async {
+    await sendEmailVerification(context);
+  }
+
+  /// Reload current user to check for email verification status
+  Future<bool> reloadUserAndCheckVerification() async {
+    try {
+      await _auth.currentUser?.reload();
+      final verified = _auth.currentUser?.emailVerified ?? false;
+      
+      // Update Firestore if verified
+      if (verified && _auth.currentUser != null) {
+        await _userService.updateEmailVerificationStatus(_auth.currentUser!.uid, true);
+      }
+      
+      return verified;
+    } catch (e) {
+      debugPrint('Failed to reload user: $e');
+      return false;
     }
   }
 

@@ -650,35 +650,39 @@ class DayRoute {
 
   Map<String, dynamic> toJson() => {
     // Ensure Firestore-safe geometry (no nested arrays)
+    // IMPORTANT: Always preserve the actual geometry coordinates (snapped trail path)
+    // DO NOT replace with routePoints, which only contains user-placed waypoints
     'geometry': {
       'type': geometry['type'] ?? 'LineString',
-      'coordinates': routePoints.isNotEmpty
-          ? routePoints
+      'coordinates': (() {
+        final coords = geometry['coordinates'];
+        if (coords is List && coords.isNotEmpty) {
+          if (coords.first is List && (coords.first as List).length >= 2) {
+            // Convert [[lng,lat], ...] -> [{lng,lat}, ...]
+            return coords
+                .map((c) => {
+                      'lng': (c[0] as num).toDouble(),
+                      'lat': (c[1] as num).toDouble(),
+                    })
+                .toList();
+          } else if (coords.first is Map) {
+            // Already Firestore-safe
+            return coords
+                .map((c) => {
+                      'lng': ((c as Map)['lng'] as num).toDouble(),
+                      'lat': ((c)['lat'] as num).toDouble(),
+                    })
+                .toList();
+          }
+        }
+        // Fallback to routePoints only if geometry has no coordinates
+        if (routePoints.isNotEmpty) {
+          return routePoints
               .map((p) => {'lng': p['lng'], 'lat': p['lat']})
-              .toList()
-          : (() {
-              final coords = geometry['coordinates'];
-              if (coords is List && coords.isNotEmpty) {
-                if (coords.first is List && (coords.first as List).length >= 2) {
-                  // Convert [[lng,lat], ...] -> [{lng,lat}, ...]
-                  return coords
-                      .map((c) => {
-                            'lng': (c[0] as num).toDouble(),
-                            'lat': (c[1] as num).toDouble(),
-                          })
-                      .toList();
-                } else if (coords.first is Map) {
-                  // Already Firestore-safe
-                  return coords
-                      .map((c) => {
-                            'lng': ((c as Map)['lng'] as num).toDouble(),
-                            'lat': ((c)['lat'] as num).toDouble(),
-                          })
-                      .toList();
-                }
-              }
-              return const <Map<String, double>>[];
-            })(),
+              .toList();
+        }
+        return const <Map<String, double>>[];
+      })(),
     },
     'distance': distance,
     'duration': duration,

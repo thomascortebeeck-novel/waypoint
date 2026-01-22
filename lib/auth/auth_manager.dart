@@ -30,8 +30,21 @@ mixin EmailSignInManager on AuthManager {
   Future<UserModel?> createAccountWithEmail(
     BuildContext context,
     String email,
-    String password,
-  );
+    String password, {
+    required String firstName,
+    required String lastName,
+    required bool agreedToTerms,
+    required bool marketingOptIn,
+  });
+
+  /// Send email verification to the current user
+  Future<void> sendEmailVerification(BuildContext context);
+
+  /// Check if current user's email is verified
+  bool get isEmailVerified;
+
+  /// Resend email verification
+  Future<void> resendEmailVerification(BuildContext context);
 }
 
 // Anonymous authentication for guest users

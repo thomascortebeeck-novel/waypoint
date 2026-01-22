@@ -394,28 +394,32 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   Widget _buildBottomSection(BuildContext context, bool isDark) {
     return Container(
       color: isDark ? const Color(0xFF1F2937) : Colors.white,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Badge Row (NEW position)
           if (widget.plan.activityCategory != null || widget.plan.accommodationType != null) ...[
             _buildBadgeRow(context, isDark),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
           ],
-          if (widget.plan.description.isNotEmpty)
-            Text(
-              widget.plan.description,
-              style: TextStyle(
-                color: isDark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF374151),
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                height: 1.5,
+          if (widget.plan.description.isNotEmpty) ...[
+            Flexible(
+              child: Text(
+                widget.plan.description,
+                style: TextStyle(
+                  color: isDark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF374151),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  height: 1.5,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
-          const Spacer(),
+            const SizedBox(height: 10),
+          ],
           _buildRatingRow(context, isDark),
         ],
       ),

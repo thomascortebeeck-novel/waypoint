@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -95,19 +96,22 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
             ],
           ),
           clipBehavior: Clip.antiAlias,
-          child: isMobile
-              ? Column(children: [
-                  _buildImage(isMobile: true),
-                  _buildContent(title: title, status: status, isMobile: true),
-                ])
-              : IntrinsicHeight(
-                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    // Image left 35-40%
-                    Expanded(flex: 40, child: _buildImage(isMobile: false)),
-                    // Content right 60-65%
-                    Expanded(flex: 60, child: _buildContent(title: title, status: status, isMobile: false)),
-                  ]),
-                ),
+          child: InkWell(
+            onTap: () => context.go('/itinerary/${plan.id}/setup/${trip.id}'),
+            child: isMobile
+                ? Column(children: [
+                    _buildImage(isMobile: true),
+                    _buildContent(title: title, status: status, isMobile: true),
+                  ])
+                : IntrinsicHeight(
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      // Image left 35-40%
+                      Expanded(flex: 40, child: _buildImage(isMobile: false)),
+                      // Content right 60-65%
+                      Expanded(flex: 60, child: _buildContent(title: title, status: status, isMobile: false)),
+                    ]),
+                  ),
+          ),
         ),
       ),
     );
@@ -119,6 +123,7 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
     final trip = widget.trip;
     final showEdit = _hover || isMobile;
     final status = _deriveStatus(trip.startDate, trip.endDate);
+    final isOwner = trip.isOwner(widget.userId);
 
     final imageStack = Stack(children: [
       Positioned.fill(
@@ -148,24 +153,79 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
       ),
       // Status badge
       Positioned(left: 12, top: 12, child: _statusBadge(context, status)),
-      // Edit image button
+      // Top right buttons row
       Positioned(
         right: 12,
         top: 12,
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 150),
           opacity: showEdit ? 1 : 0,
-          child: Material(
-            color: Colors.black.withValues(alpha: 0.6),
-            shape: const CircleBorder(side: BorderSide(color: Colors.white, width: 1.5)),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () async {
-                final updated = await showDialog<bool>(context: context, builder: (_) => ImageUploadDialog(userId: widget.userId, tripId: trip.id));
-                if (updated == true && mounted) setState(() {});
-              },
-              child: const SizedBox(width: 36, height: 36, child: Icon(Icons.photo_camera_outlined, size: 18, color: Colors.white)),
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Delete button (only for owner)
+              if (isOwner) ...[
+                Material(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  shape: const CircleBorder(side: BorderSide(color: Colors.white, width: 1.5)),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Delete Trip'),
+                          content: const Text('Are you sure you want to delete this trip? This action cannot be undone.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true && mounted) {
+                        try {
+                          await TripService().deleteTrip(trip.id);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Trip deleted successfully')),
+                            );
+                          }
+                        } catch (e) {
+                          debugPrint('Error deleting trip: $e');
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error deleting trip: $e')),
+                            );
+                          }
+                        }
+                      }
+                    },
+                    child: const SizedBox(width: 36, height: 36, child: Icon(Icons.delete_outline, size: 18, color: Colors.white)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              // Edit image button
+              Material(
+                color: Colors.black.withValues(alpha: 0.6),
+                shape: const CircleBorder(side: BorderSide(color: Colors.white, width: 1.5)),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () async {
+                    final updated = await showDialog<bool>(context: context, builder: (_) => ImageUploadDialog(userId: widget.userId, tripId: trip.id));
+                    if (updated == true && mounted) setState(() {});
+                  },
+                  child: const SizedBox(width: 36, height: 36, child: Icon(Icons.photo_camera_outlined, size: 18, color: Colors.white)),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -187,12 +247,7 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
       padding: EdgeInsets.fromLTRB(24, isMobile ? 16 : 20, 24, isMobile ? 16 : 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // Header row
-        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Expanded(
-            child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-          ),
-          _menu(context, plan, trip),
-        ]),
+        Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 8),
         // Date range
         Row(children: [
@@ -416,78 +471,6 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
         switch (status) { _TripStatus.upcoming => 'Upcoming', _TripStatus.inProgress => 'In Progress', _TripStatus.completed => 'Completed' },
         style: context.textStyles.labelSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 11),
       ),
-    );
-  }
-
-  Widget _menu(BuildContext context, Plan plan, Trip trip) {
-    final isOwner = trip.isOwner(widget.userId);
-    
-    return PopupMenuButton<String>(
-      icon: Icon(Icons.more_vert, color: context.colors.onSurface.withValues(alpha: 0.7)),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      onSelected: (value) async {
-        switch (value) {
-          case 'view_details':
-            if (mounted) context.go('/itinerary/${plan.id}/setup/${trip.id}');
-            break;
-          case 'edit_trip':
-            if (mounted) context.go('/itinerary/${plan.id}/setup/${trip.id}');
-            break;
-          case 'edit_image':
-            final updated = await showDialog<bool>(context: context, builder: (_) => ImageUploadDialog(userId: widget.userId, tripId: trip.id));
-            if (updated == true && mounted) setState(() {});
-            break;
-          case 'duplicate':
-            // TODO: implement duplication
-            break;
-          case 'delete':
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Delete Trip'),
-                content: const Text('Are you sure you want to delete this trip? This action cannot be undone.'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(false),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.of(ctx).pop(true),
-                    style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                    child: const Text('Delete'),
-                  ),
-                ],
-              ),
-            );
-            if (confirmed == true && mounted) {
-              try {
-                await TripService().deleteTrip(trip.id);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Trip deleted successfully')),
-                  );
-                }
-              } catch (e) {
-                debugPrint('Error deleting trip: $e');
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error deleting trip: $e')),
-                  );
-                }
-              }
-            }
-            break;
-        }
-      },
-      itemBuilder: (context) => [
-        const PopupMenuItem(value: 'view_details', child: Text('View details')),
-        if (isOwner) ...[  
-          const PopupMenuItem(value: 'edit_trip', child: Text('Edit trip')),
-          const PopupMenuItem(value: 'edit_image', child: Text('Change cover image')),
-          const PopupMenuItem(value: 'duplicate', child: Text('Duplicate itinerary')),
-          const PopupMenuItem(value: 'delete', child: Text('Delete itinerary')),
-        ],
-      ],
     );
   }
 }

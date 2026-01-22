@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -111,21 +112,11 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
             expandedHeight: 280,
             pinned: true,
             leading: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+              icon: const Icon(Icons.terrain, color: Colors.white),
+              onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.black.withValues(alpha: 0.3),
               ),
-              onPressed: () {
-                if (isFirstDay) {
-                  context.go('/itinerary/${widget.planId}/travel/${widget.tripId}');
-                } else {
-                  context.go('/itinerary/${widget.planId}/day/${widget.tripId}/${widget.dayIndex - 1}');
-                }
-              },
             ),
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
@@ -289,6 +280,10 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
                 ),
                 const SizedBox(height: 24),
 
+                // Map Preview
+                _buildMapPreview(context, day),
+                const SizedBox(height: 24),
+
                 // Waypoints Summary
                 _buildWaypointsSummary(context, day),
 
@@ -436,7 +431,317 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
     );
   }
 
- 
+  Widget _buildMapPreview(BuildContext context, DayItinerary day) {
+    // Calculate map center and bounds
+    ll.LatLng? center;
+    double zoom = 13;
+    
+    if (day.startLat != null && day.startLng != null) {
+      if (day.endLat != null && day.endLng != null) {
+        // Center between start and end
+        center = ll.LatLng(
+          (day.startLat! + day.endLat!) / 2,
+          (day.startLng! + day.endLng!) / 2,
+        );
+        // Adjust zoom based on distance
+        final latDiff = (day.endLat! - day.startLat!).abs();
+        final lngDiff = (day.endLng! - day.startLng!).abs();
+        final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+        if (maxDiff > 0.5) zoom = 10;
+        else if (maxDiff > 0.2) zoom = 11;
+        else if (maxDiff > 0.1) zoom = 12;
+        else if (maxDiff > 0.05) zoom = 13;
+      } else {
+        center = ll.LatLng(day.startLat!, day.startLng!);
+      }
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        // Navigate to full-screen map
+        context.push(
+          '/itinerary/${widget.planId}/day/${widget.tripId}/${widget.dayIndex}/map',
+          extra: day,
+        );
+      },
+      child: Container(
+        height: 320,
+        decoration: BoxDecoration(
+          color: context.colors.surfaceContainer,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: context.colors.outlineVariant),
+        ),
+        child: Stack(
+          children: [
+            // Actual map preview (non-interactive)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: AbsorbPointer(
+                // AbsorbPointer prevents the map from receiving touch events
+                // so the parent GestureDetector can handle taps
+                child: center != null
+                    ? _buildStaticMapPreview(day, center, zoom)
+                    : Container(
+                        color: Colors.grey.shade200,
+                        child: Center(
+                          child: Icon(
+                            Icons.map_outlined,
+                            size: 80,
+                            color: context.colors.outline.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            // Expand button (top-right)
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.open_in_full,
+                  size: 18,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ),
+            // Stats overlay (bottom)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.6),
+                    ],
+                  ),
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildMapStat(
+                      context,
+                      icon: Icons.straighten,
+                      value: '${day.distanceKm.toStringAsFixed(1)} km',
+                      label: 'Distance',
+                    ),
+                    Container(
+                      width: 1,
+                      height: 40,
+                      color: Colors.white.withValues(alpha: 0.3),
+                    ),
+                    _buildMapStat(
+                      context,
+                      icon: Icons.schedule,
+                      value: _formatDuration(day.estimatedTimeMinutes),
+                      label: 'Hiking time',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStaticMapPreview(DayItinerary day, ll.LatLng center, double zoom) {
+    return fm.FlutterMap(
+      options: fm.MapOptions(
+        initialCenter: center,
+        initialZoom: zoom,
+        // Disable all interactions for preview
+        interactionOptions: const fm.InteractionOptions(
+          flags: fm.InteractiveFlag.none,
+        ),
+      ),
+      children: [
+        // Map tiles
+        fm.TileLayer(
+          urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}@2x?access_token={accessToken}',
+          additionalOptions: const {
+            'accessToken': 'pk.eyJ1IjoiYm91ZGV3aWpubWFydGluIiwiYSI6ImNtNWxsN3Z4cjAxaDMyanM4dTV5ZzRjenEifQ.OD3zJNXlJe-_oYT-pQmUwQ',
+          },
+          userAgentPackageName: 'com.example.waypoint',
+        ),
+        // Route line
+        if (day.route?.geometry != null) _buildPreviewRoutePolyline(day),
+        // Start/End markers
+        fm.MarkerLayer(markers: _buildPreviewMarkers(day)),
+      ],
+    );
+  }
+
+  fm.PolylineLayer _buildPreviewRoutePolyline(DayItinerary day) {
+    final geometry = day.route?.geometry;
+    if (geometry == null) return const fm.PolylineLayer(polylines: []);
+
+    final coords = geometry['coordinates'] as List?;
+    if (coords == null || coords.isEmpty) return const fm.PolylineLayer(polylines: []);
+
+    // Support both array format [lng, lat] and Map format {lat, lng}
+    final points = <ll.LatLng>[];
+    for (final c in coords) {
+      try {
+        if (c is List && c.length >= 2) {
+          // Array format: [lng, lat]
+          points.add(ll.LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()));
+        } else if (c is Map) {
+          // Firestore-safe Map format: {lat, lng}
+          final lat = (c['lat'] as num?)?.toDouble();
+          final lng = (c['lng'] as num?)?.toDouble();
+          if (lat != null && lng != null) {
+            points.add(ll.LatLng(lat, lng));
+          }
+        }
+      } catch (e) {
+        // Skip invalid coordinates
+      }
+    }
+    
+    if (points.isEmpty) return const fm.PolylineLayer(polylines: []);
+
+    return fm.PolylineLayer(
+      polylines: [
+        fm.Polyline(
+          points: points,
+          strokeWidth: 4,
+          color: const Color(0xFF4CAF50),
+          borderStrokeWidth: 2,
+          borderColor: Colors.white,
+        ),
+      ],
+    );
+  }
+
+  List<fm.Marker> _buildPreviewMarkers(DayItinerary day) {
+    final markers = <fm.Marker>[];
+
+    // Start marker (A)
+    if (day.startLat != null && day.startLng != null) {
+      markers.add(
+        fm.Marker(
+          point: ll.LatLng(day.startLat!, day.startLng!),
+          width: 28,
+          height: 28,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF4CAF50),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Center(
+              child: Text(
+                'A',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // End marker (B)
+    if (day.endLat != null && day.endLng != null) {
+      markers.add(
+        fm.Marker(
+          point: ll.LatLng(day.endLat!, day.endLng!),
+          width: 28,
+          height: 28,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF44336),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Center(
+              child: Text(
+                'B',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return markers;
+  }
+
+  Widget _buildMapStat(
+    BuildContext context, {
+    required IconData icon,
+    required String value,
+    required String label,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 20, color: Colors.white),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildWaypointsSummary(BuildContext context, DayItinerary day) {
     final waypoints = <Map<String, dynamic>>[];

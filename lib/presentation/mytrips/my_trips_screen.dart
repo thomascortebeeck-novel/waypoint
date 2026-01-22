@@ -26,43 +26,49 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = _auth.currentUserId;
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 1024;
 
-    return Scaffold(
-      floatingActionButton: uid == null
-          ? null
-          : (isDesktop
-              ? FloatingActionButton.extended(onPressed: () => context.go('/mytrips/create'), icon: const Icon(Icons.add), label: const Text('New Itinerary'))
-              : FloatingActionButton(onPressed: () => context.go('/mytrips/create'), child: const Icon(Icons.add))),
-      body: CustomScrollView(slivers: [
-        _buildHeader(context, isDesktop),
-        SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16, vertical: 8),
-          sliver: uid == null 
-              ? SliverToBoxAdapter(child: _SignedOutState()) 
-              : StreamBuilder<List<Trip>>(
-                  stream: _trips.streamTripsForUser(uid),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return SliverToBoxAdapter(child: _LoadingState(isDesktop: isDesktop));
-                    }
-                    if (snapshot.hasError) {
-                      return SliverToBoxAdapter(
-                        child: WaypointEmptyState.error(
-                          message: 'Error loading trips: ${snapshot.error}',
-                          onRetry: () => setState(() {}),
-                        ),
-                      );
-                    }
-                    final trips = snapshot.data ?? [];
-                    return _buildTripsContent(context, uid, isDesktop, trips);
-                  },
-                ),
-        ),
-        const SliverToBoxAdapter(child: SizedBox(height: 32)),
-      ]),
+    return StreamBuilder(
+      stream: _auth.authStateChanges,
+      builder: (context, authSnapshot) {
+        final uid = authSnapshot.data?.uid;
+
+        return Scaffold(
+          floatingActionButton: uid == null
+              ? null
+              : (isDesktop
+                  ? FloatingActionButton.extended(onPressed: () => context.go('/mytrips/create'), icon: const Icon(Icons.add), label: const Text('New Itinerary'))
+                  : FloatingActionButton(onPressed: () => context.go('/mytrips/create'), child: const Icon(Icons.add))),
+          body: CustomScrollView(slivers: [
+            _buildHeader(context, isDesktop),
+            SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 16, vertical: 8),
+              sliver: uid == null 
+                  ? SliverToBoxAdapter(child: _SignedOutState()) 
+                  : StreamBuilder<List<Trip>>(
+                      stream: _trips.streamTripsForUser(uid),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return SliverToBoxAdapter(child: _LoadingState(isDesktop: isDesktop));
+                        }
+                        if (snapshot.hasError) {
+                          return SliverToBoxAdapter(
+                            child: WaypointEmptyState.error(
+                              message: 'Error loading trips: ${snapshot.error}',
+                              onRetry: () => setState(() {}),
+                            ),
+                          );
+                        }
+                        final trips = snapshot.data ?? [];
+                        return _buildTripsContent(context, uid, isDesktop, trips);
+                      },
+                    ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 32)),
+          ]),
+        );
+      }
     );
   }
 

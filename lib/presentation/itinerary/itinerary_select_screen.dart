@@ -12,7 +12,7 @@ import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/itinerary/itinerary_bottom_bar.dart';
 import 'package:waypoint/components/components.dart';
 
-/// Screen for trip owner to select waypoints for each day
+/// Screen for trip owner to select waypoints - all days shown on one page
 class ItinerarySelectScreen extends StatefulWidget {
   final String planId;
   final String tripId;
@@ -37,7 +37,6 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
   List<TripDaySelection> _selections = [];
   bool _loading = true;
   bool _saving = false;
-  int _currentDayIndex = 0;
 
   @override
   void initState() {
@@ -98,14 +97,16 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
     }
   }
 
-  DayItinerary? get _currentDay {
-    if (_version == null || _currentDayIndex >= _version!.days.length) return null;
-    return _version!.days[_currentDayIndex];
-  }
-
-  TripDaySelection? get _currentSelection {
-    if (_selections.isEmpty || _currentDayIndex >= _selections.length) return null;
-    return _selections[_currentDayIndex];
+  /// Check if there are any selections made across all days
+  bool get _hasAnySelections {
+    for (final selection in _selections) {
+      if (selection.selectedAccommodation != null ||
+          selection.selectedRestaurants.isNotEmpty ||
+          selection.selectedActivities.isNotEmpty) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @override
@@ -116,194 +117,129 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
 
     if (_plan == null || _trip == null || _version == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Select Waypoints')),
+        appBar: AppBar(title: const Text('Plan & Book')),
         body: const Center(child: Text('Failed to load data')),
       );
     }
 
-    final totalDays = _version!.days.length;
-    final day = _currentDay;
-
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/itinerary/${widget.planId}/pack/${widget.tripId}'),
-        ),
-        title: Text('Day ${_currentDayIndex + 1} of $totalDays'),
-        centerTitle: false,
-        actions: [
-          TextButton(
-            onPressed: _skipDay,
-            child: Text(
-              'Skip Day',
-              style: TextStyle(color: context.colors.onSurfaceVariant),
+        leading: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: GestureDetector(
+            onTap: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.terrain, color: context.colors.primary, size: 24),
+                const SizedBox(width: 4),
+              ],
             ),
           ),
-        ],
+        ),
+        leadingWidth: 80,
+        title: const Text('Plan & Book Accommodations'),
+        centerTitle: false,
       ),
-      body: day == null
-          ? const Center(child: Text('No day data'))
-          : SingleChildScrollView(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header info card
+            _HeaderInfoCard(
+              plan: _plan!,
+              trip: _trip!,
+              version: _version!,
+            ),
+            const SizedBox(height: 24),
+
+            // Instructions
+            Container(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: context.colors.primary.withValues(alpha: 0.2)),
+              ),
+              child: Row(
                 children: [
-                  // Day header
-                  _DayHeader(day: day),
-                  const SizedBox(height: 24),
-
-                  // Accommodation section
-                  if (day.accommodations.isNotEmpty) ...[
-                    _SectionHeader(
-                      icon: Icons.hotel,
-                      title: 'Where to Stay',
-                      subtitle: 'Select your accommodation',
+                  Icon(Icons.info_outline, color: context.colors.primary, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Select the accommodations, restaurants, activities, and service points you want to include in your trip. You can track bookings using the checkboxes.',
+                      style: context.textStyles.bodySmall?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    ...day.accommodations.map((acc) => _SelectableWaypointCard(
-                      name: acc.name,
-                      type: WaypointType.accommodation,
-                      photoUrl: acc.linkImageUrl,
-                      website: acc.bookingLink,
-                      description: acc.linkDescription,
-                      typeLabel: acc.type,
-                      isSelected: _currentSelection?.selectedAccommodation?.name == acc.name,
-                      onSelect: () => _selectAccommodation(acc),
-                    )),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Restaurant section
-                  if (day.restaurants.isNotEmpty) ...[
-                    _SectionHeader(
-                      icon: Icons.restaurant,
-                      title: 'Where to Eat',
-                      subtitle: 'Select restaurants for your meals',
-                    ),
-                    const SizedBox(height: 12),
-                    ..._buildRestaurantsByMeal(day.restaurants),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Activities section
-                  if (day.activities.isNotEmpty) ...[
-                    _SectionHeader(
-                      icon: Icons.local_activity,
-                      title: 'Activities',
-                      subtitle: 'Select activities for the day',
-                    ),
-                    const SizedBox(height: 12),
-                    ...day.activities.map((act) => _SelectableWaypointCard(
-                      name: act.name,
-                      type: WaypointType.activity,
-                      photoUrl: act.linkImageUrl,
-                      website: act.bookingLink,
-                      description: act.description,
-                      isSelected: _currentSelection?.selectedActivities
-                          .any((a) => a.name == act.name) ?? false,
-                      onSelect: () => _toggleActivity(act),
-                      isMultiSelect: true,
-                    )),
-                  ],
-
-                  const SizedBox(height: 100),
+                  ),
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+
+            // All waypoints organized by day
+            ..._version!.days.asMap().entries.map((entry) {
+              final dayIndex = entry.key;
+              final day = entry.value;
+              final selection = dayIndex < _selections.length 
+                  ? _selections[dayIndex] 
+                  : null;
+
+              return _DaySection(
+                day: day,
+                selection: selection,
+                onSelectAccommodation: (acc) => _selectAccommodation(dayIndex, acc),
+                onSelectRestaurant: (rest, mealType) => _selectRestaurant(dayIndex, rest, mealType),
+                onToggleActivity: (act) => _toggleActivity(dayIndex, act),
+                onToggleServicePoint: (sp) => _toggleServicePoint(dayIndex, sp),
+                onToggleBooking: (waypointName, type, isBooked) => 
+                    _toggleBookingStatus(dayIndex, waypointName, type, isBooked),
+              );
+            }),
+
+            const SizedBox(height: 100),
+          ],
+        ),
+      ),
       bottomNavigationBar: ItineraryBottomBar(
-        onBack: _currentDayIndex > 0 ? _previousDay : null,
-        backLabel: _currentDayIndex > 0 ? 'Previous Day' : 'Back',
-        onNext: _saving ? null : _nextDay,
-        nextEnabled: !_saving,
-        nextLabel: _saving
-            ? 'Saving...'
-            : (_currentDayIndex < totalDays - 1 ? 'Next Day' : 'Review Selections'),
-        nextIcon: Icons.arrow_forward,
+        onBack: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+        backLabel: 'Back to Overview',
+        onNext: _saving ? null : _confirmSelections,
+        nextEnabled: !_saving && _hasAnySelections,
+        nextLabel: _saving ? 'Saving...' : 'Confirm Selections',
+        nextIcon: Icons.check,
       ),
     );
   }
 
-  List<Widget> _buildRestaurantsByMeal(List<RestaurantInfo> restaurants) {
-    final widgets = <Widget>[];
-    
-    for (final mealType in MealType.values) {
-      final mealRestaurants = restaurants.where((r) => r.mealType == mealType).toList();
-      if (mealRestaurants.isEmpty) continue;
-
-      widgets.add(Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(
-          _mealTypeLabel(mealType),
-          style: context.textStyles.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: context.colors.onSurfaceVariant,
-          ),
-        ),
-      ));
-
-      for (final restaurant in mealRestaurants) {
-        widgets.add(_SelectableWaypointCard(
-          name: restaurant.name,
-          type: WaypointType.restaurant,
-          photoUrl: restaurant.linkImageUrl,
-          website: restaurant.bookingLink,
-          description: restaurant.linkDescription,
-          isSelected: _currentSelection?.selectedRestaurants[mealType.name]?.name == restaurant.name,
-          onSelect: () => _selectRestaurant(restaurant, mealType),
-          mealTime: _convertMealTypeToMealTime(mealType),
-        ));
-      }
-
-      widgets.add(const SizedBox(height: 16));
-    }
-
-    return widgets;
-  }
-  
-  MealTime _convertMealTypeToMealTime(MealType type) {
-    switch (type) {
-      case MealType.breakfast: return MealTime.breakfast;
-      case MealType.lunch: return MealTime.lunch;
-      case MealType.dinner: return MealTime.dinner;
-    }
-  }
-
-  String _mealTypeLabel(MealType type) {
-    switch (type) {
-      case MealType.breakfast: return '☀️ Breakfast';
-      case MealType.lunch: return '🌤️ Lunch';
-      case MealType.dinner: return '🌙 Dinner';
-    }
-  }
-
-  Future<void> _selectAccommodation(AccommodationInfo accommodation) async {
-    if (_currentSelection == null) return;
+  Future<void> _selectAccommodation(int dayIndex, AccommodationInfo accommodation) async {
+    if (dayIndex >= _selections.length) return;
     
     final selected = SelectedWaypoint.fromAccommodation(accommodation);
     await _trips.updateDayAccommodation(
       tripId: widget.tripId,
-      dayNum: _currentDayIndex + 1,
+      dayNum: dayIndex + 1,
       accommodation: selected,
     );
     
-    // Refresh selections
     final selections = await _trips.getDaySelections(widget.tripId);
     setState(() => _selections = selections);
   }
 
-  Future<void> _selectRestaurant(RestaurantInfo restaurant, MealType mealType) async {
-    if (_currentSelection == null) return;
+  Future<void> _selectRestaurant(int dayIndex, RestaurantInfo restaurant, MealType mealType) async {
+    if (dayIndex >= _selections.length) return;
     
     final selected = SelectedWaypoint.fromRestaurant(restaurant);
     final updatedRestaurants = Map<String, SelectedWaypoint>.from(
-      _currentSelection!.selectedRestaurants,
+      _selections[dayIndex].selectedRestaurants,
     );
     updatedRestaurants[mealType.name] = selected;
     
     await _trips.updateDayRestaurants(
       tripId: widget.tripId,
-      dayNum: _currentDayIndex + 1,
+      dayNum: dayIndex + 1,
       restaurants: updatedRestaurants,
     );
     
@@ -311,11 +247,11 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
     setState(() => _selections = selections);
   }
 
-  Future<void> _toggleActivity(ActivityInfo activity) async {
-    if (_currentSelection == null) return;
+  Future<void> _toggleActivity(int dayIndex, ActivityInfo activity) async {
+    if (dayIndex >= _selections.length) return;
     
     final currentActivities = List<SelectedWaypoint>.from(
-      _currentSelection!.selectedActivities,
+      _selections[dayIndex].selectedActivities,
     );
     
     final existingIndex = currentActivities.indexWhere((a) => a.name == activity.name);
@@ -327,7 +263,7 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
     
     await _trips.updateDayActivities(
       tripId: widget.tripId,
-      dayNum: _currentDayIndex + 1,
+      dayNum: dayIndex + 1,
       activities: currentActivities,
     );
     
@@ -335,31 +271,134 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
     setState(() => _selections = selections);
   }
 
-  void _previousDay() {
-    if (_currentDayIndex > 0) {
-      setState(() => _currentDayIndex--);
-    }
-  }
-
-  void _nextDay() {
-    final totalDays = _version?.days.length ?? 0;
-    if (_currentDayIndex < totalDays - 1) {
-      setState(() => _currentDayIndex++);
+  Future<void> _toggleServicePoint(int dayIndex, Map<String, dynamic> servicePoint) async {
+    if (dayIndex >= _selections.length) return;
+    
+    final currentActivities = List<SelectedWaypoint>.from(
+      _selections[dayIndex].selectedActivities,
+    );
+    
+    final spName = servicePoint['name'] as String? ?? 'Service Point';
+    final existingIndex = currentActivities.indexWhere((a) => a.name == spName);
+    
+    if (existingIndex >= 0) {
+      currentActivities.removeAt(existingIndex);
     } else {
-      // Go to review screen
-      context.go('/itinerary/${widget.planId}/review/${widget.tripId}');
+      // Create a SelectedWaypoint from service point
+      currentActivities.add(SelectedWaypoint(
+        name: spName,
+        type: 'Service Point',
+        bookingStatus: WaypointBookingStatus.notNeeded,
+      ));
     }
+    
+    await _trips.updateDayActivities(
+      tripId: widget.tripId,
+      dayNum: dayIndex + 1,
+      activities: currentActivities,
+    );
+    
+    final selections = await _trips.getDaySelections(widget.tripId);
+    setState(() => _selections = selections);
   }
 
-  void _skipDay() {
-    _nextDay();
+  Future<void> _toggleBookingStatus(int dayIndex, String waypointName, String type, bool isBooked) async {
+    if (dayIndex >= _selections.length) return;
+    
+    final selection = _selections[dayIndex];
+    final newStatus = isBooked 
+        ? WaypointBookingStatus.booked 
+        : WaypointBookingStatus.notBooked;
+
+    // Update the appropriate waypoint
+    if (selection.selectedAccommodation?.name == waypointName) {
+      final updated = selection.selectedAccommodation!.copyWith(
+        bookingStatus: newStatus,
+      );
+      await _trips.updateDayAccommodation(
+        tripId: widget.tripId,
+        dayNum: dayIndex + 1,
+        accommodation: updated,
+      );
+    } else if (selection.selectedRestaurants.values.any((r) => r.name == waypointName)) {
+      final updatedRestaurants = <String, SelectedWaypoint>{};
+      for (final entry in selection.selectedRestaurants.entries) {
+        if (entry.value.name == waypointName) {
+          updatedRestaurants[entry.key] = entry.value.copyWith(
+            bookingStatus: newStatus,
+          );
+        } else {
+          updatedRestaurants[entry.key] = entry.value;
+        }
+      }
+      await _trips.updateDayRestaurants(
+        tripId: widget.tripId,
+        dayNum: dayIndex + 1,
+        restaurants: updatedRestaurants,
+      );
+    } else {
+      // Must be an activity
+      final updatedActivities = selection.selectedActivities.map((a) {
+        if (a.name == waypointName) {
+          return a.copyWith(bookingStatus: newStatus);
+        }
+        return a;
+      }).toList();
+      await _trips.updateDayActivities(
+        tripId: widget.tripId,
+        dayNum: dayIndex + 1,
+        activities: updatedActivities,
+      );
+    }
+    
+    final selections = await _trips.getDaySelections(widget.tripId);
+    setState(() => _selections = selections);
+  }
+
+  Future<void> _confirmSelections() async {
+    if (!_hasAnySelections) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please make at least one selection')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      // Mark trip as ready
+      await _trips.updateCustomizationStatus(
+        tripId: widget.tripId,
+        status: TripCustomizationStatus.ready,
+      );
+
+      if (!mounted) return;
+
+      // Navigate back to setup screen
+      context.go('/itinerary/${widget.planId}/setup/${widget.tripId}');
+    } catch (e) {
+      debugPrint('Error saving selections: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
 
-class _DayHeader extends StatelessWidget {
-  final DayItinerary day;
+/// Header info card showing trip details
+class _HeaderInfoCard extends StatelessWidget {
+  final Plan plan;
+  final Trip trip;
+  final PlanVersion version;
 
-  const _DayHeader({required this.day});
+  const _HeaderInfoCard({
+    required this.plan,
+    required this.trip,
+    required this.version,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -379,56 +418,45 @@ class _DayHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            day.title,
+            trip.title ?? plan.name,
             style: context.textStyles.titleLarge?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            day.description,
-            style: context.textStyles.bodyMedium?.copyWith(
-              color: context.colors.onSurfaceVariant,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: context.colors.surface,
-                  borderRadius: BorderRadius.circular(20),
+                  color: context.colors.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.straighten, size: 14, color: context.colors.primary),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${day.distanceKm.toStringAsFixed(1)} km',
-                      style: context.textStyles.labelSmall?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                  ],
+                child: Text(
+                  version.name,
+                  style: context.textStyles.labelSmall?.copyWith(
+                    color: context.colors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: context.colors.surface,
-                  borderRadius: BorderRadius.circular(20),
+                  color: context.colors.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.schedule, size: 14, color: context.colors.primary),
+                    Icon(Icons.calendar_today, size: 12, color: context.colors.onSurfaceVariant),
                     const SizedBox(width: 4),
                     Text(
-                      '${day.estimatedTimeMinutes ~/ 60}h ${day.estimatedTimeMinutes % 60}m',
-                      style: context.textStyles.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+                      '${version.durationDays} days',
+                      style: context.textStyles.labelSmall?.copyWith(
+                        color: context.colors.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -441,6 +469,254 @@ class _DayHeader extends StatelessWidget {
   }
 }
 
+/// Section for a single day showing all waypoints
+class _DaySection extends StatelessWidget {
+  final DayItinerary day;
+  final TripDaySelection? selection;
+  final Function(AccommodationInfo) onSelectAccommodation;
+  final Function(RestaurantInfo, MealType) onSelectRestaurant;
+  final Function(ActivityInfo) onToggleActivity;
+  final Function(Map<String, dynamic>) onToggleServicePoint;
+  final Function(String waypointName, String type, bool isBooked) onToggleBooking;
+
+  const _DaySection({
+    required this.day,
+    required this.selection,
+    required this.onSelectAccommodation,
+    required this.onSelectRestaurant,
+    required this.onToggleActivity,
+    required this.onToggleServicePoint,
+    required this.onToggleBooking,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Get service points from the day's route
+    final servicePoints = day.route?.poiWaypoints
+        .where((wp) => wp['type'] == 'servicePoint')
+        .toList() ?? [];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Day header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: context.colors.secondaryContainer.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: context.colors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${day.dayNum}',
+                      style: context.textStyles.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        day.title,
+                        style: context.textStyles.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '${day.distanceKm.toStringAsFixed(1)} km • ${day.estimatedTimeMinutes ~/ 60}h ${day.estimatedTimeMinutes % 60}m',
+                        style: context.textStyles.bodySmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Accommodations
+          if (day.accommodations.isNotEmpty) ...[
+            _SectionHeader(
+              icon: Icons.hotel,
+              title: 'Accommodations',
+              subtitle: 'Choose where to stay',
+            ),
+            const SizedBox(height: 12),
+            ...day.accommodations.map((acc) => _SelectableWaypointCard(
+              name: acc.name,
+              type: WaypointType.accommodation,
+              photoUrl: acc.linkImageUrl,
+              website: acc.bookingLink,
+              description: acc.linkDescription,
+              typeLabel: acc.type,
+              cost: acc.cost,
+              isSelected: selection?.selectedAccommodation?.name == acc.name,
+              isBooked: selection?.selectedAccommodation?.name == acc.name 
+                  ? selection!.selectedAccommodation!.bookingStatus == WaypointBookingStatus.booked
+                  : false,
+              hasBookingLink: acc.bookingLink != null,
+              onSelect: () => onSelectAccommodation(acc),
+              onToggleBooking: (isBooked) => onToggleBooking(acc.name, 'accommodation', isBooked),
+            )),
+            const SizedBox(height: 16),
+          ],
+
+          // Restaurants
+          if (day.restaurants.isNotEmpty) ...[
+            _SectionHeader(
+              icon: Icons.restaurant,
+              title: 'Restaurants',
+              subtitle: 'Choose where to eat',
+            ),
+            const SizedBox(height: 12),
+            ..._buildRestaurantsByMeal(context, day.restaurants),
+            const SizedBox(height: 16),
+          ],
+
+          // Activities
+          if (day.activities.isNotEmpty) ...[
+            _SectionHeader(
+              icon: Icons.local_activity,
+              title: 'Activities',
+              subtitle: 'Select activities to do',
+            ),
+            const SizedBox(height: 12),
+            ...day.activities.map((act) {
+              final isSelected = selection?.selectedActivities
+                  .any((a) => a.name == act.name) ?? false;
+              final selectedActivity = isSelected 
+                  ? selection!.selectedActivities.firstWhere((a) => a.name == act.name)
+                  : null;
+              
+              return _SelectableWaypointCard(
+                name: act.name,
+                type: WaypointType.activity,
+                photoUrl: act.linkImageUrl,
+                website: act.bookingLink,
+                description: act.description,
+                cost: act.cost,
+                isSelected: isSelected,
+                isBooked: selectedActivity?.bookingStatus == WaypointBookingStatus.booked,
+                hasBookingLink: act.bookingLink != null,
+                onSelect: () => onToggleActivity(act),
+                onToggleBooking: (isBooked) => onToggleBooking(act.name, 'activity', isBooked),
+                isMultiSelect: true,
+              );
+            }),
+            const SizedBox(height: 16),
+          ],
+
+          // Service Points
+          if (servicePoints.isNotEmpty) ...[
+            _SectionHeader(
+              icon: Icons.local_gas_station,
+              title: 'Service Points',
+              subtitle: 'Useful stops along the way',
+            ),
+            const SizedBox(height: 12),
+            ...servicePoints.map((sp) {
+              final spName = sp['name'] as String? ?? 'Service Point';
+              final isSelected = selection?.selectedActivities
+                  .any((a) => a.name == spName) ?? false;
+              
+              return _SelectableWaypointCard(
+                name: spName,
+                type: WaypointType.servicePoint,
+                description: sp['description'] as String?,
+                isSelected: isSelected,
+                isBooked: false,
+                hasBookingLink: false,
+                onSelect: () => onToggleServicePoint(sp),
+                onToggleBooking: null,
+                isMultiSelect: true,
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildRestaurantsByMeal(BuildContext context, List<RestaurantInfo> restaurants) {
+    final widgets = <Widget>[];
+    
+    for (final mealType in MealType.values) {
+      final mealRestaurants = restaurants.where((r) => r.mealType == mealType).toList();
+      if (mealRestaurants.isEmpty) continue;
+
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          _mealTypeLabel(mealType),
+          style: context.textStyles.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: context.colors.onSurfaceVariant,
+          ),
+        ),
+      ));
+
+      for (final restaurant in mealRestaurants) {
+        final isSelected = selection?.selectedRestaurants[mealType.name]?.name == restaurant.name;
+        final selectedRestaurant = isSelected 
+            ? selection!.selectedRestaurants[mealType.name]!
+            : null;
+
+        widgets.add(_SelectableWaypointCard(
+          name: restaurant.name,
+          type: WaypointType.restaurant,
+          photoUrl: restaurant.linkImageUrl,
+          website: restaurant.bookingLink,
+          description: restaurant.linkDescription,
+          cost: restaurant.cost,
+          isSelected: isSelected,
+          isBooked: selectedRestaurant?.bookingStatus == WaypointBookingStatus.booked,
+          hasBookingLink: restaurant.bookingLink != null,
+          onSelect: () => onSelectRestaurant(restaurant, mealType),
+          onToggleBooking: (isBooked) => onToggleBooking(restaurant.name, 'restaurant', isBooked),
+          mealTime: _convertMealTypeToMealTime(mealType),
+        ));
+      }
+
+      widgets.add(const SizedBox(height: 12));
+    }
+
+    return widgets;
+  }
+
+  MealTime _convertMealTypeToMealTime(MealType type) {
+    switch (type) {
+      case MealType.breakfast: return MealTime.breakfast;
+      case MealType.lunch: return MealTime.lunch;
+      case MealType.dinner: return MealTime.dinner;
+    }
+  }
+
+  String _mealTypeLabel(MealType type) {
+    switch (type) {
+      case MealType.breakfast: return '☀️ Breakfast';
+      case MealType.lunch: return '🌤️ Lunch';
+      case MealType.dinner: return '🌙 Dinner';
+    }
+  }
+}
 
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
@@ -458,12 +734,12 @@ class _SectionHeader extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: context.colors.primaryContainer,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, size: 20, color: context.colors.primary),
+          child: Icon(icon, size: 18, color: context.colors.primary),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -472,7 +748,7 @@ class _SectionHeader extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: context.textStyles.titleMedium?.copyWith(
+                style: context.textStyles.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -490,7 +766,7 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// Selectable waypoint card for itinerary selection
+/// Selectable waypoint card with booking checkbox
 class _SelectableWaypointCard extends StatelessWidget {
   final String name;
   final WaypointType type;
@@ -499,20 +775,28 @@ class _SelectableWaypointCard extends StatelessWidget {
   final String? description;
   final String? typeLabel;
   final MealTime? mealTime;
+  final double? cost;
   final bool isSelected;
+  final bool isBooked;
+  final bool hasBookingLink;
   final VoidCallback onSelect;
+  final Function(bool)? onToggleBooking;
   final bool isMultiSelect;
 
   const _SelectableWaypointCard({
     required this.name,
     required this.type,
     required this.isSelected,
+    required this.isBooked,
+    required this.hasBookingLink,
     required this.onSelect,
+    required this.onToggleBooking,
     this.photoUrl,
     this.website,
     this.description,
     this.typeLabel,
     this.mealTime,
+    this.cost,
     this.isMultiSelect = false,
   });
 
@@ -521,7 +805,7 @@ class _SelectableWaypointCard extends StatelessWidget {
     // Convert to RouteWaypoint for unified display
     final waypoint = RouteWaypoint(
       type: type,
-      position: const ll.LatLng(0, 0), // Position not needed for selection
+      position: const ll.LatLng(0, 0),
       name: name,
       description: description,
       order: 0,
@@ -530,13 +814,57 @@ class _SelectableWaypointCard extends StatelessWidget {
       mealTime: mealTime,
     );
 
-    return UnifiedWaypointCard(
-      waypoint: waypoint,
-      isSelectable: true,
-      isSelected: isSelected,
-      onSelect: onSelect,
-      isCompact: true,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Stack(
+        children: [
+          UnifiedWaypointCard(
+            waypoint: waypoint,
+            isSelectable: true,
+            isSelected: isSelected,
+            onSelect: onSelect,
+            isCompact: true,
+          ),
+          // Booking checkbox overlay (only if selected and has booking link)
+          if (isSelected && hasBookingLink && onToggleBooking != null)
+            Positioned(
+              top: 12,
+              right: 12,
+              child: GestureDetector(
+                onTap: () => onToggleBooking!(!isBooked),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isBooked ? Colors.green : Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isBooked ? Colors.green.shade700 : Colors.orange.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isBooked ? Icons.check_circle : Icons.circle_outlined,
+                        size: 14,
+                        color: isBooked ? Colors.white : Colors.orange.shade700,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isBooked ? 'Booked' : 'Book',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isBooked ? Colors.white : Colors.orange.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
-

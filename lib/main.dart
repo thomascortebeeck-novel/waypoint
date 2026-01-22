@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -10,6 +11,17 @@ import 'package:waypoint/utils/logger.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/providers/theme_provider.dart';
 
+/// Configure global image cache for better performance
+void _configureImageCache() {
+  // Set maximum number of images to keep in memory cache
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+  
+  // Set maximum size of memory cache (50 MB)
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
+  
+  Log.i('bootstrap', 'Image cache configured: 100 images, 50MB max');
+}
+
 /// Main entry point for the application
 ///
 /// This sets up:
@@ -17,11 +29,15 @@ import 'package:waypoint/providers/theme_provider.dart';
 /// - Provider state management
 /// - go_router navigation
 /// - Material 3 theming with light/dark modes
+/// - Global image caching configuration
 Future<void> main() async {
   try {
     // IMPORTANT: Keep bindings and runApp in the SAME zone to avoid web zone mismatch.
     WidgetsFlutterBinding.ensureInitialized();
     Log.i('bootstrap', 'Widgets binding initialized');
+    
+    // Configure global image cache for better performance
+    _configureImageCache();
 
     // Global Flutter error hook (safe to reassign on hot restart)
     FlutterError.onError = (FlutterErrorDetails details) {

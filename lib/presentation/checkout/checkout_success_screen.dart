@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:waypoint/theme.dart';
 
 /// Full-page success screen after successful checkout
@@ -50,6 +52,39 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
     );
 
     _controller.forward();
+    
+    // Check if user came from invite flow and auto-redirect after animation
+    if (widget.returnToJoin && widget.inviteCode != null) {
+      _scheduleAutoRedirect();
+    }
+  }
+
+  void _scheduleAutoRedirect() {
+    Future.delayed(const Duration(seconds: 2), () async {
+      if (!mounted) return;
+      
+      final inviteCode = widget.inviteCode;
+      debugPrint('CheckoutSuccessScreen: Auto-redirecting to join with inviteCode: $inviteCode');
+      
+      // Clear any pending invite code from storage
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('pending_invite_code');
+      } catch (e) {
+        debugPrint('CheckoutSuccessScreen: Failed to clear pending invite: $e');
+      }
+      
+      if (!mounted) return;
+      
+      // Ensure we have a valid invite code before redirecting
+      if (inviteCode != null && inviteCode.isNotEmpty) {
+        debugPrint('CheckoutSuccessScreen: Navigating to /join/$inviteCode');
+        context.go('/join/$inviteCode', extra: {'fromAuth': true});
+      } else {
+        debugPrint('CheckoutSuccessScreen: No invite code, going to explore');
+        context.go('/');
+      }
+    });
   }
 
   @override
@@ -128,6 +163,36 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                 ),
 
                 const SizedBox(height: 24),
+
+                // Invite flow notification
+                if (widget.returnToJoin && widget.inviteCode != null)
+                  FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue.shade700),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Redirecting you to join the trip...',
+                              style: context.textStyles.bodyMedium?.copyWith(
+                                color: Colors.blue.shade900,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 // Order confirmation
                 if (widget.orderId != null)
@@ -213,7 +278,10 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                           width: double.infinity,
                           height: 52,
                           child: ElevatedButton.icon(
-                            onPressed: () => context.go('/join/${widget.inviteCode}'),
+                            onPressed: () {
+                              debugPrint('CheckoutSuccessScreen: Manual navigation to /join/${widget.inviteCode}');
+                              context.go('/join/${widget.inviteCode}', extra: {'fromAuth': true});
+                            },
                             icon: const Icon(Icons.group_add, size: 20),
                             label: const Text(
                               'Continue to Join Trip',

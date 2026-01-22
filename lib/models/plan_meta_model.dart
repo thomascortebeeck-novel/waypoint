@@ -1,6 +1,81 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/plan_model.dart';
 
+/// Lightweight version summary for dropdown display
+/// Only contains essential data needed for version selection UI
+class VersionSummary {
+  final String id;
+  final String name;
+  final int durationDays;
+  final Difficulty difficulty;
+  /// Pre-calculated stats for display without loading full version
+  final double? totalDistanceKm;
+  final double? totalElevationM;
+  final int? waypointCount;
+
+  const VersionSummary({
+    required this.id,
+    required this.name,
+    required this.durationDays,
+    this.difficulty = Difficulty.none,
+    this.totalDistanceKm,
+    this.totalElevationM,
+    this.waypointCount,
+  });
+
+  factory VersionSummary.fromJson(Map<String, dynamic> json) => VersionSummary(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    durationDays: json['duration_days'] as int,
+    difficulty: json['difficulty'] != null 
+        ? Difficulty.values.firstWhere(
+            (d) => d.name == json['difficulty'],
+            orElse: () => Difficulty.none,
+          )
+        : Difficulty.none,
+    totalDistanceKm: (json['total_distance_km'] as num?)?.toDouble(),
+    totalElevationM: (json['total_elevation_m'] as num?)?.toDouble(),
+    waypointCount: json['waypoint_count'] as int?,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'duration_days': durationDays,
+    'difficulty': difficulty.name,
+    if (totalDistanceKm != null) 'total_distance_km': totalDistanceKm,
+    if (totalElevationM != null) 'total_elevation_m': totalElevationM,
+    if (waypointCount != null) 'waypoint_count': waypointCount,
+  };
+
+  /// Create from PlanVersion (calculates stats)
+  factory VersionSummary.fromPlanVersion(PlanVersion version) {
+    double totalDistance = 0;
+    double totalElevation = 0;
+    int waypointCount = 0;
+    
+    for (final day in version.days) {
+      totalDistance += day.route?.distance ?? 0;
+      totalElevation += day.route?.ascent ?? 0;
+      waypointCount += day.route?.poiWaypoints.length ?? 0;
+      // Add legacy waypoints
+      waypointCount += day.accommodations.length;
+      waypointCount += day.restaurants.length;
+      waypointCount += day.activities.length;
+    }
+    
+    return VersionSummary(
+      id: version.id,
+      name: version.name,
+      durationDays: version.durationDays,
+      difficulty: version.difficulty,
+      totalDistanceKm: totalDistance / 1000,
+      totalElevationM: totalElevation,
+      waypointCount: waypointCount,
+    );
+  }
+}
+
 /// Lightweight plan metadata for marketplace listings
 /// Stored in: plans/{planId}
 class PlanMeta {
@@ -25,6 +100,8 @@ class PlanMeta {
   final ActivityCategory? activityCategory;
   /// Accommodation type (optional, auto-set to comfort for city/regional tours)
   final AccommodationType? accommodationType;
+  /// Lightweight version summaries for dropdown display (loaded without full version data)
+  final List<VersionSummary> versionSummaries;
 
   PlanMeta({
     required this.id,
@@ -45,6 +122,7 @@ class PlanMeta {
     this.faqItems = const [],
     this.activityCategory,
     this.accommodationType,
+    this.versionSummaries = const [],
   });
 
   factory PlanMeta.fromJson(Map<String, dynamic> json) => PlanMeta(
@@ -78,6 +156,9 @@ class PlanMeta {
             orElse: () => AccommodationType.comfort,
           )
         : null,
+    versionSummaries: (json['version_summaries'] as List<dynamic>?)
+        ?.map((v) => VersionSummary.fromJson(v as Map<String, dynamic>))
+        .toList() ?? [],
   );
 
   Map<String, dynamic> toJson() => {
@@ -99,6 +180,7 @@ class PlanMeta {
     'faq_items': faqItems.map((f) => f.toJson()).toList(),
     'activity_category': activityCategory?.name,
     'accommodation_type': accommodationType?.name,
+    'version_summaries': versionSummaries.map((v) => v.toJson()).toList(),
   };
 
   PlanMeta copyWith({
@@ -120,6 +202,7 @@ class PlanMeta {
     List<FAQItem>? faqItems,
     ActivityCategory? activityCategory,
     AccommodationType? accommodationType,
+    List<VersionSummary>? versionSummaries,
   }) => PlanMeta(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -139,6 +222,7 @@ class PlanMeta {
     faqItems: faqItems ?? this.faqItems,
     activityCategory: activityCategory ?? this.activityCategory,
     accommodationType: accommodationType ?? this.accommodationType,
+    versionSummaries: versionSummaries ?? this.versionSummaries,
   );
 
   /// Convert legacy Plan to PlanMeta (for migration)
@@ -162,6 +246,9 @@ class PlanMeta {
       faqItems: plan.faqItems,
       activityCategory: plan.activityCategory,
       accommodationType: plan.accommodationType,
+      versionSummaries: plan.versions
+          .map((v) => VersionSummary.fromPlanVersion(v))
+          .toList(),
     );
   }
 }

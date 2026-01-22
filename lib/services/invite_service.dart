@@ -45,8 +45,10 @@ class InviteService {
 
   /// Parse invite code from various URL formats
   /// Supports: 
-  /// - https://waypoint.app/join/{code}
+  /// - https://waypoint.eu.com/join/{code}
+  /// - https://waypoint.app/join/{code} (legacy)
   /// - https://waypoint.page.link/join?code={code}
+  /// - https://*.dreamflow.app/#/join/{code} (test environment)
   /// - Direct code (e.g., TREK-X7K9M2)
   String? parseInviteCode(String input) {
     final trimmed = input.trim();
@@ -60,12 +62,21 @@ class InviteService {
     try {
       final uri = Uri.parse(trimmed);
       
-      // https://waypoint.app/join/{code}
+      // Production URLs: https://waypoint.eu.com/join/{code} or https://waypoint.app/join/{code}
       if (uri.pathSegments.length >= 2 && uri.pathSegments[0] == 'join') {
         return uri.pathSegments[1];
       }
       
-      // https://waypoint.page.link/join?code={code}
+      // Test environment (Dreamflow): https://*.dreamflow.app/#/join/{code}
+      // The fragment contains the route after #
+      if (uri.fragment.isNotEmpty) {
+        final fragmentUri = Uri.parse(uri.fragment);
+        if (fragmentUri.pathSegments.length >= 2 && fragmentUri.pathSegments[0] == 'join') {
+          return fragmentUri.pathSegments[1];
+        }
+      }
+      
+      // Firebase Dynamic Links: https://waypoint.page.link/join?code={code}
       if (uri.queryParameters.containsKey('code')) {
         return uri.queryParameters['code'];
       }
@@ -77,16 +88,21 @@ class InviteService {
   /// Get trip by invite code
   Future<Trip?> getTripByInviteCode(String inviteCode) async {
     try {
+      debugPrint('InviteService: Looking up trip with invite_code: $inviteCode');
       final snap = await _firestore
           .collection(_tripsCollection)
           .where('invite_code', isEqualTo: inviteCode)
           .limit(1)
           .get();
       
-      if (snap.docs.isEmpty) return null;
+      if (snap.docs.isEmpty) {
+        debugPrint('InviteService: No trip found with invite_code: $inviteCode');
+        return null;
+      }
+      debugPrint('InviteService: Found trip: ${snap.docs.first.id}');
       return Trip.fromJson(snap.docs.first.data());
     } catch (e) {
-      debugPrint('Error getting trip by invite code: $e');
+      debugPrint('InviteService: Error getting trip by invite code: $e');
       return null;
     }
   }
@@ -94,17 +110,22 @@ class InviteService {
   /// Validate an invite code for a specific user
   Future<InviteValidationResult> validateInvite(String inviteCode, String userId) async {
     try {
+      debugPrint('InviteService: Validating invite code: $inviteCode for user: $userId');
+      
       // Get trip by invite code
       final trip = await getTripByInviteCode(inviteCode);
       if (trip == null) {
+        debugPrint('InviteService: Trip not found for invite code: $inviteCode');
         return InviteValidationResult(
           status: InviteStatus.invalid,
           errorMessage: 'Invalid invite code',
         );
       }
+      debugPrint('InviteService: Found trip ${trip.id}, planId: ${trip.planId}');
 
       // Check if invites are enabled
       if (!trip.inviteEnabled) {
+        debugPrint('InviteService: Invites disabled for trip ${trip.id}');
         return InviteValidationResult(
           status: InviteStatus.invalid,
           trip: trip,
@@ -114,6 +135,7 @@ class InviteService {
 
       // Check if trip is active
       if (!trip.isActive || trip.status == 'cancelled') {
+        debugPrint('InviteService: Trip ${trip.id} is not active or cancelled');
         return InviteValidationResult(
           status: InviteStatus.tripCancelled,
           trip: trip,
@@ -124,15 +146,18 @@ class InviteService {
       // Get plan details
       final plan = await _planService.getPlanById(trip.planId);
       if (plan == null) {
+        debugPrint('InviteService: Plan ${trip.planId} not found');
         return InviteValidationResult(
           status: InviteStatus.invalid,
           trip: trip,
           errorMessage: 'Plan not found',
         );
       }
+      debugPrint('InviteService: Found plan ${plan.id}: ${plan.name}');
 
       // Check if user is already a member
       if (trip.isMember(userId)) {
+        debugPrint('InviteService: User $userId is already a member of trip ${trip.id}');
         return InviteValidationResult(
           status: InviteStatus.alreadyMember,
           trip: trip,
@@ -141,9 +166,11 @@ class InviteService {
         );
       }
 
-      // Check if user owns the plan
+      // Check if user owns the plan - fetch fresh data from Firestore
       final user = await _userService.getUserById(userId);
+      debugPrint('InviteService: User ${user?.id}, purchasedPlanIds: ${user?.purchasedPlanIds}');
       if (user == null || !user.purchasedPlanIds.contains(trip.planId)) {
+        debugPrint('InviteService: User does not own plan ${trip.planId}');
         return InviteValidationResult(
           status: InviteStatus.planNotOwned,
           trip: trip,
@@ -154,6 +181,7 @@ class InviteService {
 
       // Check group size limit
       if (!trip.canAddMembers(plan)) {
+        debugPrint('InviteService: Trip ${trip.id} is full');
         return InviteValidationResult(
           status: InviteStatus.groupFull,
           trip: trip,
@@ -162,13 +190,14 @@ class InviteService {
         );
       }
 
+      debugPrint('InviteService: Invite validation successful, user can join');
       return InviteValidationResult(
         status: InviteStatus.valid,
         trip: trip,
         plan: plan,
       );
     } catch (e) {
-      debugPrint('Error validating invite: $e');
+      debugPrint('InviteService: Error validating invite: $e');
       return InviteValidationResult(
         status: InviteStatus.invalid,
         errorMessage: 'Failed to validate invite',

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:waypoint/models/plan_model.dart';
 
 /// Customization status for trip waypoint selection
@@ -72,10 +73,23 @@ class Trip {
   }
 
   /// Get the full shareable invite link
-  String get shareLink => 'https://waypoint.app/join/$inviteCode';
+  /// Supports both production (waypoint.eu.com) and legacy (waypoint.app) domains
+  /// In test/development environments (Dreamflow), uses the test domain
+  String get shareLink {
+    // Detect test environment (Dreamflow share URLs)
+    if (kIsWeb && Uri.base.host.contains('dreamflow.app')) {
+      return '${Uri.base.origin}/#/join/$inviteCode';
+    }
+    
+    // Production domain (both domains work)
+    return 'https://waypoint.eu.com/join/$inviteCode';
+  }
 
-  /// Get the Firebase Dynamic Link for sharing
+  /// Get the Firebase Dynamic Link for sharing (legacy)
   String get dynamicLink => 'https://waypoint.page.link/join?code=$inviteCode';
+  
+  /// Get the alternative production link (waypoint.app)
+  String get legacyShareLink => 'https://waypoint.app/join/$inviteCode';
 
   /// Check if a user is the trip owner
   bool isOwner(String userId) => ownerId == userId;

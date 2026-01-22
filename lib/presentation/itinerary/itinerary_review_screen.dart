@@ -102,8 +102,8 @@ class _ItineraryReviewScreenState extends State<ItineraryReviewScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/itinerary/${widget.planId}/select/${widget.tripId}'),
+          icon: const Icon(Icons.terrain),
+          onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
         ),
         title: const Text('Review Your Trip'),
         centerTitle: false,
@@ -163,7 +163,7 @@ class _ItineraryReviewScreenState extends State<ItineraryReviewScreen> {
         backLabel: 'Edit Selections',
         onNext: _saving ? null : _confirmAndContinue,
         nextEnabled: !_saving,
-        nextLabel: _saving ? 'Saving...' : 'Confirm & Continue',
+        nextLabel: _saving ? 'Saving...' : 'Confirm Selections',
         nextIcon: Icons.check,
       ),
     );

@@ -1,7 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/user_model.dart';
@@ -14,8 +17,14 @@ import 'package:waypoint/theme.dart';
 /// Screen for joining a trip via invite code
 class JoinTripScreen extends StatefulWidget {
   final String inviteCode;
+  /// If true, user was just redirected here after authentication
+  final bool fromAuthRedirect;
   
-  const JoinTripScreen({super.key, required this.inviteCode});
+  const JoinTripScreen({
+    super.key,
+    required this.inviteCode,
+    this.fromAuthRedirect = false,
+  });
 
   @override
   State<JoinTripScreen> createState() => _JoinTripScreenState();
@@ -24,6 +33,7 @@ class JoinTripScreen extends StatefulWidget {
 class _JoinTripScreenState extends State<JoinTripScreen> {
   final InviteService _inviteService = InviteService();
   final UserService _userService = UserService();
+  final FirebaseAuthManager _auth = FirebaseAuthManager();
   
   bool _isLoading = true;
   bool _isJoining = false;
@@ -35,16 +45,40 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
   void initState() {
     super.initState();
     _validateInvite();
+    
+    // Auto-process invite if user just authenticated and plan already owned
+    if (widget.fromAuthRedirect) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _autoProcessIfReady());
+    }
+  }
+
+  Future<void> _autoProcessIfReady() async {
+    // Wait for validation to complete
+    while (_isLoading) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    
+    if (_validationResult?.status == InviteStatus.valid) {
+      // User authenticated and owns the plan - auto join
+      await _joinTrip();
+    } else if (_validationResult?.status == InviteStatus.planNotOwned) {
+      // User authenticated but doesn't own the plan - show purchase screen
+      // The UI will automatically show the "needs purchase" state
+    }
   }
 
   Future<void> _validateInvite() async {
     final userId = FirebaseAuth.instance.currentUser?.uid;
+    debugPrint('JoinTripScreen: Validating invite code: ${widget.inviteCode}, userId: $userId');
+    
     if (userId == null) {
+      debugPrint('JoinTripScreen: No user logged in, showing sign-in required');
       setState(() => _isLoading = false);
       return;
     }
 
     final result = await _inviteService.validateInvite(widget.inviteCode, userId);
+    debugPrint('JoinTripScreen: Validation result: ${result.status}, error: ${result.errorMessage}');
     
     // Fetch member details if we have a trip
     if (result.trip != null) {
@@ -171,14 +205,50 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
             ),
             const SizedBox(height: 32),
             FilledButton.icon(
-              onPressed: () => context.go('/profile'),
+              onPressed: () => _showAuthSheet(isSignUp: false),
               icon: const Icon(Icons.login),
               label: const Text('Sign In'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _showAuthSheet(isSignUp: true),
+              icon: const Icon(Icons.person_add),
+              label: const Text('Create Account'),
             ),
           ],
         ),
       ),
     );
+  }
+
+  void _showAuthSheet({required bool isSignUp}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: context.colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (_) => _JoinTripAuthSheet(
+        isSignUp: isSignUp,
+        auth: _auth,
+        onAuthSuccess: _handleAuthSuccess,
+      ),
+    );
+  }
+
+  Future<void> _handleAuthSuccess() async {
+    debugPrint('JoinTripScreen: Auth success, re-validating invite');
+    // Re-validate the invite now that user is logged in
+    setState(() => _isLoading = true);
+    await _validateInvite();
+    
+    // Auto-process if valid
+    if (_validationResult?.status == InviteStatus.valid) {
+      await _joinTrip();
+    }
   }
 
   Widget _buildContent() {
@@ -344,6 +414,31 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          
+          // Info notification
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue.shade700),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Purchase this plan to join the trip. You\'ll be automatically redirected after checkout.',
+                    style: context.textStyles.bodyMedium?.copyWith(
+                      color: Colors.blue.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           
           // Warning icon
           Container(
@@ -756,5 +851,270 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
         ],
       ),
     );
+  }
+}
+
+/// Auth sheet for join trip screen
+class _JoinTripAuthSheet extends StatefulWidget {
+  final bool isSignUp;
+  final FirebaseAuthManager auth;
+  final VoidCallback onAuthSuccess;
+
+  const _JoinTripAuthSheet({
+    required this.isSignUp,
+    required this.auth,
+    required this.onAuthSuccess,
+  });
+
+  @override
+  State<_JoinTripAuthSheet> createState() => _JoinTripAuthSheetState();
+}
+
+class _JoinTripAuthSheetState extends State<_JoinTripAuthSheet> {
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _firstNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  late bool _isSignUp;
+  bool _loading = false;
+  bool _agreedToTerms = false;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSignUp = widget.isSignUp;
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _isSignUp ? 'Create Account' : 'Sign In',
+                    style: context.textStyles.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() => _isSignUp = !_isSignUp),
+                    child: Text(
+                      _isSignUp ? 'Have an account?' : 'Create account',
+                      style: context.textStyles.bodyMedium?.copyWith(
+                        color: context.colors.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              
+              if (_isSignUp) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _firstNameCtrl,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'First Name',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _lastNameCtrl,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Last Name',
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+              
+              TextFormField(
+                controller: _emailCtrl,
+                autocorrect: false,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+                validator: (v) => (v == null || v.isEmpty || !v.contains('@')) ? 'Enter a valid email' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordCtrl,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  prefixIcon: const Icon(Icons.lock_outlined),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                validator: (v) => (v == null || v.length < 6) ? 'Min 6 characters' : null,
+              ),
+              
+              if (_isSignUp) ...[
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () => setState(() => _agreedToTerms = !_agreedToTerms),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: Checkbox(
+                            value: _agreedToTerms,
+                            onChanged: (v) => setState(() => _agreedToTerms = v ?? false),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              text: 'I agree to the ',
+                              style: context.textStyles.bodySmall,
+                              children: [
+                                TextSpan(
+                                  text: 'Terms and Conditions',
+                                  style: context.textStyles.bodySmall?.copyWith(
+                                    color: context.colors.primary,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _loading ? null : _submit,
+                  child: _loading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text(_isSignUp ? 'Create Account' : 'Sign In'),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    
+    if (_isSignUp && !_agreedToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please agree to the Terms and Conditions'),
+          backgroundColor: context.colors.error,
+        ),
+      );
+      return;
+    }
+    
+    setState(() => _loading = true);
+    
+    try {
+      if (_isSignUp) {
+        final user = await widget.auth.createAccountWithEmail(
+          context,
+          _emailCtrl.text.trim(),
+          _passwordCtrl.text,
+          firstName: _firstNameCtrl.text.trim(),
+          lastName: _lastNameCtrl.text.trim(),
+          agreedToTerms: _agreedToTerms,
+          marketingOptIn: false,
+        );
+        
+        if (user == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Failed to create account. Please try again.'),
+                backgroundColor: context.colors.error,
+              ),
+            );
+          }
+          return;
+        }
+      } else {
+        final user = await widget.auth.signInWithEmail(
+          context,
+          _emailCtrl.text.trim(),
+          _passwordCtrl.text,
+        );
+        
+        if (user == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Incorrect email or password. Please try again.'),
+                backgroundColor: context.colors.error,
+              ),
+            );
+          }
+          return;
+        }
+      }
+      
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onAuthSuccess();
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 }

@@ -868,6 +868,141 @@ class PlanService {
     }
   }
 
+  /// Get lightweight version summaries for a plan (no full version loading)
+  /// This is optimized for version selector dropdown display
+  Future<List<VersionSummary>> getVersionSummaries(String planId) async {
+    try {
+      // First try to get from plan metadata (stored version_summaries)
+      final planDoc = await _firestore.collection(_collection).doc(planId).get();
+      if (!planDoc.exists) return [];
+      
+      final planData = planDoc.data()!;
+      final storedSummaries = planData['version_summaries'] as List<dynamic>?;
+      
+      if (storedSummaries != null && storedSummaries.isNotEmpty) {
+        return storedSummaries
+            .map((v) => VersionSummary.fromJson(v as Map<String, dynamic>))
+            .toList();
+      }
+      
+      // Fallback: Load from version subcollection (lightweight read)
+      final versionsSnap = await _firestore
+          .collection(_collection)
+          .doc(planId)
+          .collection(_versionsCollection)
+          .orderBy('created_at')
+          .get();
+      
+      if (versionsSnap.docs.isEmpty) {
+        // Legacy format - extract from embedded versions
+        final legacyVersions = planData['versions'] as List<dynamic>?;
+        if (legacyVersions != null) {
+          return legacyVersions.map((v) {
+            final vData = v as Map<String, dynamic>;
+            return VersionSummary(
+              id: vData['id'] as String,
+              name: vData['name'] as String,
+              durationDays: vData['duration_days'] as int,
+              difficulty: Difficulty.values.firstWhere(
+                (d) => d.name == vData['difficulty'],
+                orElse: () => Difficulty.none,
+              ),
+            );
+          }).toList();
+        }
+        return [];
+      }
+      
+      // Build summaries from version docs with calculated stats from days
+      final summaries = <VersionSummary>[];
+      for (final versionDoc in versionsSnap.docs) {
+        final data = versionDoc.data();
+        final versionId = data['id'] as String;
+        
+        // Load days for this version to calculate stats
+        final daysSnap = await _firestore
+            .collection(_collection)
+            .doc(planId)
+            .collection(_versionsCollection)
+            .doc(versionId)
+            .collection(_daysCollection)
+            .get();
+        
+        double totalDistance = 0;
+        double totalElevation = 0;
+        int waypointCount = 0;
+        
+        for (final dayDoc in daysSnap.docs) {
+          final dayData = dayDoc.data();
+          final routeData = dayData['route'] as Map<String, dynamic>?;
+          if (routeData != null) {
+            totalDistance += (routeData['distance'] as num?)?.toDouble() ?? 0;
+            totalElevation += (routeData['ascent'] as num?)?.toDouble() ?? 0;
+            final poiWaypoints = routeData['poi_waypoints'] as List<dynamic>?;
+            waypointCount += poiWaypoints?.length ?? 0;
+          }
+          // Count legacy waypoints
+          waypointCount += (dayData['accommodations'] as List<dynamic>?)?.length ?? 0;
+          waypointCount += (dayData['restaurants'] as List<dynamic>?)?.length ?? 0;
+          waypointCount += (dayData['activities'] as List<dynamic>?)?.length ?? 0;
+        }
+        
+        summaries.add(VersionSummary(
+          id: versionId,
+          name: data['name'] as String,
+          durationDays: data['duration_days'] as int,
+          difficulty: Difficulty.none,
+          totalDistanceKm: totalDistance / 1000,
+          totalElevationM: totalElevation,
+          waypointCount: waypointCount,
+        ));
+      }
+      
+      // Store calculated summaries back to plan document for future reads
+      _updateVersionSummaries(planId, summaries);
+      
+      return summaries;
+    } catch (e) {
+      debugPrint('Error getting version summaries: $e');
+      return [];
+    }
+  }
+  
+  /// Update version_summaries on the plan document (fire-and-forget)
+  Future<void> _updateVersionSummaries(String planId, List<VersionSummary> summaries) async {
+    try {
+      await _firestore.collection(_collection).doc(planId).update({
+        'version_summaries': summaries.map((s) => s.toJson()).toList(),
+      });
+      debugPrint('Updated version summaries for plan $planId');
+    } catch (e) {
+      // Non-critical - just log the error
+      debugPrint('Failed to update version summaries: $e');
+    }
+  }
+
+  /// Load plan metadata only (without loading full version data)
+  /// Returns PlanMeta with version summaries for dropdown display
+  Future<PlanMeta?> loadPlanMeta(String planId) async {
+    try {
+      final doc = await _firestore.collection(_collection).doc(planId).get();
+      if (!doc.exists) return null;
+      
+      var meta = PlanMeta.fromJson(doc.data()!);
+      
+      // If no stored version summaries, fetch them
+      if (meta.versionSummaries.isEmpty) {
+        final summaries = await getVersionSummaries(planId);
+        meta = meta.copyWith(versionSummaries: summaries);
+      }
+      
+      return meta;
+    } catch (e) {
+      debugPrint('Error loading plan meta: $e');
+      return null;
+    }
+  }
+
   /// Load a single version with all days
   Future<PlanVersion?> loadFullVersion(String planId, String versionId) async {
     try {

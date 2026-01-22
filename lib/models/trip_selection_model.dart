@@ -56,6 +56,23 @@ class SelectedWaypoint {
     cost: activity.cost,
   );
 
+  /// Create from RouteWaypoint (POI waypoint)
+  factory SelectedWaypoint.fromRouteWaypoint(dynamic waypoint) {
+    // Import RouteWaypoint dynamically to avoid circular imports
+    final String name = waypoint.name as String;
+    final String type = waypoint.type.toString().split('.').last;
+    final String? bookingUrl = waypoint.bookingComUrl ?? waypoint.airbnbPropertyUrl ?? waypoint.website;
+    
+    return SelectedWaypoint(
+      name: name,
+      type: type,
+      bookingStatus: bookingUrl != null 
+          ? WaypointBookingStatus.notBooked 
+          : WaypointBookingStatus.notNeeded,
+      bookingLink: bookingUrl,
+    );
+  }
+
   factory SelectedWaypoint.fromJson(Map<String, dynamic> json) => SelectedWaypoint(
     name: json['name'] as String,
     type: json['type'] as String,

@@ -62,8 +62,8 @@ class _ItineraryTravelScreenState extends State<ItineraryTravelScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/itinerary/${widget.planId}/pack/${widget.tripId}'),
+          icon: const Icon(Icons.terrain),
+          onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
         ),
         title: const Text('How to get there'),
       ),
@@ -89,8 +89,6 @@ class _ItineraryTravelScreenState extends State<ItineraryTravelScreen> {
           : ListView(
               padding: AppSpacing.paddingLg,
               children: [
-                StepIndicator(currentStep: 3, totalSteps: 3, labels: const ['Setup', 'Pack', 'Travel']),
-                const SizedBox(height: 16),
                 Text('How to get there', style: context.textStyles.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color: context.colors.onSurface)),
                 const SizedBox(height: 8),
                 Text('Transportation options to reach your destination', style: context.textStyles.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant)),
@@ -113,13 +111,6 @@ class _ItineraryTravelScreenState extends State<ItineraryTravelScreen> {
                 }).toList(),
               ],
             ),
-      bottomNavigationBar: ItineraryBottomBar(
-        onBack: () => context.go('/itinerary/${widget.planId}/pack/${widget.tripId}'),
-        backLabel: 'Back',
-        onNext: () => context.go('/itinerary/${widget.planId}/day/${widget.tripId}/0'),
-        nextLabel: 'Day 1',
-        nextIcon: Icons.arrow_forward,
-      ),
     );
   }
 }

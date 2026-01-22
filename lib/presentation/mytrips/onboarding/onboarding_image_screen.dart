@@ -76,8 +76,8 @@ class _OnboardingImageScreenState extends State<OnboardingImageScreen> {
       }
 
       if (!mounted) return;
-      // Navigate to waypoint selection screen
-      context.go('/itinerary/${widget.planId}/select/${widget.tripId}');
+      // Navigate to trip details page
+      context.go('/trip/${widget.tripId}');
     } catch (e) {
       debugPrint('Upload image failed: $e');
       if (!mounted) return;
@@ -90,8 +90,8 @@ class _OnboardingImageScreenState extends State<OnboardingImageScreen> {
   }
 
   void _skip() {
-    // Skip image upload and go to waypoint selection
-    context.go('/itinerary/${widget.planId}/select/${widget.tripId}');
+    // Skip image upload and go to trip details
+    context.go('/trip/${widget.tripId}');
   }
 
   @override

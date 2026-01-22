@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
@@ -351,7 +352,10 @@ class _SwimmingLane extends StatelessWidget {
           plan: plans[index],
           variant: AdventureCardVariant.standard,
           showFavoriteButton: !plans[index].isFeatured,
-          onTap: () => context.push('/details/${plans[index].id}'),
+          onTap: () {
+            debugPrint('[Marketplace] Navigating to plan: id="${plans[index].id}", name="${plans[index].name}"');
+            context.push('/details/${plans[index].id}');
+          },
         ),
       ),
     );
