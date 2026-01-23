@@ -16,16 +16,16 @@ function getGooglePlacesKey(): string {
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
-// Rate limiting: More restrictive to prevent Google API exhaustion
+// Rate limiting: Balanced for real-world usage with client-side debouncing
 const RATE_LIMITS = {
-  search: {max: 20, windowMs: 5 * 60 * 1000}, // 20 per 5 minutes
-  details: {max: 30, windowMs: 5 * 60 * 1000}, // 30 per 5 minutes
-  photo: {max: 50, windowMs: 5 * 60 * 1000}, // 50 per 5 minutes
-  geocode: {max: 10, windowMs: 5 * 60 * 1000}, // 10 per 5 minutes
+  search: {max: 100, windowMs: 5 * 60 * 1000}, // 100 per 5 minutes
+  details: {max: 60, windowMs: 5 * 60 * 1000}, // 60 per 5 minutes
+  photo: {max: 100, windowMs: 5 * 60 * 1000}, // 100 per 5 minutes
+  geocode: {max: 30, windowMs: 5 * 60 * 1000}, // 30 per 5 minutes
 };
 
-// Burst protection: Max 5 requests per 10 seconds
-const BURST_LIMIT = 5;
+// Burst protection: Allow reasonable typing speed (15 requests per 10 seconds)
+const BURST_LIMIT = 15;
 const BURST_WINDOW = 10000; // 10 seconds
 
 // Server-side cache (consider Redis/Memorystore for production)
