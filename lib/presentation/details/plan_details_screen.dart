@@ -16,6 +16,8 @@ import 'package:waypoint/models/plan_meta_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/presentation/widgets/like_button.dart';
 import 'package:waypoint/presentation/widgets/sign_in_bottom_sheet.dart';
+import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
+import 'package:waypoint/components/builder/day_timeline_section.dart';
 import 'package:waypoint/services/favorite_service.dart';
 import 'package:waypoint/services/order_service.dart';
 import 'package:waypoint/services/plan_service.dart';
@@ -90,6 +92,10 @@ bool _isTogglingLike = false;
 // FAQ lazy loading state
 bool _faqDataLoaded = false;
 
+// Scroll controller to track scroll position
+final ScrollController _scrollController = ScrollController();
+bool _showActionButtons = true;
+
 @override
 void initState() {
 super.initState();
@@ -101,6 +107,14 @@ setState(() => _currentMainTab = newIndex);
 // Load FAQ data when user switches to Details tab
 if (newIndex == 1 && !_faqDataLoaded) {
 _loadPlanLevelData();
+}
+});
+
+// Listen to scroll changes to hide/show action buttons
+_scrollController.addListener(() {
+final shouldShow = _scrollController.hasClients && _scrollController.offset < 200;
+if (shouldShow != _showActionButtons) {
+setState(() => _showActionButtons = shouldShow);
 }
 });
 
@@ -127,6 +141,13 @@ Future.delayed(const Duration(milliseconds: 500), () {
 if (mounted) _loadReviews();
 });
 }
+}
+
+@override
+void dispose() {
+_mainTabController.dispose();
+_scrollController.dispose();
+super.dispose();
 }
 
 String? get _currentUserId => FirebaseAuth.instance.currentUser?.uid;
@@ -372,12 +393,6 @@ debugPrint('Failed to load reviews: $e');
 }
 }
 
-@override
-void dispose() {
-_mainTabController.dispose();
-super.dispose();
-}
-
 Color get _primary => const Color(0xFF10B981);
 Color get _primaryLight => const Color(0xFFECFDF5);
 Color get _primaryDark => const Color(0xFF059669);
@@ -480,19 +495,74 @@ return _buildVersionLoadError();
 }
 
 return Scaffold(
-body: Column(
+body: NestedScrollView(
+controller: _scrollController,
+headerSliverBuilder: (context, innerBoxIsScrolled) {
+return [
+SliverAppBar(
+expandedHeight: 300,
+floating: false,
+pinned: true,
+stretch: true,
+toolbarHeight: 0,
+backgroundColor: Colors.white,
+surfaceTintColor: Colors.transparent,
+automaticallyImplyLeading: false,
+flexibleSpace: FlexibleSpaceBar(
+background: Stack(
 children: [
-_buildHeroSection(context),
-_buildTabBar(context),
-// Version loading indicator
+_buildHeroBackground(context),
+// Action buttons overlaid on the hero image
+if (_showActionButtons)
+SafeArea(
+child: Padding(
+padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+child: Row(
+mainAxisAlignment: MainAxisAlignment.spaceBetween,
+children: [
+_buildActionButton(
+icon: Icons.arrow_back,
+onPressed: () => context.pop(),
+),
+Row(
+children: [
+_buildActionButton(
+icon: _isLikedOptimistic ? Icons.favorite : Icons.favorite_border,
+color: _isLikedOptimistic ? Colors.red : null,
+onPressed: _handleLikeToggle,
+),
+const SizedBox(width: 12),
+_buildActionButton(
+icon: Icons.ios_share,
+onPressed: _handleShare,
+),
+const SizedBox(width: 12),
+],
+),
+],
+),
+),
+),
+],
+),
+collapseMode: CollapseMode.parallax,
+),
+bottom: PreferredSize(
+preferredSize: const Size.fromHeight(52),
+child: _buildTabBar(context),
+),
+),
 if (_isLoadingVersion)
-LinearProgressIndicator(
+SliverToBoxAdapter(
+child: LinearProgressIndicator(
 backgroundColor: _primaryLight,
 valueColor: AlwaysStoppedAnimation<Color>(_primary),
 minHeight: 2,
 ),
-Expanded(
-child: AnimatedSwitcher(
+),
+];
+},
+body: AnimatedSwitcher(
 duration: const Duration(milliseconds: 300),
 switchInCurve: Curves.easeOut,
 switchOutCurve: Curves.easeIn,
@@ -513,8 +583,6 @@ _buildItineraryTab(context),
 ],
 ),
 ),
-),
-],
 ),
 bottomNavigationBar: _buildBottomBar(context),
 );
@@ -616,138 +684,240 @@ String get _effectiveCreatorName => plan?.creatorName ?? _planMeta?.creatorName 
 double get _effectiveBasePrice => plan?.basePrice ?? _planMeta?.basePrice ?? 0;
 String get _effectivePlanId => plan?.id ?? _planMeta?.id ?? widget.planId;
 
-Widget _buildHeroSection(BuildContext context) {
-return SizedBox(
-height: 300,
-width: double.infinity,
-child: Stack(
-fit: StackFit.expand,
-children: [
-CachedNetworkImage(
-imageUrl: _effectiveHeroImageUrl,
-fit: BoxFit.cover,
-memCacheHeight: 600,
-maxHeightDiskCache: 600,
-placeholder: (context, url) => Container(
-color: Colors.grey.shade200,
-child: Center(
-child: CircularProgressIndicator(
-color: _primary,
-strokeWidth: 2,
-),
-),
-),
-),
-Container(
-decoration: BoxDecoration(
-gradient: LinearGradient(
-begin: Alignment.topCenter,
-end: Alignment.bottomCenter,
-colors: [
-Colors.black.withValues(alpha: 0.2),
-Colors.black.withValues(alpha: 0.4),
-Colors.black.withValues(alpha: 0.75),
-],
-stops: const [0.0, 0.5, 1.0],
-),
-),
-),
-SafeArea(
-child: Padding(
-padding: const EdgeInsets.all(12),
-child: Column(
-mainAxisSize: MainAxisSize.min,
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Row(
-children: [
-_buildActionButton(
-icon: Icons.arrow_back,
-onPressed: () => context.pop(),
-),
-const Spacer(),
-_buildActionButton(
-icon: _isLikedOptimistic ? Icons.favorite : Icons.favorite_border,
-color: _isLikedOptimistic ? Colors.red : null,
-onPressed: _handleLikeToggle,
-),
-const SizedBox(width: 12),
-_buildActionButton(
-icon: Icons.ios_share,
-onPressed: _handleShare,
-),
-],
-),
-const Spacer(),
-Padding(
-padding: const EdgeInsets.symmetric(horizontal: 8),
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text(
-_effectiveName,
-style: const TextStyle(
-fontSize: 32,
-fontWeight: FontWeight.w800,
-color: Colors.white,
-height: 1.2,
-letterSpacing: -0.5,
-),
-),
-const SizedBox(height: 10),
-Row(
-children: [
-Icon(
-Icons.place_outlined,
-size: 18,
-color: Colors.white.withValues(alpha: 0.95),
-),
-const SizedBox(width: 6),
-Flexible(
-child: Text(
-_effectiveLocation,
-style: TextStyle(
-fontSize: 16,
-fontWeight: FontWeight.w500,
-color: Colors.white.withValues(alpha: 0.95),
-letterSpacing: 0.2,
-),
-),
-),
-],
-),
-const SizedBox(height: 14),
-if (_versionSummaries.length > 1 || (plan?.versions.length ?? 0) > 1)
-_buildVersionSelector()
-else
-Wrap(
-spacing: 8,
-runSpacing: 8,
-children: [
-_buildHeroBadge(
-'${selectedVersion?.durationDays ?? 0} days',
-Icons.calendar_today_outlined,
-),
-if (selectedVersion != null && selectedVersion!.difficulty != Difficulty.none)
-_buildHeroBadge(
-selectedVersion!.difficulty.name.toUpperCase(),
-Icons.trending_up,
-color: _getDifficultyColor(selectedVersion!.difficulty),
-),
-],
-),
-const SizedBox(height: 8),
-],
-),
-),
-],
-),
-),
-),
-],
-),
-);
-}
+  Widget _buildHeroSection(BuildContext context) {
+    return SizedBox(
+      height: 300,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CachedNetworkImage(
+            imageUrl: _effectiveHeroImageUrl,
+            fit: BoxFit.cover,
+            memCacheHeight: 600,
+            maxHeightDiskCache: 600,
+            placeholder: (context, url) => Container(
+              color: Colors.grey.shade200,
+              child: Center(
+                child: CircularProgressIndicator(
+                  color: _primary,
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.2),
+                  Colors.black.withValues(alpha: 0.4),
+                  Colors.black.withValues(alpha: 0.75),
+                ],
+                stops: const [0.0, 0.5, 1.0],
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _buildActionButton(
+                        icon: Icons.arrow_back,
+                        onPressed: () => context.pop(),
+                      ),
+                      const Spacer(),
+                      _buildActionButton(
+                        icon: _isLikedOptimistic ? Icons.favorite : Icons.favorite_border,
+                        color: _isLikedOptimistic ? Colors.red : null,
+                        onPressed: _handleLikeToggle,
+                      ),
+                      const SizedBox(width: 12),
+                      _buildActionButton(
+                        icon: Icons.ios_share,
+                        onPressed: _handleShare,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _effectiveName,
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            height: 1.2,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.place_outlined,
+                              size: 18,
+                              color: Colors.white.withValues(alpha: 0.95),
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                _effectiveLocation,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white.withValues(alpha: 0.95),
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        if (_versionSummaries.length > 1 || (plan?.versions.length ?? 0) > 1)
+                          _buildVersionSelector()
+                        else
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _buildHeroBadge(
+                                '${selectedVersion?.durationDays ?? 0} days',
+                                Icons.calendar_today_outlined,
+                              ),
+                              if (selectedVersion != null && selectedVersion!.difficulty != Difficulty.none)
+                                _buildHeroBadge(
+                                  selectedVersion!.difficulty.name.toUpperCase(),
+                                  Icons.trending_up,
+                                  color: _getDifficultyColor(selectedVersion!.difficulty),
+                                ),
+                            ],
+                          ),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Hero background for SliverAppBar FlexibleSpaceBar
+  Widget _buildHeroBackground(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CachedNetworkImage(
+          imageUrl: _effectiveHeroImageUrl,
+          fit: BoxFit.cover,
+          memCacheHeight: 600,
+          maxHeightDiskCache: 600,
+          placeholder: (context, url) => Container(
+            color: Colors.grey.shade200,
+            child: Center(
+              child: CircularProgressIndicator(
+                color: _primary,
+                strokeWidth: 2,
+              ),
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.2),
+                Colors.black.withValues(alpha: 0.4),
+                Colors.black.withValues(alpha: 0.75),
+              ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+        ),
+        // Content positioned at bottom, above the tab bar
+        Positioned(
+          left: 20,
+          right: 20,
+          bottom: 60, // Space for tab bar
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _effectiveName,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  height: 1.2,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.place_outlined,
+                    size: 16,
+                    color: Colors.white.withValues(alpha: 0.95),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      _effectiveLocation,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white.withValues(alpha: 0.95),
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_versionSummaries.length > 1 || (plan?.versions.length ?? 0) > 1)
+                _buildVersionSelector()
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildHeroBadge(
+                      '${selectedVersion?.durationDays ?? 0} days',
+                      Icons.calendar_today_outlined,
+                    ),
+                    if (selectedVersion != null && selectedVersion!.difficulty != Difficulty.none)
+                      _buildHeroBadge(
+                        selectedVersion!.difficulty.name.toUpperCase(),
+                        Icons.trending_up,
+                        color: _getDifficultyColor(selectedVersion!.difficulty),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
 Widget _buildActionButton({
 required IconData icon,
@@ -2549,89 +2719,51 @@ return (waypoints: waypoints, failedCount: failedCount);
 }
 
 Widget _buildDayWaypoints(BuildContext context, DayItinerary day) {
-final allWaypoints = <Widget>[];
 int failedParseCount = 0;
+final List<RouteWaypoint> allWaypoints = [];
 
 // Add POI waypoints from route (new unified approach)
 if (day.route != null && day.route!.poiWaypoints.isNotEmpty) {
 final result = _parseWaypoints(day.route!.poiWaypoints);
-final waypoints = result.waypoints;
+allWaypoints.addAll(result.waypoints);
 failedParseCount = result.failedCount;
-
-for (final wp in waypoints) {
-String subtitle = wp.description ?? '';
-if (wp.type == WaypointType.restaurant && wp.mealTime != null) {
-subtitle = getMealTimeLabel(wp.mealTime!);
-} else if (wp.type == WaypointType.activity && wp.activityTime != null) {
-subtitle = getActivityTimeLabel(wp.activityTime!);
-} else if (wp.type == WaypointType.accommodation && wp.accommodationType != null) {
-subtitle = wp.accommodationType!.name.toUpperCase();
-}
-
-allWaypoints.add(_buildWaypointItem(
-context,
-getWaypointIcon(wp.type),
-wp.name,
-subtitle,
-getWaypointColor(wp.type),
-photoUrl: wp.photoUrl,
-rating: wp.rating,
-));
-}
 }
 
 // Also add legacy accommodations/restaurants/activities for backwards compatibility
+// Convert them to RouteWaypoint objects
 for (final acc in day.accommodations) {
-allWaypoints.add(_buildWaypointItem(
-context,
-Icons.hotel,
-acc.name,
-acc.type,
-Colors.purple,
+allWaypoints.add(RouteWaypoint(
+id: acc.name.hashCode.toString(),
+name: acc.name,
+type: WaypointType.accommodation,
+description: acc.type,
+position: const LatLng(0, 0),
+order: allWaypoints.length,
+photoUrl: null,
 ));
 }
 
 for (final rest in day.restaurants) {
-allWaypoints.add(_buildWaypointItem(
-context,
-Icons.restaurant,
-rest.name,
-rest.mealType.name,
-Colors.pink,
+allWaypoints.add(RouteWaypoint(
+id: rest.name.hashCode.toString(),
+name: rest.name,
+type: WaypointType.restaurant,
+description: rest.mealType.name,
+position: const LatLng(0, 0),
+order: allWaypoints.length,
+photoUrl: null,
 ));
 }
 
 for (final act in day.activities) {
-allWaypoints.add(_buildWaypointItem(
-context,
-Icons.local_activity,
-act.name,
-act.description,
-Colors.blue,
-));
-}
-
-// Add error notice if some waypoints failed to parse
-if (failedParseCount > 0) {
-allWaypoints.insert(0, Container(
-padding: const EdgeInsets.all(12),
-decoration: BoxDecoration(
-color: Colors.orange.withValues(alpha: 0.1),
-borderRadius: BorderRadius.circular(8),
-border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-),
-child: Row(
-children: [
-Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
-const SizedBox(width: 8),
-Expanded(
-child: Text(
-'Some waypoints could not be loaded ($failedParseCount)',
-style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
-),
-),
-],
-),
+allWaypoints.add(RouteWaypoint(
+id: act.name.hashCode.toString(),
+name: act.name,
+type: WaypointType.activity,
+description: act.description,
+position: const LatLng(0, 0),
+order: allWaypoints.length,
+photoUrl: null,
 ));
 }
 
@@ -2652,132 +2784,78 @@ style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
 );
 }
 
-// Use Column instead of ListView to avoid height constraint issues in expanded card
 return Column(
 crossAxisAlignment: CrossAxisAlignment.start,
-children: allWaypoints,
-);
-}
-
-Widget _buildWaypointItem(
-BuildContext context,
-IconData icon,
-String name,
-String subtitle,
-Color color, {
-String? photoUrl,
-double? rating,
-}) {
-return Container(
-margin: const EdgeInsets.only(bottom: 10),
-padding: const EdgeInsets.all(14),
+children: [
+// Error notice if some waypoints failed to parse
+if (failedParseCount > 0)
+Container(
+margin: const EdgeInsets.only(bottom: 16),
+padding: const EdgeInsets.all(12),
 decoration: BoxDecoration(
-color: Colors.white,
+color: Colors.orange.withValues(alpha: 0.1),
 borderRadius: BorderRadius.circular(12),
-border: Border.all(
-color: const Color(0xFFE5E7EB).withValues(alpha: 0.5),
-width: 0.5,
-),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.02),
-blurRadius: 6,
-offset: const Offset(0, 1),
-),
-],
+border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
 ),
 child: Row(
 children: [
-if (photoUrl != null)
-ClipRRect(
-borderRadius: BorderRadius.circular(8),
-child: CachedNetworkImage(
-imageUrl: photoUrl,
-width: 50,
-height: 50,
-fit: BoxFit.cover,
-memCacheHeight: 100,
-maxHeightDiskCache: 100,
-placeholder: (context, url) => Container(
-width: 50,
-height: 50,
-color: color.withValues(alpha: 0.1),
-child: Icon(icon, size: 20, color: color),
-),
-errorWidget: (context, url, error) => Container(
-width: 50,
-height: 50,
-decoration: BoxDecoration(
-color: color.withValues(alpha: 0.08),
-borderRadius: BorderRadius.circular(8),
-),
-child: Icon(icon, size: 20, color: color),
-),
-),
-)
-else
-Container(
-width: 40,
-height: 40,
-decoration: BoxDecoration(
-color: color.withValues(alpha: 0.08),
-borderRadius: BorderRadius.circular(10),
-),
-child: Icon(icon, size: 20, color: color),
-),
-const SizedBox(width: 14),
+Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+const SizedBox(width: 8),
 Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text(
-name,
-style: const TextStyle(
-fontSize: 15,
-fontWeight: FontWeight.w600,
-color: Color(0xFF111827),
-),
-),
-if (rating != null) ...[
-const SizedBox(height: 4),
-Row(
-children: [
-Icon(Icons.star, size: 14, color: Colors.amber.shade600),
-const SizedBox(width: 4),
-Text(
-rating.toStringAsFixed(1),
-style: const TextStyle(
+child: Text(
+'Some waypoints could not be loaded ($failedParseCount)',
+style: TextStyle(
+color: Colors.orange.shade900,
 fontSize: 13,
-fontWeight: FontWeight.w600,
-color: Color(0xFF6B7280),
+fontWeight: FontWeight.w500,
 ),
 ),
-],
-),
-],
-if (subtitle.isNotEmpty) ...[
-const SizedBox(height: 2),
-Text(
-subtitle,
-style: const TextStyle(
-fontSize: 13,
-color: Color(0xFF6B7280),
-),
-maxLines: 2,
-overflow: TextOverflow.ellipsis,
-),
-],
-],
-),
-),
-const Icon(
-Icons.chevron_right,
-size: 18,
-color: Color(0xFFD1D5DB),
 ),
 ],
 ),
+),
+// Organized timeline with categories
+..._buildPlanCategoryTimeline(allWaypoints),
+],
 );
+}
+
+/// Build organized timeline grouped by time slot categories (for plan details)
+List<Widget> _buildPlanCategoryTimeline(List<RouteWaypoint> waypoints) {
+// Group waypoints by time slot category
+final categoryMap = <TimeSlotCategory, List<RouteWaypoint>>{};
+
+for (final category in TimeSlotCategory.values) {
+categoryMap[category] = [];
+}
+
+for (final waypoint in waypoints) {
+final category = waypoint.timeSlotCategory ?? 
+autoAssignTimeSlotCategory(waypoint) ??
+TimeSlotCategory.afternoonActivity;
+categoryMap[category]!.add(waypoint);
+}
+
+// Get ordered categories (only show categories with waypoints)
+final orderedCategories = TimeSlotCategory.values
+.where((cat) => categoryMap[cat]?.isNotEmpty ?? false)
+.toList();
+
+// Build timeline sections
+return orderedCategories.map((category) {
+final categoryWaypoints = categoryMap[category]!;
+
+return DayTimelineSection(
+key: ValueKey('plan_$category'),
+category: category,
+waypoints: categoryWaypoints,
+isExpanded: true,
+onEditWaypoint: (_) {},
+onDeleteWaypoint: (_) {},
+showActions: false, // No edit/delete in plan view
+isViewOnly: true, // Read-only for plan details
+);
+}).toList();
 }
 
 Widget _buildBottomBar(BuildContext context) {
@@ -2955,11 +3033,12 @@ return hasLegacyWaypoints || hasRouteWaypoints;
 List<Widget> _buildWaypointHighlights(DayItinerary day) {
 final chips = <Widget>[];
 
-// Count waypoints from route
+// Count waypoints from route by type
 int accommodationCount = day.accommodations.length;
 int restaurantCount = day.restaurants.length;
 int activityCount = day.activities.length;
-int otherWaypointsCount = 0;
+int viewingPointCount = 0;
+int servicePointCount = 0;
 
 if (day.route?.poiWaypoints.isNotEmpty ?? false) {
 for (final poiJson in day.route!.poiWaypoints) {
@@ -2975,8 +3054,14 @@ break;
 case WaypointType.activity:
 activityCount++;
 break;
+case WaypointType.viewingPoint:
+viewingPointCount++;
+break;
+case WaypointType.servicePoint:
+servicePointCount++;
+break;
 default:
-otherWaypointsCount++;
+break;
 }
 } catch (e) {
 debugPrint('Failed to parse waypoint for highlights: $e');
@@ -2984,37 +3069,36 @@ debugPrint('Failed to parse waypoint for highlights: $e');
 }
 }
 
-if (accommodationCount > 0) {
+// Always show all 5 types with their counts (0 if none)
 chips.add(_buildHighlightChip(
 Icons.hotel,
-'$accommodationCount accommodation${accommodationCount > 1 ? 's' : ''}',
-Colors.purple,
+'$accommodationCount accommodation${accommodationCount != 1 ? 's' : ''}',
+const Color(0xFF2196F3), // Blue
 ));
-}
 
-if (restaurantCount > 0) {
 chips.add(_buildHighlightChip(
 Icons.restaurant,
-'$restaurantCount meal${restaurantCount > 1 ? 's' : ''}',
-Colors.pink,
+'$restaurantCount meal${restaurantCount != 1 ? 's' : ''}',
+const Color(0xFFFF9800), // Orange
 ));
-}
 
-if (activityCount > 0) {
 chips.add(_buildHighlightChip(
 Icons.local_activity,
-'$activityCount activit${activityCount > 1 ? 'ies' : 'y'}',
-Colors.blue,
+'$activityCount activit${activityCount != 1 ? 'ies' : 'y'}',
+const Color(0xFF9C27B0), // Purple
 ));
-}
 
-if (otherWaypointsCount > 0) {
 chips.add(_buildHighlightChip(
-Icons.place,
-'$otherWaypointsCount waypoint${otherWaypointsCount > 1 ? 's' : ''}',
-Colors.cyan,
+Icons.visibility,
+'$viewingPointCount viewpoint${viewingPointCount != 1 ? 's' : ''}',
+const Color(0xFFFFC107), // Yellow/Gold
 ));
-}
+
+chips.add(_buildHighlightChip(
+Icons.local_convenience_store,
+'$servicePointCount service point${servicePointCount != 1 ? 's' : ''}',
+const Color(0xFF4CAF50), // Green
+));
 
 return chips;
 }

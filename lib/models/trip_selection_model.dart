@@ -10,6 +10,7 @@ enum WaypointBookingStatus {
 
 /// Selected waypoint with booking info
 class SelectedWaypoint {
+  final String id; // Waypoint ID for unique identification
   final String name;
   final String type; // accommodation type, meal type, or activity description
   final WaypointBookingStatus bookingStatus;
@@ -18,6 +19,7 @@ class SelectedWaypoint {
   final double? cost;
 
   const SelectedWaypoint({
+    required this.id,
     required this.name,
     required this.type,
     this.bookingStatus = WaypointBookingStatus.notNeeded,
@@ -27,6 +29,7 @@ class SelectedWaypoint {
   });
 
   factory SelectedWaypoint.fromAccommodation(AccommodationInfo accommodation) => SelectedWaypoint(
+    id: accommodation.name, // Legacy fallback - use name as ID for old data model
     name: accommodation.name,
     type: accommodation.type,
     bookingStatus: accommodation.bookingLink != null 
@@ -37,6 +40,7 @@ class SelectedWaypoint {
   );
 
   factory SelectedWaypoint.fromRestaurant(RestaurantInfo restaurant) => SelectedWaypoint(
+    id: restaurant.name, // Legacy fallback - use name as ID for old data model
     name: restaurant.name,
     type: restaurant.mealType.name,
     bookingStatus: restaurant.bookingLink != null 
@@ -47,6 +51,7 @@ class SelectedWaypoint {
   );
 
   factory SelectedWaypoint.fromActivity(ActivityInfo activity) => SelectedWaypoint(
+    id: activity.name, // Legacy fallback - use name as ID for old data model
     name: activity.name,
     type: activity.description,
     bookingStatus: activity.bookingLink != null 
@@ -59,11 +64,13 @@ class SelectedWaypoint {
   /// Create from RouteWaypoint (POI waypoint)
   factory SelectedWaypoint.fromRouteWaypoint(dynamic waypoint) {
     // Import RouteWaypoint dynamically to avoid circular imports
+    final String id = waypoint.id as String;
     final String name = waypoint.name as String;
     final String type = waypoint.type.toString().split('.').last;
     final String? bookingUrl = waypoint.bookingComUrl ?? waypoint.airbnbPropertyUrl ?? waypoint.website;
     
     return SelectedWaypoint(
+      id: id,
       name: name,
       type: type,
       bookingStatus: bookingUrl != null 
@@ -74,6 +81,7 @@ class SelectedWaypoint {
   }
 
   factory SelectedWaypoint.fromJson(Map<String, dynamic> json) => SelectedWaypoint(
+    id: json['id'] as String? ?? json['name'] as String, // Fallback to name for legacy data
     name: json['name'] as String,
     type: json['type'] as String,
     bookingStatus: WaypointBookingStatus.values.firstWhere(
@@ -86,6 +94,7 @@ class SelectedWaypoint {
   );
 
   Map<String, dynamic> toJson() => {
+    'id': id,
     'name': name,
     'type': type,
     'booking_status': bookingStatus.name,
@@ -95,6 +104,7 @@ class SelectedWaypoint {
   };
 
   SelectedWaypoint copyWith({
+    String? id,
     String? name,
     String? type,
     WaypointBookingStatus? bookingStatus,
@@ -102,6 +112,7 @@ class SelectedWaypoint {
     String? bookingLink,
     double? cost,
   }) => SelectedWaypoint(
+    id: id ?? this.id,
     name: name ?? this.name,
     type: type ?? this.type,
     bookingStatus: bookingStatus ?? this.bookingStatus,

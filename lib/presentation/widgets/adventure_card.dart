@@ -268,6 +268,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         return '🥾';
       case ActivityCategory.cycling:
         return '🚴';
+      case ActivityCategory.roadTripping:
+        return '🚗';
       case ActivityCategory.skis:
         return '⛷️';
       case ActivityCategory.climbing:
@@ -285,6 +287,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         return 'Hiking';
       case ActivityCategory.cycling:
         return 'Cycling';
+      case ActivityCategory.roadTripping:
+        return 'Road Tripping';
       case ActivityCategory.skis:
         return 'Skiing';
       case ActivityCategory.climbing:

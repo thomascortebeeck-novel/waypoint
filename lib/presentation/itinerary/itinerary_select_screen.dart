@@ -286,6 +286,7 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
     } else {
       // Create a SelectedWaypoint from service point
       currentActivities.add(SelectedWaypoint(
+        id: spName, // Use name as ID for legacy service points
         name: spName,
         type: 'Service Point',
         bookingStatus: WaypointBookingStatus.notNeeded,

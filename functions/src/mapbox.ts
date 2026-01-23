@@ -44,6 +44,7 @@ export const matchRoute = onCall({region: "europe-west1", cors: true}, async (re
     const data = (request.data || {}) as any;
     const points = (data.points || []) as Array<{lat: number; lng: number}>;
     const snapToTrail = Boolean(data.snapToTrail ?? true);
+    const profile = (data.profile || "walking") as string;
     if (!Array.isArray(points) || points.length < 2) {
       return {error: "need at least two points"};
     }
@@ -56,7 +57,7 @@ export const matchRoute = onCall({region: "europe-west1", cors: true}, async (re
     }
     const token = MAPBOX_TOKEN_PARAM.value() || (process.env.MAPBOX_SECRET_TOKEN as string) || (process.env.MAPBOX_TOKEN as string) || "";
     const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
-    const url = `https://api.mapbox.com/matching/v5/mapbox/walking/${coords}`;
+    const url = `https://api.mapbox.com/matching/v5/mapbox/${encodeURIComponent(profile)}/${coords}`;
     const params = {
       access_token: token,
       geometries: "geojson",

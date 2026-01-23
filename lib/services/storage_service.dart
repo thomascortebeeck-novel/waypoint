@@ -20,7 +20,7 @@ class StorageService {
     String contentType = 'image/jpeg',
   }) async {
     try {
-      Log.i('storage', 'Uploading image to: $path');
+      Log.i('storage', 'Uploading image to: $path (${bytes.length} bytes)');
       
       final ref = _storage.ref().child(path);
       final metadata = SettableMetadata(
@@ -28,13 +28,21 @@ class StorageService {
         customMetadata: {'uploaded': DateTime.now().toIso8601String()},
       );
 
-      await ref.putData(bytes, metadata);
+      final uploadTask = ref.putData(bytes, metadata);
+      
+      // Log upload progress for debugging
+      uploadTask.snapshotEvents.listen((snapshot) {
+        final progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        Log.i('storage', 'Upload progress: ${progress.toStringAsFixed(1)}%');
+      });
+      
+      await uploadTask;
       final downloadUrl = await ref.getDownloadURL();
       
       Log.i('storage', 'Upload successful: $downloadUrl');
       return downloadUrl;
     } catch (e, stack) {
-      Log.e('storage', 'Upload failed for path: $path', e, stack);
+      Log.e('storage', 'Upload failed for path: $path - Error: $e', e, stack);
       rethrow;
     }
   }

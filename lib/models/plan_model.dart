@@ -7,12 +7,13 @@ enum TransportationType { car, flying, boat, foot, bike, train, bus, taxi }
 
 // Activity categorization enums
 enum ActivityCategory {
-  hiking,    // 🥾 Hiking
-  cycling,   // 🚴 Cycling
-  skis,      // ⛷️ Skiing
-  climbing,  // 🧗 Climbing
-  cityTrips, // 🏙️ City Trips
-  tours      // 🌏 Tours
+  hiking,       // 🥾 Hiking
+  cycling,      // 🚴 Cycling
+  skis,         // ⛷️ Skiing
+  climbing,     // 🧗 Climbing
+  cityTrips,    // 🏙️ City Trips
+  tours,        // 🌏 Tours
+  roadTripping  // 🚗 Road Tripping
 }
 
 enum AccommodationType {
@@ -24,6 +25,24 @@ enum ExperienceLevel {
   beginner,     // 🟢 First-time adventurers, easy pace
   intermediate, // 🟡 Some experience needed, moderate challenge
   expert        // 🔴 Advanced skills required, high difficulty
+}
+
+/// Maps ActivityCategory to Mapbox routing profile
+String getMapboxProfile(ActivityCategory? category) {
+  switch (category) {
+    case ActivityCategory.cycling:
+      return 'cycling';
+    case ActivityCategory.roadTripping:
+      return 'driving';
+    case ActivityCategory.hiking:
+    case ActivityCategory.cityTrips:
+    case ActivityCategory.tours:
+    case ActivityCategory.skis:
+    case ActivityCategory.climbing:
+    default:
+      // Walking profile for hiking, city trips, tours (skiing/climbing use walking time as base)
+      return 'walking';
+  }
 }
 
 /// Represents a trekking/travel plan

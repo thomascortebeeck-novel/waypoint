@@ -19,6 +19,8 @@ import 'package:waypoint/presentation/trips/invite_share_sheet.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
+import 'package:waypoint/components/builder/day_timeline_section.dart';
 
 enum DayViewTab { summary, map, waypoints }
 
@@ -75,12 +77,24 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   Map<String, int>? _cachedWaypointCounts;
   Map<String, FAQItem>? _cachedFaqMap;
 
+  // Scroll controller to track scroll position
+  final ScrollController _scrollController = ScrollController();
+  bool _showActionButtons = true;
+
   @override
   void initState() {
     super.initState();
     _mainTabController = TabController(length: 2, vsync: this);
     _mainTabController.addListener(() {
       setState(() => _currentMainTab = _mainTabController.index);
+    });
+
+    // Listen to scroll changes to hide/show action buttons
+    _scrollController.addListener(() {
+      final shouldShow = _scrollController.hasClients && _scrollController.offset < 200;
+      if (shouldShow != _showActionButtons) {
+        setState(() => _showActionButtons = shouldShow);
+      }
     });
 
     if (widget.tripId.isEmpty) {
@@ -96,6 +110,13 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
     }
 
     _loadTripAndPlan();
+  }
+
+  @override
+  void dispose() {
+    _mainTabController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   String? get _currentUserId => FirebaseAuth.instance.currentUser?.uid;
@@ -322,11 +343,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   }
 
   @override
-  void dispose() {
-    _mainTabController.dispose();
-    super.dispose();
-  }
-
   Color get _primary => const Color(0xFF10B981);
   Color get _primaryLight => const Color(0xFFECFDF5);
   Color get _textPrimary => const Color(0xFF111827);
@@ -415,69 +431,86 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
     }
 
     return Scaffold(
-      body: Column(
-        children: [
-          _buildHeroSection(context),
-          _buildTabBar(context),
-          if (_isLoadingVersion)
-            LinearProgressIndicator(
-              backgroundColor: context.colors.primaryContainer,
-              valueColor: AlwaysStoppedAnimation<Color>(context.colors.primary),
-              minHeight: 2,
+      body: NestedScrollView(
+        controller: _scrollController,
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              expandedHeight: 340,
+              floating: false,
+              pinned: true,
+              stretch: true,
+              toolbarHeight: 0,
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
+              automaticallyImplyLeading: false,
+              flexibleSpace: FlexibleSpaceBar(
+                background: _buildHeroBackground(context),
+                collapseMode: CollapseMode.parallax,
+              ),
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(52),
+                child: _buildTabBar(context),
+              ),
             ),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: _currentMainTab == 0
-                  ? _buildOverviewTab()
-                  : _buildItineraryTab(),
-            ),
-          ),
-        ],
+            if (_isLoadingVersion)
+              SliverToBoxAdapter(
+                child: LinearProgressIndicator(
+                  backgroundColor: context.colors.primaryContainer,
+                  valueColor: AlwaysStoppedAnimation<Color>(context.colors.primary),
+                  minHeight: 2,
+                ),
+              ),
+          ];
+        },
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: _currentMainTab == 0
+              ? _buildOverviewTab()
+              : _buildItineraryTab(),
+        ),
       ),
     );
   }
 
-  Widget _buildHeroSection(BuildContext context) {
+  Widget _buildHeroBackground(BuildContext context) {
     final imageUrl = _trip!.usePlanImage
         ? _planMeta!.heroImageUrl
         : (_trip!.customImages?['large'] ?? _trip!.customImages?['medium'] ?? _planMeta!.heroImageUrl);
 
-    return SizedBox(
-      height: 300,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Hero image
-          CachedNetworkImage(
-            imageUrl: imageUrl,
-            fit: BoxFit.cover,
-            placeholder: (context, url) => Container(
-              color: context.colors.surfaceContainerLow,
-              child: const Center(child: CircularProgressIndicator()),
-            ),
-            errorWidget: (context, url, error) => Container(
-              color: context.colors.surfaceContainerLow,
-              child: Icon(Icons.image_not_supported, size: 64, color: context.colors.onSurfaceVariant),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Hero image
+        CachedNetworkImage(
+          imageUrl: imageUrl,
+          fit: BoxFit.cover,
+          placeholder: (context, url) => Container(
+            color: context.colors.surfaceContainerLow,
+            child: const Center(child: CircularProgressIndicator()),
+          ),
+          errorWidget: (context, url, error) => Container(
+            color: context.colors.surfaceContainerLow,
+            child: Icon(Icons.image_not_supported, size: 64, color: context.colors.onSurfaceVariant),
+          ),
+        ),
+        // Gradient overlay
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.2),
+                Colors.black.withValues(alpha: 0.4),
+                Colors.black.withValues(alpha: 0.75),
+              ],
+              stops: const [0.0, 0.5, 1.0],
             ),
           ),
-          // Gradient overlay
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.2),
-                  Colors.black.withValues(alpha: 0.4),
-                  Colors.black.withValues(alpha: 0.75),
-                ],
-                stops: const [0.0, 0.5, 1.0],
-              ),
-            ),
-          ),
-          // Content
+        ),
+        // Content
+        if (_showActionButtons)
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -553,7 +586,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                         const SizedBox(height: 14),
                         // Version badge (bottom-left like plan page)
                         _buildVersionBadge(),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 28),
                       ],
                     ),
                   ),
@@ -561,8 +594,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
               ),
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -1454,16 +1486,20 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   }
   
   List<Widget> _buildMemberPackingLists() {
-    if (_trip == null || _memberPackingLists.isEmpty) {
+    if (_trip == null || _memberPackingLists.isEmpty || _currentUserId == null) {
       return [const SizedBox.shrink()];
     }
     
-    return _trip!.memberIds.map((memberId) {
-      final packing = _memberPackingLists[memberId];
-      if (packing == null) return const SizedBox.shrink();
-      
+    // Only show the current user's packing list
+    final packing = _memberPackingLists[_currentUserId];
+    if (packing == null) return [const SizedBox.shrink()];
+    
+    return [_buildSingleMemberPackingList(_currentUserId!, packing)];
+  }
+  
+  Widget _buildSingleMemberPackingList(String memberId, MemberPacking packing) {
       final isCurrentUser = memberId == _currentUserId;
-      final userName = isCurrentUser ? 'My List' : 'Member ${_trip!.memberIds.indexOf(memberId) + 1}';
+      final userName = 'My Packing List';
       
       return Container(
         margin: const EdgeInsets.only(bottom: 16),
@@ -1557,7 +1593,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
           ],
         ),
       );
-    }).toList();
   }
 
   Map<String, FAQItem> _getFAQMap() {
@@ -1660,18 +1695,43 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
     
     // Calculate counts based on selections (if owner has made selections)
     int accommodationCount = 0;
-    int mealCount = 0;
+    int restaurantCount = 0;
     int activityCount = 0;
+    int otherWaypointsCount = 0;
     
     if (selection != null) {
       if (selection.selectedAccommodation != null) accommodationCount = 1;
-      mealCount = selection.selectedRestaurants.length;
+      restaurantCount = selection.selectedRestaurants.length;
       activityCount = selection.selectedActivities.length;
     } else {
-      // Show all waypoints counts if no selection yet
+      // Count legacy waypoints
       accommodationCount = day.accommodations.length;
-      mealCount = day.restaurants.length;
+      restaurantCount = day.restaurants.length;
       activityCount = day.activities.length;
+      
+      // Count waypoints from route
+      if (day.route?.poiWaypoints.isNotEmpty ?? false) {
+        for (final poiJson in day.route!.poiWaypoints) {
+          try {
+            final wp = RouteWaypoint.fromJson(poiJson);
+            switch (wp.type) {
+              case WaypointType.accommodation:
+                accommodationCount++;
+                break;
+              case WaypointType.restaurant:
+                restaurantCount++;
+                break;
+              case WaypointType.activity:
+                activityCount++;
+                break;
+              default:
+                otherWaypointsCount++;
+            }
+          } catch (e) {
+            debugPrint('Failed to parse waypoint: $e');
+          }
+        }
+      }
     }
 
     return Container(
@@ -1752,17 +1812,13 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                Icon(Icons.hotel, size: 14, color: _textSecondary),
+                                Icon(Icons.straighten, size: 14, color: _textSecondary),
                                 const SizedBox(width: 4),
-                                Text('$accommodationCount', style: TextStyle(fontSize: 13, color: _textSecondary)),
+                                Text('${((day.route?.distance ?? 0) / 1000).toStringAsFixed(1)} km', style: TextStyle(fontSize: 13, color: _textSecondary)),
                                 const SizedBox(width: 12),
-                                Icon(Icons.restaurant, size: 14, color: _textSecondary),
+                                Icon(Icons.schedule, size: 14, color: _textSecondary),
                                 const SizedBox(width: 4),
-                                Text('$mealCount', style: TextStyle(fontSize: 13, color: _textSecondary)),
-                                const SizedBox(width: 12),
-                                Icon(Icons.local_activity, size: 14, color: _textSecondary),
-                                const SizedBox(width: 4),
-                                Text('$activityCount', style: TextStyle(fontSize: 13, color: _textSecondary)),
+                                Text('${_formatDuration(((day.route?.duration ?? 0) / 60).round())}', style: TextStyle(fontSize: 13, color: _textSecondary)),
                               ],
                             ),
                           ],
@@ -1812,27 +1868,21 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
         ),
         Padding(
           padding: const EdgeInsets.all(20),
-          child: Offstage(
-            offstage: _expandedDayTab != DayViewTab.summary,
-            child: _expandedDayTab == DayViewTab.summary ? _buildDaySummary(day) : const SizedBox.shrink(),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(20),
-          child: Offstage(
-            offstage: _expandedDayTab != DayViewTab.map,
-            child: _expandedDayTab == DayViewTab.map ? _buildDayMap(day, dayNumber) : const SizedBox.shrink(),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(20),
-          child: Offstage(
-            offstage: _expandedDayTab != DayViewTab.waypoints,
-            child: _expandedDayTab == DayViewTab.waypoints ? _buildWaypointsList(day, dayNumber) : const SizedBox.shrink(),
-          ),
+          child: _expandedDayTab == DayViewTab.summary
+              ? _buildDaySummary(day)
+              : _expandedDayTab == DayViewTab.map
+                  ? _buildDayMap(day, dayNumber)
+                  : _buildWaypointsList(day, dayNumber),
         ),
       ],
     );
+  }
+
+  String _formatDuration(int minutes) {
+    if (minutes < 60) return '${minutes}min';
+    final hours = minutes ~/ 60;
+    final mins = minutes % 60;
+    return mins > 0 ? '${hours}h ${mins}min' : '${hours}h';
   }
 
   Widget _buildDayTab(String label, DayViewTab tab) {
@@ -1897,29 +1947,22 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   /// Build highlight chips for waypoint counts (like plan page)
   List<Widget> _buildWaypointHighlights(DayItinerary day) {
     final chips = <Widget>[];
+    
+    // Get the day number (index in the days list)
+    final dayNumber = _selectedVersion!.days.indexOf(day) + 1;
+    final selection = _daySelections[dayNumber - 1];
 
-    // Count waypoints from route
-    int accommodationCount = day.accommodations.length;
-    int restaurantCount = day.restaurants.length;
-    int activityCount = day.activities.length;
-    int otherWaypointsCount = 0;
-
+    // Count waypoints by type from the route
+    final waypointsByType = <WaypointType, List<RouteWaypoint>>{};
+    final waypointsByCategory = <TimeSlotCategory, List<RouteWaypoint>>{};
+    
     if (day.route?.poiWaypoints.isNotEmpty ?? false) {
       for (final poiJson in day.route!.poiWaypoints) {
         try {
           final wp = RouteWaypoint.fromJson(poiJson);
-          switch (wp.type) {
-            case WaypointType.accommodation:
-              accommodationCount++;
-              break;
-            case WaypointType.restaurant:
-              restaurantCount++;
-              break;
-            case WaypointType.activity:
-              activityCount++;
-              break;
-            default:
-              otherWaypointsCount++;
+          waypointsByType.putIfAbsent(wp.type, () => []).add(wp);
+          if (wp.timeSlotCategory != null) {
+            waypointsByCategory.putIfAbsent(wp.timeSlotCategory!, () => []).add(wp);
           }
         } catch (e) {
           debugPrint('Failed to parse waypoint for highlights: $e');
@@ -1927,37 +1970,125 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       }
     }
 
-    if (accommodationCount > 0) {
-      chips.add(_buildHighlightChip(
-        Icons.hotel,
-        '$accommodationCount accommodation${accommodationCount > 1 ? 's' : ''}',
-        Colors.purple,
-      ));
+    // Helper to check if a waypoint is selected
+    bool isWaypointSelected(RouteWaypoint wp) {
+      if (selection == null) return false;
+      
+      // Check if in selected accommodation
+      if (selection.selectedAccommodation?.id == wp.id) return true;
+      
+      // Check if in selected restaurants
+      if (selection.selectedRestaurants.values.any((sel) => sel.id == wp.id)) return true;
+      
+      // Check if in selected activities
+      if (selection.selectedActivities.any((sel) => sel.id == wp.id)) return true;
+      
+      return false;
+    }
+    
+    // Helper to count selected waypoints per time slot category
+    int countSelectedInCategory(TimeSlotCategory category, List<RouteWaypoint> waypoints) {
+      if (selection == null) return waypoints.length;
+      
+      // Count how many waypoints in this category are selected
+      int selectedCount = 0;
+      for (final wp in waypoints) {
+        if (isWaypointSelected(wp)) {
+          selectedCount++;
+        }
+      }
+      
+      return selectedCount > 0 ? selectedCount : waypoints.length;
     }
 
-    if (restaurantCount > 0) {
-      chips.add(_buildHighlightChip(
-        Icons.restaurant,
-        '$restaurantCount meal${restaurantCount > 1 ? 's' : ''}',
-        Colors.pink,
-      ));
+    // Count accommodations (selection matters)
+    int accommodationCount = day.accommodations.length;
+    final accommodationWaypoints = waypointsByType[WaypointType.accommodation] ?? [];
+    if (selection != null && selection.selectedAccommodation != null) {
+      accommodationCount = 1;
+    } else if (accommodationWaypoints.isNotEmpty) {
+      accommodationCount = accommodationWaypoints.length;
     }
 
-    if (activityCount > 0) {
-      chips.add(_buildHighlightChip(
-        Icons.local_activity,
-        '$activityCount activit${activityCount > 1 ? 'ies' : 'y'}',
-        Colors.blue,
-      ));
+    // Count restaurants (by time slot category - breakfast, lunch, dinner)
+    int restaurantCount = day.restaurants.length;
+    if (selection != null) {
+      // Count selected restaurants per time slot
+      final breakfastWaypoints = waypointsByCategory[TimeSlotCategory.breakfast] ?? [];
+      final lunchWaypoints = waypointsByCategory[TimeSlotCategory.lunch] ?? [];
+      final dinnerWaypoints = waypointsByCategory[TimeSlotCategory.dinner] ?? [];
+      
+      restaurantCount = countSelectedInCategory(TimeSlotCategory.breakfast, breakfastWaypoints) +
+                       countSelectedInCategory(TimeSlotCategory.lunch, lunchWaypoints) +
+                       countSelectedInCategory(TimeSlotCategory.dinner, dinnerWaypoints);
+    } else {
+      restaurantCount += (waypointsByType[WaypointType.restaurant] ?? []).length;
     }
 
-    if (otherWaypointsCount > 0) {
-      chips.add(_buildHighlightChip(
-        Icons.location_on,
-        '$otherWaypointsCount waypoint${otherWaypointsCount > 1 ? 's' : ''}',
-        Colors.cyan,
-      ));
+    // Count activities (by time slot category)
+    int activityCount = day.activities.length;
+    if (selection != null) {
+      final morningWaypoints = waypointsByCategory[TimeSlotCategory.morningActivity] ?? [];
+      final allDayWaypoints = waypointsByCategory[TimeSlotCategory.allDayActivity] ?? [];
+      final afternoonWaypoints = waypointsByCategory[TimeSlotCategory.afternoonActivity] ?? [];
+      final eveningWaypoints = waypointsByCategory[TimeSlotCategory.eveningActivity] ?? [];
+      
+      activityCount = countSelectedInCategory(TimeSlotCategory.morningActivity, morningWaypoints) +
+                     countSelectedInCategory(TimeSlotCategory.allDayActivity, allDayWaypoints) +
+                     countSelectedInCategory(TimeSlotCategory.afternoonActivity, afternoonWaypoints) +
+                     countSelectedInCategory(TimeSlotCategory.eveningActivity, eveningWaypoints);
+    } else {
+      activityCount += (waypointsByType[WaypointType.activity] ?? []).length;
     }
+
+    // Count viewing points
+    int viewingPointCount = 0;
+    final viewingWaypoints = waypointsByCategory[TimeSlotCategory.viewingPoint] ?? [];
+    if (selection != null) {
+      viewingPointCount = countSelectedInCategory(TimeSlotCategory.viewingPoint, viewingWaypoints);
+    } else {
+      viewingPointCount = viewingWaypoints.length;
+    }
+
+    // Count service points
+    int servicePointCount = 0;
+    final serviceWaypoints = waypointsByCategory[TimeSlotCategory.servicePoint] ?? [];
+    if (selection != null) {
+      servicePointCount = countSelectedInCategory(TimeSlotCategory.servicePoint, serviceWaypoints);
+    } else {
+      servicePointCount = serviceWaypoints.length;
+    }
+
+    // Always show all 5 types with their counts
+    chips.add(_buildHighlightChip(
+      Icons.hotel,
+      '$accommodationCount accommodation${accommodationCount != 1 ? 's' : ''}',
+      const Color(0xFF2196F3), // Blue
+    ));
+
+    chips.add(_buildHighlightChip(
+      Icons.restaurant,
+      '$restaurantCount meal${restaurantCount != 1 ? 's' : ''}',
+      const Color(0xFFFF9800), // Orange
+    ));
+
+    chips.add(_buildHighlightChip(
+      Icons.local_activity,
+      '$activityCount activit${activityCount != 1 ? 'ies' : 'y'}',
+      const Color(0xFF9C27B0), // Purple
+    ));
+
+    chips.add(_buildHighlightChip(
+      Icons.visibility,
+      '$viewingPointCount viewpoint${viewingPointCount != 1 ? 's' : ''}',
+      const Color(0xFFFFC107), // Yellow/Gold
+    ));
+
+    chips.add(_buildHighlightChip(
+      Icons.local_convenience_store,
+      '$servicePointCount service point${servicePointCount != 1 ? 's' : ''}',
+      const Color(0xFF4CAF50), // Green
+    ));
 
     return chips;
   }
@@ -2198,15 +2329,15 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   bool _isWaypointSelected(RouteWaypoint waypoint, TripDaySelection? selection) {
     if (selection == null) return false;
     
-    // Check by waypoint name (simplest matching)
-    if (selection.selectedAccommodation?.name == waypoint.name) return true;
+    // Check by waypoint ID (unique identification)
+    if (selection.selectedAccommodation?.id == waypoint.id) return true;
     
     for (final restaurant in selection.selectedRestaurants.values) {
-      if (restaurant.name == waypoint.name) return true;
+      if (restaurant.id == waypoint.id) return true;
     }
     
     for (final activity in selection.selectedActivities) {
-      if (activity.name == waypoint.name) return true;
+      if (activity.id == waypoint.id) return true;
     }
     
     return false;
@@ -2231,7 +2362,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   }
 
   Widget _buildWaypointsList(DayItinerary day, int dayNumber) {
-    final allWaypoints = <Widget>[];
+    final allWaypoints = <RouteWaypoint>[];
     int failedParseCount = 0;
     
     final selection = _daySelections[dayNumber - 1];
@@ -2254,114 +2385,8 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
         // Skip if not showing all and not selected
         if (!showAll && !isSelected) continue;
         
-        String subtitle = wp.description ?? '';
-        if (wp.type == WaypointType.restaurant && wp.mealTime != null) {
-          subtitle = getMealTimeLabel(wp.mealTime!);
-        } else if (wp.type == WaypointType.activity && wp.activityTime != null) {
-          subtitle = getActivityTimeLabel(wp.activityTime!);
-        } else if (wp.type == WaypointType.accommodation && wp.accommodationType != null) {
-          subtitle = wp.accommodationType!.name.toUpperCase();
-        }
-
-        allWaypoints.add(_buildWaypointItem(
-          icon: getWaypointIcon(wp.type),
-          name: wp.name,
-          subtitle: subtitle,
-          color: getWaypointColor(wp.type),
-          photoUrl: wp.photoUrl,
-          rating: wp.rating,
-          isSelected: isSelected,
-          showCheckbox: _isOwner,
-          onSelectionChanged: _isOwner ? (selected) => _toggleWaypointSelection(
-            dayNumber: dayNumber,
-            waypoint: wp,
-            selected: selected,
-          ) : null,
-        ));
+        allWaypoints.add(wp);
       }
-    }
-
-    // Also add legacy accommodations/restaurants/activities for backwards compatibility
-    for (final acc in day.accommodations) {
-      final isSelected = selection?.selectedAccommodation?.name == acc.name;
-      if (!showAll && !isSelected) continue;
-      
-      allWaypoints.add(_buildWaypointItem(
-        icon: Icons.hotel,
-        name: acc.name,
-        subtitle: acc.type,
-        color: Colors.purple,
-        isSelected: isSelected,
-        showCheckbox: _isOwner,
-        onSelectionChanged: _isOwner ? (selected) => _toggleLegacyAccommodationSelection(
-          dayNumber: dayNumber,
-          accommodation: acc,
-          selected: selected,
-        ) : null,
-      ));
-    }
-
-    for (final rest in day.restaurants) {
-      final isSelected = selection?.selectedRestaurants.values.any((r) => r.name == rest.name) ?? false;
-      if (!showAll && !isSelected) continue;
-      
-      allWaypoints.add(_buildWaypointItem(
-        icon: Icons.restaurant,
-        name: rest.name,
-        subtitle: rest.mealType.name,
-        color: Colors.pink,
-        isSelected: isSelected,
-        showCheckbox: _isOwner,
-        onSelectionChanged: _isOwner ? (selected) => _toggleLegacyRestaurantSelection(
-          dayNumber: dayNumber,
-          restaurant: rest,
-          selected: selected,
-        ) : null,
-      ));
-    }
-
-    for (final act in day.activities) {
-      final isSelected = selection?.selectedActivities.any((a) => a.name == act.name) ?? false;
-      if (!showAll && !isSelected) continue;
-      
-      allWaypoints.add(_buildWaypointItem(
-        icon: Icons.local_activity,
-        name: act.name,
-        subtitle: act.description,
-        color: Colors.blue,
-        isSelected: isSelected,
-        showCheckbox: _isOwner,
-        onSelectionChanged: _isOwner ? (selected) => _toggleLegacyActivitySelection(
-          dayNumber: dayNumber,
-          activity: act,
-          selected: selected,
-        ) : null,
-      ));
-    }
-
-    // Add error notice if some waypoints failed to parse
-    if (failedParseCount > 0) {
-      allWaypoints.insert(0, Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Some waypoints could not be loaded ($failedParseCount)',
-                style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-      ));
     }
 
     if (allWaypoints.isEmpty) {
@@ -2383,30 +2408,38 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       );
     }
 
-    // Use Column instead of ListView to avoid height constraint issues
+    // Sort waypoints chronologically
+    allWaypoints.sort((a, b) {
+      final aOrder = getWaypointChronologicalOrder(a);
+      final bOrder = getWaypointChronologicalOrder(b);
+      return aOrder.compareTo(bOrder);
+    });
+
+    // Build widgets with timeline using organized categories
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Show instruction text for owner
         if (_isOwner) ...[
           Container(
-            padding: const EdgeInsets.all(12),
-            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.only(bottom: 20),
             decoration: BoxDecoration(
               color: _primaryLight,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(color: _primary.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
-                Icon(Icons.info_outline, color: _primary, size: 20),
-                const SizedBox(width: 10),
+                Icon(Icons.info_outline, color: _primary, size: 22),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Select waypoints to include in your trip. Participants will only see your selections.',
                     style: TextStyle(
                       color: _primary.withValues(alpha: 0.9),
-                      fontSize: 13,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
@@ -2414,9 +2447,113 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
             ),
           ),
         ],
-        ...allWaypoints,
+        
+        // Error notice if some waypoints failed to parse
+        if (failedParseCount > 0)
+          Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Some waypoints could not be loaded ($failedParseCount)',
+                    style: TextStyle(
+                      color: Colors.orange.shade900, 
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        
+        // Organized timeline with categories
+        ..._buildCategoryTimeline(allWaypoints, dayNumber, selection),
       ],
     );
+  }
+  
+  /// Build organized timeline grouped by time slot categories
+  List<Widget> _buildCategoryTimeline(List<RouteWaypoint> waypoints, int dayNumber, TripDaySelection? selection) {
+    // Group waypoints by time slot category
+    final categoryMap = <TimeSlotCategory, List<RouteWaypoint>>{};
+    
+    for (final category in TimeSlotCategory.values) {
+      categoryMap[category] = [];
+    }
+    
+    for (final waypoint in waypoints) {
+      final category = waypoint.timeSlotCategory ?? 
+          autoAssignTimeSlotCategory(waypoint) ??
+          TimeSlotCategory.afternoonActivity;
+      categoryMap[category]!.add(waypoint);
+    }
+    
+    // Get ordered categories (only show categories with waypoints)
+    final orderedCategories = TimeSlotCategory.values
+        .where((cat) => categoryMap[cat]?.isNotEmpty ?? false)
+        .toList();
+    
+    // Build booking status map from selection
+    final bookingStatus = <String, bool>{};
+    if (selection != null) {
+      if (selection.selectedAccommodation != null) {
+        bookingStatus[selection.selectedAccommodation!.id] = 
+            selection.selectedAccommodation!.bookingStatus == WaypointBookingStatus.booked;
+      }
+      for (final restaurant in selection.selectedRestaurants.values) {
+        bookingStatus[restaurant.id] = restaurant.bookingStatus == WaypointBookingStatus.booked;
+      }
+      for (final activity in selection.selectedActivities) {
+        bookingStatus[activity.id] = activity.bookingStatus == WaypointBookingStatus.booked;
+      }
+    }
+    
+    // Build timeline sections
+    return orderedCategories.map((category) {
+      final categoryWaypoints = categoryMap[category]!;
+      final selectedIds = categoryWaypoints
+          .where((wp) => _isWaypointSelected(wp, selection))
+          .map((wp) => wp.id)
+          .toSet();
+      
+      return DayTimelineSection(
+        key: ValueKey('${dayNumber}_$category'),
+        category: category,
+        waypoints: categoryWaypoints,
+        isExpanded: true,
+        onEditWaypoint: (_) {},
+        onDeleteWaypoint: (_) {},
+        onTimeChange: _isOwner ? (waypoint, time) {
+          _updateWaypointTime(dayNumber, waypoint, time);
+        } : null,
+        onBookingChange: _isOwner ? (waypoint, booked) {
+          _updateWaypointBookingStatus(dayNumber, waypoint, booked);
+        } : null,
+        isSelectable: _isOwner,
+        selectedWaypointIds: selectedIds,
+        onToggleSelection: (waypoint, selected) {
+          _toggleWaypointSelection(
+            dayNumber: dayNumber,
+            waypoint: waypoint,
+            selected: selected,
+          );
+        },
+        waypointBookingStatus: bookingStatus,
+        useActualTime: _isOwner, // Trip owners use actual time, participants see suggested time
+        showActions: false, // No edit/delete in trip view
+        isViewOnly: !_isOwner,
+      );
+    }).toList();
   }
   
   /// Toggle waypoint selection (for POI waypoints)
@@ -2470,7 +2607,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
         if (selected) {
           activities.add(SelectedWaypoint.fromRouteWaypoint(waypoint));
         } else {
-          activities.removeWhere((a) => a.name == waypoint.name);
+          activities.removeWhere((a) => a.id == waypoint.id);
         }
         selection = selection.copyWith(selectedActivities: activities);
         break;
@@ -2480,7 +2617,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
         if (selected) {
           activities.add(SelectedWaypoint.fromRouteWaypoint(waypoint));
         } else {
-          activities.removeWhere((a) => a.name == waypoint.name);
+          activities.removeWhere((a) => a.id == waypoint.id);
         }
         selection = selection.copyWith(selectedActivities: activities);
     }
@@ -2498,6 +2635,81 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Failed to save selection'),
+          backgroundColor: Colors.red.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
+  /// Update waypoint time (actualStartTime for trip owners)
+  Future<void> _updateWaypointTime(int dayNumber, RouteWaypoint waypoint, String? time) async {
+    // Update the waypoint in the cached version data
+    if (_selectedVersion != null && dayNumber <= _selectedVersion!.days.length) {
+      final day = _selectedVersion!.days[dayNumber - 1];
+      if (day.route != null) {
+        // Update waypoints with new time
+        setState(() {
+          final updatedWaypoints = day.route!.poiWaypoints.map((wpJson) {
+            final wp = RouteWaypoint.fromJson(wpJson);
+            if (wp.id == waypoint.id) {
+              return wp.copyWith(actualStartTime: time).toJson();
+            }
+            return wpJson;
+          }).toList();
+          
+          // Update the route in place
+          day.route!.poiWaypoints.clear();
+          day.route!.poiWaypoints.addAll(updatedWaypoints);
+        });
+      }
+    }
+    
+    debugPrint('Waypoint time updated: ${waypoint.name} -> $time');
+  }
+  
+  /// Update waypoint booking status
+  Future<void> _updateWaypointBookingStatus(int dayNumber, RouteWaypoint waypoint, bool booked) async {
+    var selection = _daySelections[dayNumber - 1];
+    if (selection == null) return;
+    
+    final newStatus = booked ? WaypointBookingStatus.booked : WaypointBookingStatus.notBooked;
+    
+    // Update based on waypoint type
+    if (waypoint.type == WaypointType.accommodation && selection.selectedAccommodation?.id == waypoint.id) {
+      selection = selection.copyWith(
+        selectedAccommodation: selection.selectedAccommodation!.copyWith(bookingStatus: newStatus),
+      );
+    } else if (waypoint.type == WaypointType.restaurant) {
+      final restaurants = Map<String, SelectedWaypoint>.from(selection.selectedRestaurants);
+      final mealKey = waypoint.mealTime?.name ?? 'other';
+      if (restaurants[mealKey]?.id == waypoint.id) {
+        restaurants[mealKey] = restaurants[mealKey]!.copyWith(bookingStatus: newStatus);
+        selection = selection.copyWith(selectedRestaurants: restaurants);
+      }
+    } else {
+      // Activity or other types
+      final activities = List<SelectedWaypoint>.from(selection.selectedActivities);
+      final index = activities.indexWhere((a) => a.id == waypoint.id);
+      if (index >= 0) {
+        activities[index] = activities[index].copyWith(bookingStatus: newStatus);
+        selection = selection.copyWith(selectedActivities: activities);
+      }
+    }
+    
+    // Update local state
+    setState(() {
+      _daySelections[dayNumber - 1] = selection!;
+    });
+    
+    // Save to backend
+    try {
+      await _tripService.updateDaySelection(selection);
+    } catch (e) {
+      debugPrint('Error updating booking status: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Failed to update booking status'),
           backgroundColor: Colors.red.shade700,
           behavior: SnackBarBehavior.floating,
         ),

@@ -27,6 +27,7 @@ class RouteBuilderScreen extends StatefulWidget {
   final ll.LatLng? start;
   final ll.LatLng? end;
   final DayRoute? initial;
+  final ActivityCategory? activityCategory;
 
   const RouteBuilderScreen({
     super.key,
@@ -36,6 +37,7 @@ class RouteBuilderScreen extends StatefulWidget {
     this.start,
     this.end,
     this.initial,
+    this.activityCategory,
   });
 
   @override
@@ -85,10 +87,18 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
           // Load routePoints for editing
           _points.addAll(widget.initial!.routePoints.map((w) => ll.LatLng(w['lat']!, w['lng']!)));
         }
-        // Load existing POI waypoints
+        // Load existing POI waypoints and auto-assign categories if missing
         if (widget.initial!.poiWaypoints.isNotEmpty) {
           _poiWaypoints.addAll(
-            widget.initial!.poiWaypoints.map((w) => RouteWaypoint.fromJson(w)).toList(),
+            widget.initial!.poiWaypoints.map((w) {
+              final waypoint = RouteWaypoint.fromJson(w);
+              // Auto-assign time slot category if not set
+              if (waypoint.timeSlotCategory == null) {
+                final autoCategory = autoAssignTimeSlotCategory(waypoint);
+                return waypoint.copyWith(timeSlotCategory: autoCategory);
+              }
+              return waypoint;
+            }).toList(),
           );
         }
       }
@@ -103,6 +113,11 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Returns the appropriate activity label based on activity category
+  String _getActivityLabel() {
+    return _getActivityLabelStatic(widget.activityCategory);
   }
 
   /// Handle back button press - return current route state to keep waypoint order in sync
@@ -226,6 +241,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                     });
                   },
                   onCancel: _handleBackPress,
+                  activityCategory: widget.activityCategory,
                 ),
               ),
               Expanded(
@@ -671,15 +687,16 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
 
     setState(() => _busy = true);
     try {
+      final profile = getMapboxProfile(widget.activityCategory);
       Map<String, dynamic>? match;
       try {
-        match = await _svc.matchRoute(points: _points, snapToTrail: _snapToTrail);
+        match = await _svc.matchRoute(points: _points, snapToTrail: _snapToTrail, profile: profile);
       } catch (e) {
         Log.w('route_builder', 'Cloud Function failed, using direct API');
       }
 
       if (match == null && _snapToTrail) {
-        match = await _directionsApiFallback(_points);
+        match = await _directionsApiFallback(_points, profile);
       }
 
       if (match == null) {
@@ -804,11 +821,11 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     }
   }
 
-  Future<Map<String, dynamic>?> _directionsApiFallback(List<ll.LatLng> waypoints) async {
+  Future<Map<String, dynamic>?> _directionsApiFallback(List<ll.LatLng> waypoints, String profile) async {
     try {
       final coords = waypoints.map((w) => '${w.longitude},${w.latitude}').join(';');
       final url = Uri.parse(
-        'https://api.mapbox.com/directions/v5/mapbox/walking/$coords'
+        'https://api.mapbox.com/directions/v5/mapbox/$profile/$coords'
         '?geometries=geojson&overview=full&access_token=$mapboxPublicToken',
       );
 
@@ -973,7 +990,13 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
         await _updatePreview();
       } else {
         setState(() {
-          _poiWaypoints.add(result);
+          // Auto-assign time slot category if not set
+          if (result.timeSlotCategory == null) {
+            final autoCategory = autoAssignTimeSlotCategory(result);
+            _poiWaypoints.add(result.copyWith(timeSlotCategory: autoCategory));
+          } else {
+            _poiWaypoints.add(result);
+          }
           _map.move(result.position, _map.camera.zoom);
         });
       }
@@ -991,7 +1014,13 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
 
     if (result != null && mounted) {
       setState(() {
-        _poiWaypoints.add(result);
+        // Auto-assign time slot category if not set
+        if (result.timeSlotCategory == null) {
+          final autoCategory = autoAssignTimeSlotCategory(result);
+          _poiWaypoints.add(result.copyWith(timeSlotCategory: autoCategory));
+        } else {
+          _poiWaypoints.add(result);
+        }
       });
     }
   }
@@ -1050,13 +1079,23 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   Future<void> _showAddRoutePointDialog() async {
-    // Just show a hint to tap the map
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Tap on the map to add a route point'),
-        duration: Duration(seconds: 2),
+    // Show the waypoint dialog with routePoint preselected
+    final center = _map.camera.center;
+    final result = await showDialog<RouteWaypoint>(
+      context: context,
+      builder: (context) => _AddWaypointDialog(
+        preselectedType: WaypointType.routePoint,
+        proximityBias: center,
       ),
     );
+
+    if (result != null && mounted) {
+      setState(() {
+        _points.add(result.position);
+        _hintDismissed = true;
+      });
+      await _updatePreview();
+    }
   }
 
   Future<void> _showRoutePointOptions(int index) async {
@@ -1105,6 +1144,27 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
   }
 
   Widget _buildWaypointsSection() {
+    // Group waypoints by time slot category
+    final Map<TimeSlotCategory, List<RouteWaypoint>> grouped = {};
+    
+    // Initialize all categories
+    for (final category in TimeSlotCategory.values) {
+      grouped[category] = [];
+    }
+    
+    // Group existing waypoints
+    for (final waypoint in _poiWaypoints) {
+      if (waypoint.timeSlotCategory != null) {
+        grouped[waypoint.timeSlotCategory]!.add(waypoint);
+      } else {
+        // Auto-assign if not set
+        final autoCategory = autoAssignTimeSlotCategory(waypoint);
+        if (autoCategory != null) {
+          grouped[autoCategory]!.add(waypoint);
+        }
+      }
+    }
+    
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1113,6 +1173,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Header
           InkWell(
             onTap: () => setState(() => _waypointsExpanded = !_waypointsExpanded),
             child: Padding(
@@ -1125,7 +1186,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Waypoints (${_poiWaypoints.length})',
+                    'Day Timeline (${_poiWaypoints.length} waypoints)',
                     style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   const Spacer(),
@@ -1139,52 +1200,204 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
               ),
             ),
           ),
-          if (_waypointsExpanded && _poiWaypoints.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'No waypoints added yet. Tap on the map or use the + button.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          if (_waypointsExpanded && _poiWaypoints.isNotEmpty)
+          
+          // Timeline sections
+          if (_waypointsExpanded)
             Container(
-              constraints: const BoxConstraints(maxHeight: 400),
-              child: ReorderableListView.builder(
-                shrinkWrap: true,
-                itemCount: _poiWaypoints.length,
-                onReorder: (oldIndex, newIndex) {
-                  setState(() {
-                    if (newIndex > oldIndex) newIndex -= 1;
-                    final item = _poiWaypoints.removeAt(oldIndex);
-                    _poiWaypoints.insert(newIndex, item);
-                    for (int i = 0; i < _poiWaypoints.length; i++) {
-                      _poiWaypoints[i].order = i;
-                    }
-                  });
-                },
-                itemBuilder: (context, index) {
-                  final wp = _poiWaypoints[index];
-                  return Container(
-                    key: ValueKey(wp.id),
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    child: Row(
-                      children: [
-                        Icon(Icons.drag_handle, color: Colors.grey.shade600),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: UnifiedWaypointCard(
-                            waypoint: wp,
-                            showActions: true,
-                            onEdit: () => _editWaypoint(wp),
-                            onDelete: () => _deleteWaypoint(wp),
+              constraints: const BoxConstraints(maxHeight: 500),
+              child: _poiWaypoints.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        children: [
+                          Icon(Icons.schedule, size: 48, color: Colors.grey.shade400),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No waypoints added yet',
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tap the + button or click on the map to add waypoints',
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        // Only show categories that have waypoints or are main categories
+                        _buildTimelineCategory(TimeSlotCategory.breakfast, grouped[TimeSlotCategory.breakfast]!),
+                        _buildTimelineCategory(TimeSlotCategory.morningActivity, grouped[TimeSlotCategory.morningActivity]!),
+                        _buildTimelineCategory(TimeSlotCategory.lunch, grouped[TimeSlotCategory.lunch]!),
+                        _buildTimelineCategory(TimeSlotCategory.afternoonActivity, grouped[TimeSlotCategory.afternoonActivity]!),
+                        _buildTimelineCategory(TimeSlotCategory.dinner, grouped[TimeSlotCategory.dinner]!),
+                        _buildTimelineCategory(TimeSlotCategory.eveningActivity, grouped[TimeSlotCategory.eveningActivity]!),
+                        _buildTimelineCategory(TimeSlotCategory.accommodation, grouped[TimeSlotCategory.accommodation]!),
+                        if (grouped[TimeSlotCategory.servicePoint]!.isNotEmpty)
+                          _buildTimelineCategory(TimeSlotCategory.servicePoint, grouped[TimeSlotCategory.servicePoint]!),
+                        if (grouped[TimeSlotCategory.viewingPoint]!.isNotEmpty)
+                          _buildTimelineCategory(TimeSlotCategory.viewingPoint, grouped[TimeSlotCategory.viewingPoint]!),
                       ],
                     ),
-                  );
-                },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineCategory(TimeSlotCategory category, List<RouteWaypoint> waypoints) {
+    final icon = getTimeSlotIcon(category);
+    final label = getTimeSlotLabel(category);
+    final defaultTime = getDefaultSuggestedTime(category);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        border: Border.all(color: context.colors.outline.withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Category header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, size: 16, color: Colors.grey.shade700),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          if (waypoints.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: context.colors.primary.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${waypoints.length}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: context.colors.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (defaultTime != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.schedule, size: 12, color: Colors.grey.shade500),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Suggested: $defaultTime',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Waypoints or empty state
+          if (waypoints.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Icon(icon, size: 28, color: Colors.grey.shade300),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No ${label.toLowerCase()} added',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _showAddWaypointDialogForCategory(category),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: Text('Add $label', style: const TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  ...waypoints.map((waypoint) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: UnifiedWaypointCard(
+                      waypoint: waypoint,
+                      showActions: true,
+                      onEdit: () => _editWaypoint(waypoint),
+                      onDelete: () => _deleteWaypoint(waypoint),
+                      showDragHandle: false,
+                    ),
+                  )),
+                  const SizedBox(height: 4),
+                  OutlinedButton.icon(
+                    onPressed: () => _showAddWaypointDialogForCategory(category),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: Text('Add to $label', style: const TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      side: BorderSide(color: context.colors.outline),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -1192,30 +1405,82 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
     );
   }
 
-  Future<void> _showAddWaypointDialog() async {
-    // Show the waypoint dialog directly (using user's current map center as proximity bias)
+  Future<void> _showAddWaypointDialogForCategory(TimeSlotCategory category) async {
+    WaypointType? preselectedType;
+    
+    // Determine preselected type based on category
+    switch (category) {
+      case TimeSlotCategory.breakfast:
+      case TimeSlotCategory.lunch:
+      case TimeSlotCategory.dinner:
+        preselectedType = WaypointType.restaurant;
+        break;
+      case TimeSlotCategory.morningActivity:
+      case TimeSlotCategory.allDayActivity:
+      case TimeSlotCategory.afternoonActivity:
+      case TimeSlotCategory.eveningActivity:
+        preselectedType = WaypointType.activity;
+        break;
+      case TimeSlotCategory.accommodation:
+        preselectedType = WaypointType.accommodation;
+        break;
+      case TimeSlotCategory.servicePoint:
+        preselectedType = WaypointType.servicePoint;
+        break;
+      case TimeSlotCategory.viewingPoint:
+        preselectedType = WaypointType.viewingPoint;
+        break;
+    }
+    
     final center = _map.camera.center;
     final result = await showDialog<RouteWaypoint>(
       context: context,
       builder: (context) => _AddWaypointDialog(
         proximityBias: center,
+        excludeRoutePoint: true,
+        preselectedType: preselectedType,
       ),
     );
 
     if (result != null && mounted) {
-      // Check if it's a route point - if so, add to _points, otherwise to _poiWaypoints
-      if (result.type == WaypointType.routePoint) {
-        setState(() {
-          _points.add(result.position);
-          _hintDismissed = true;
-        });
-        await _updatePreview();
-      } else {
-        setState(() {
+      setState(() {
+        // Auto-assign category if not already set
+        if (result.timeSlotCategory == null) {
+          final autoCategory = autoAssignTimeSlotCategory(result);
+          _poiWaypoints.add(result.copyWith(
+            timeSlotCategory: autoCategory ?? category,
+          ));
+        } else {
           _poiWaypoints.add(result);
-          _map.move(result.position, _map.camera.zoom);
-        });
-      }
+        }
+        _map.move(result.position, _map.camera.zoom);
+      });
+    }
+  }
+
+  Future<void> _showAddWaypointDialog() async {
+    // Show the waypoint dialog directly (using user's current map center as proximity bias)
+    // Exclude routePoint type since this is for POI waypoints only
+    final center = _map.camera.center;
+    final result = await showDialog<RouteWaypoint>(
+      context: context,
+      builder: (context) => _AddWaypointDialog(
+        proximityBias: center,
+        excludeRoutePoint: true,
+      ),
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        // Auto-assign time slot category if not set
+        if (result.timeSlotCategory == null) {
+          final autoCategory = autoAssignTimeSlotCategory(result);
+          _poiWaypoints.add(result.copyWith(timeSlotCategory: autoCategory));
+        } else {
+          _poiWaypoints.add(result);
+        }
+        _map.move(result.position, _map.camera.zoom);
+      });
     }
   }
 }
@@ -1710,6 +1975,7 @@ class _DesktopSidebar extends StatelessWidget {
   final VoidCallback? onPreview; final VoidCallback? onSave;
   final void Function(int oldIndex, int newIndex) onReorder;
   final VoidCallback onCancel;
+  final ActivityCategory? activityCategory;
 
   const _DesktopSidebar({
     required this.snapToTrail,
@@ -1731,6 +1997,7 @@ class _DesktopSidebar extends StatelessWidget {
     required this.onSave,
     required this.onReorder,
     required this.onCancel,
+    this.activityCategory,
   });
 
   @override
@@ -1765,6 +2032,7 @@ class _DesktopSidebar extends StatelessWidget {
                       distanceMeters: previewDistance,
                       durationSeconds: previewDuration,
                       ascentMeters: ascent,
+                      activityCategory: activityCategory,
                     ),
                   if (elevation.isNotEmpty) ...[
                     const SizedBox(height: 12),
@@ -1904,7 +2172,8 @@ class _DesktopSidebar extends StatelessWidget {
 
 class _StatsRow extends StatelessWidget {
   final double? distanceMeters; final int? durationSeconds; final double? ascentMeters;
-  const _StatsRow({this.distanceMeters, this.durationSeconds, this.ascentMeters});
+  final ActivityCategory? activityCategory;
+  const _StatsRow({this.distanceMeters, this.durationSeconds, this.ascentMeters, this.activityCategory});
   @override
   Widget build(BuildContext context) {
     String dist = distanceMeters == null ? '-' : '${(distanceMeters! / 1000).toStringAsFixed(1)} km';
@@ -1919,7 +2188,7 @@ class _StatsRow extends StatelessWidget {
       _divider(),
       _statTile(context, Icons.schedule, 'Est. time', dur, label, value),
       _divider(),
-      _statTile(context, Icons.directions_walk, 'Activity', 'Walking', label, value),
+      _statTile(context, Icons.directions_walk, 'Activity', _getActivityLabelStatic(activityCategory), label, value),
     ]);
   }
 
@@ -1943,6 +2212,27 @@ String _fmtDuration(int seconds) {
   final m = (seconds % 3600) ~/ 60;
   if (h > 0) return '${h}h ${m}m';
   return '${m}m';
+}
+
+/// Returns the appropriate activity label based on activity category (static helper)
+String _getActivityLabelStatic(ActivityCategory? activityCategory) {
+  switch (activityCategory) {
+    case ActivityCategory.cycling:
+      return 'Cycling';
+    case ActivityCategory.roadTripping:
+      return 'Driving';
+    case ActivityCategory.skis:
+      return 'Skiing';
+    case ActivityCategory.climbing:
+      return 'Climbing';
+    case ActivityCategory.cityTrips:
+      return 'Walking';
+    case ActivityCategory.tours:
+      return 'Touring';
+    case ActivityCategory.hiking:
+    default:
+      return 'Hiking';
+  }
 }
 
 class _SidebarWaypointTile extends StatelessWidget {
@@ -2210,10 +2500,12 @@ class _RoutePointTile extends StatelessWidget {
 class _AddWaypointDialog extends StatefulWidget {
   final WaypointType? preselectedType;
   final ll.LatLng? proximityBias;
+  final bool excludeRoutePoint;
   
   const _AddWaypointDialog({
     this.preselectedType,
     this.proximityBias,
+    this.excludeRoutePoint = false,
   });
 
   @override
@@ -2784,19 +3076,21 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
                       Wrap(
                         spacing: 10,
                         runSpacing: 10,
-                        children: WaypointType.values.map((type) => _ModernTypeChip(
-                          type: type,
-                          isSelected: _selectedType == type,
-                          onTap: () {
-                            setState(() {
-                              _selectedType = type;
-                              _searchResults = [];
-                              if (_searchController.text.isNotEmpty) {
-                                _performSearch(_searchController.text);
-                              }
-                            });
-                          },
-                        )).toList(),
+                        children: WaypointType.values
+                          .where((type) => !widget.excludeRoutePoint || type != WaypointType.routePoint)
+                          .map((type) => _ModernTypeChip(
+                            type: type,
+                            isSelected: _selectedType == type,
+                            onTap: () {
+                              setState(() {
+                                _selectedType = type;
+                                _searchResults = [];
+                                if (_searchController.text.isNotEmpty) {
+                                  _performSearch(_searchController.text);
+                                }
+                              });
+                            },
+                          )).toList(),
                       ),
                       if (_selectedType == WaypointType.accommodation) ...[
                         const SizedBox(height: 16),

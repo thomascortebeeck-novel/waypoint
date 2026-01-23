@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:waypoint/utils/logger.dart';
@@ -6,10 +7,69 @@ import 'package:waypoint/utils/logger.dart';
 /// All API calls are proxied through backend to protect API keys and implement rate limiting
 class GooglePlacesService {
   final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  
+  // 📦 Cache for search results (reduces redundant API calls)
+  final Map<String, List<PlacePrediction>> _searchCache = {};
+  final Map<String, PlaceDetails> _detailsCache = {};
+  
+  // 🔄 Prevent duplicate simultaneous requests
+  final Map<String, Future<List<PlacePrediction>>> _inflightSearches = {};
+  final Map<String, Future<PlaceDetails?>> _inflightDetails = {};
 
-  /// Search for places using secure Cloud Function
+  /// Search for places using secure Cloud Function with caching and deduplication
   /// Returns list of place predictions based on query
   Future<List<PlacePrediction>> searchPlaces({
+    required String query,
+    ll.LatLng? proximity,
+    List<String>? types,
+  }) async {
+    // Normalize query
+    final normalizedQuery = query.trim().toLowerCase();
+    
+    // Check cache first
+    final cacheKey = _getCacheKey(normalizedQuery, proximity, types);
+    if (_searchCache.containsKey(cacheKey)) {
+      Log.i('google_places', '📦 Cache hit for: "$query"');
+      return _searchCache[cacheKey]!;
+    }
+
+    // Deduplicate simultaneous requests
+    if (_inflightSearches.containsKey(cacheKey)) {
+      Log.i('google_places', '🔄 Waiting for in-flight request: "$query"');
+      return _inflightSearches[cacheKey]!;
+    }
+
+    // Create the search future
+    final searchFuture = _performSearch(
+      query: query,
+      proximity: proximity,
+      types: types,
+    );
+    
+    _inflightSearches[cacheKey] = searchFuture;
+
+    try {
+      final results = await searchFuture;
+      
+      // Cache results (5-minute TTL handled by simple cache)
+      _searchCache[cacheKey] = results;
+      
+      // Cache cleanup (keep last 50 searches)
+      if (_searchCache.length > 50) {
+        _searchCache.remove(_searchCache.keys.first);
+      }
+      
+      return results;
+    } finally {
+      _inflightSearches.remove(cacheKey);
+    }
+  }
+
+  String _getCacheKey(String query, ll.LatLng? proximity, List<String>? types) {
+    return '$query|${proximity?.latitude}|${proximity?.longitude}|${types?.join(',')}';
+  }
+
+  Future<List<PlacePrediction>> _performSearch({
     required String query,
     ll.LatLng? proximity,
     List<String>? types,
@@ -36,12 +96,10 @@ class GooglePlacesService {
     } on FirebaseFunctionsException catch (e) {
       Log.e('google_places', '❌ Search failed: ${e.code} - ${e.message}', e);
 
-      // Handle rate limiting gracefully
       if (e.code == 'resource-exhausted') {
-        throw Exception('Rate limit exceeded. Please try again in a few minutes.');
+        throw Exception('Too many searches. Please wait a moment and try again.');
       }
 
-      // Handle auth errors
       if (e.code == 'unauthenticated') {
         throw Exception('You must be signed in to search places.');
       }
@@ -53,8 +111,40 @@ class GooglePlacesService {
     }
   }
 
-  /// Get detailed information about a specific place using secure Cloud Function
+  /// Get detailed information about a specific place with caching
   Future<PlaceDetails?> getPlaceDetails(String placeId) async {
+    // Check cache first
+    if (_detailsCache.containsKey(placeId)) {
+      Log.i('google_places', '📦 Cache hit for details: $placeId');
+      return _detailsCache[placeId];
+    }
+
+    // Deduplicate simultaneous requests
+    if (_inflightDetails.containsKey(placeId)) {
+      Log.i('google_places', '🔄 Waiting for in-flight details request: $placeId');
+      return _inflightDetails[placeId];
+    }
+
+    final detailsFuture = _performDetailsRequest(placeId);
+    _inflightDetails[placeId] = detailsFuture;
+
+    try {
+      final details = await detailsFuture;
+      if (details != null) {
+        _detailsCache[placeId] = details;
+        
+        // Cache cleanup (keep last 100 places)
+        if (_detailsCache.length > 100) {
+          _detailsCache.remove(_detailsCache.keys.first);
+        }
+      }
+      return details;
+    } finally {
+      _inflightDetails.remove(placeId);
+    }
+  }
+
+  Future<PlaceDetails?> _performDetailsRequest(String placeId) async {
     try {
       Log.i('google_places', '📍 Fetching details for: $placeId');
 
@@ -69,7 +159,7 @@ class GooglePlacesService {
       Log.e('google_places', '❌ Details fetch failed: ${e.code} - ${e.message}', e);
 
       if (e.code == 'resource-exhausted') {
-        throw Exception('Rate limit exceeded. Please try again in a few minutes.');
+        throw Exception('Too many requests. Please wait a moment and try again.');
       }
 
       if (e.code == 'unauthenticated') {

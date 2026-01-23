@@ -16,39 +16,104 @@ function getGooglePlacesKey(): string {
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
-// Rate limiting: 100 requests per hour per user per endpoint
-const RATE_LIMIT_MAX = 100;
-const RATE_LIMIT_WINDOW = 3600000; // 1 hour in milliseconds
+// Rate limiting: More restrictive to prevent Google API exhaustion
+const RATE_LIMITS = {
+  search: {max: 20, windowMs: 5 * 60 * 1000}, // 20 per 5 minutes
+  details: {max: 30, windowMs: 5 * 60 * 1000}, // 30 per 5 minutes
+  photo: {max: 50, windowMs: 5 * 60 * 1000}, // 50 per 5 minutes
+  geocode: {max: 10, windowMs: 5 * 60 * 1000}, // 10 per 5 minutes
+};
+
+// Burst protection: Max 5 requests per 10 seconds
+const BURST_LIMIT = 5;
+const BURST_WINDOW = 10000; // 10 seconds
+
+// Server-side cache (consider Redis/Memorystore for production)
+const searchCache = new Map<string, {data: any; timestamp: number}>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+interface RateLimitData {
+  count: number;
+  timestamp: number;
+  burstCount: number;
+  burstTimestamp: number;
+}
+
+function getCacheKey(data: any): string {
+  return JSON.stringify(data);
+}
+
+function getFromCache(key: string): any | null {
+  const cached = searchCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  searchCache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: any): void {
+  searchCache.set(key, {data, timestamp: Date.now()});
+  
+  // Limit cache size to prevent memory issues
+  if (searchCache.size > 1000) {
+    const firstKey = searchCache.keys().next().value;
+    searchCache.delete(firstKey);
+  }
+}
 
 /**
- * Check rate limit for a user on a specific endpoint
+ * Check rate limit with burst protection using Firestore transactions
+ * Prevents race conditions from multiple simultaneous requests
  */
-async function checkRateLimit(userId: string, endpoint: string): Promise<boolean> {
+async function checkRateLimit(
+  userId: string,
+  endpoint: keyof typeof RATE_LIMITS
+): Promise<boolean> {
   const db = getFirestore();
   const now = Date.now();
   const docId = `${userId}_${endpoint}`;
   const rateLimitRef = db.collection("rate_limits").doc(docId);
-
+  
   try {
-    const doc = await rateLimitRef.get();
-    const data = doc.data();
+    // Use transaction to prevent race conditions
+    return await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(rateLimitRef);
+      const data = doc.data() as RateLimitData | undefined;
+      const limit = RATE_LIMITS[endpoint];
 
-    // Check if rate limit exceeded
-    if (data && data.count >= RATE_LIMIT_MAX && now - data.timestamp < RATE_LIMIT_WINDOW) {
-      return false;
-    }
+      // Check burst limit (5 requests per 10 seconds)
+      const burstExpired = !data || (now - data.burstTimestamp) > BURST_WINDOW;
+      const currentBurstCount = burstExpired ? 1 : (data?.burstCount || 0) + 1;
+      
+      if (!burstExpired && currentBurstCount > BURST_LIMIT) {
+        console.warn(`⚡ Burst limit exceeded for user ${userId} on ${endpoint}`);
+        return false;
+      }
 
-    // Reset or increment counter
-    await rateLimitRef.set({
-      count: data && now - data.timestamp < RATE_LIMIT_WINDOW ? data.count + 1 : 1,
-      timestamp: data && now - data.timestamp < RATE_LIMIT_WINDOW ? data.timestamp : now,
+      // Check main rate limit
+      const windowExpired = !data || (now - data.timestamp) > limit.windowMs;
+      const currentCount = windowExpired ? 1 : (data?.count || 0) + 1;
+      
+      if (!windowExpired && currentCount > limit.max) {
+        console.warn(`🚫 Rate limit exceeded for user ${userId} on ${endpoint}: ${currentCount}/${limit.max}`);
+        return false;
+      }
+
+      // Update rate limit data
+      transaction.set(rateLimitRef, {
+        count: currentCount,
+        timestamp: windowExpired ? now : data!.timestamp,
+        burstCount: currentBurstCount,
+        burstTimestamp: burstExpired ? now : data!.burstTimestamp,
+      });
+
+      return true;
     });
-
-    return true;
   } catch (error) {
-    console.error("Rate limit check failed:", error);
-    // Allow request if rate limit check fails
-    return true;
+    console.error("❌ Rate limit check failed:", error);
+    // Fail closed - deny request if rate limit check fails
+    return false;
   }
 }
 
@@ -60,10 +125,12 @@ interface PlacesSearchRequest {
 
 /**
  * 🔒 SECURE: Search places using Google Places API (New)
- * Implements autocomplete search with rate limiting and authentication
+ * Implements autocomplete search with rate limiting, caching, and burst protection
  */
 export const placesSearch = onCall({
   region: "us-central1",
+  memory: "256MiB",
+  timeoutSeconds: 10,
 }, async (request) => {
   // Enforce authentication
   if (!request.auth) {
@@ -73,23 +140,34 @@ export const placesSearch = onCall({
   const userId = request.auth.uid;
   const data = request.data as PlacesSearchRequest;
 
-  // Rate limiting
+  // Validate input early
+  if (!data.query || data.query.trim().length < 2) {
+    throw new HttpsError("invalid-argument", "Query must be at least 2 characters");
+  }
+
+  // Check cache BEFORE rate limiting (saves quota)
+  const cacheKey = getCacheKey(data);
+  const cachedResult = getFromCache(cacheKey);
+  if (cachedResult) {
+    console.log(`📦 Cache hit for query: "${data.query}"`);
+    return cachedResult;
+  }
+
+  // Rate limiting (with burst protection)
   if (!await checkRateLimit(userId, "search")) {
-    throw new HttpsError("resource-exhausted", "Rate limit exceeded. Please try again in a few minutes.");
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many searches. Please wait a few moments and try again."
+    );
   }
 
   try {
     const {query, proximity, types} = data;
     const apiKey = getGooglePlacesKey();
 
-    // Validate input
-    if (!query || query.trim().length < 2) {
-      throw new HttpsError("invalid-argument", "Query must be at least 2 characters");
-    }
-
     // Build request body
     const requestBody: any = {
-      input: query,
+      input: query.trim(),
     };
 
     if (proximity) {
@@ -105,14 +183,14 @@ export const placesSearch = onCall({
     }
 
     // Only include types if they exist and are valid
-    // Google Places API (New) has different type names than legacy API
     if (types && types.length > 0) {
-      // Filter out any potentially invalid types
       const validTypes = types.filter((t) => t && t.length > 0);
       if (validTypes.length > 0) {
         requestBody.includedPrimaryTypes = validTypes;
       }
     }
+
+    console.log(`🔍 Calling Google Places API for: "${query}"`);
 
     // Call Google Places API (Autocomplete)
     const response = await axios.post(
@@ -124,6 +202,7 @@ export const placesSearch = onCall({
           "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text",
         },
+        timeout: 5000, // 5 second timeout
       }
     );
 
@@ -137,23 +216,37 @@ export const placesSearch = onCall({
       }))
       .slice(0, 5); // Limit to 5 results
 
-    return {predictions};
+    const result = {predictions};
+    
+    // Cache the result
+    setCache(cacheKey, result);
+    
+    console.log(`✅ Search successful: ${predictions.length} results`);
+    return result;
   } catch (error: any) {
     // Log detailed error information for debugging
     if (error.response) {
-      console.error("Places API error:", {
+      console.error("❌ Places API error:", {
         status: error.response.status,
         statusText: error.response.statusText,
         data: error.response.data,
-        request: requestBody,
+        query: data.query,
       });
+      
+      // Handle Google rate limiting (429)
+      if (error.response.status === 429) {
+        throw new HttpsError(
+          "resource-exhausted",
+          "Search service is temporarily busy. Please wait a minute and try again."
+        );
+      }
+      
+      // Handle bad requests
+      if (error.response.status === 400) {
+        throw new HttpsError("invalid-argument", "Invalid search parameters");
+      }
     } else {
-      console.error("Places search failed:", error.message);
-    }
-    
-    // Return more helpful error message
-    if (error.response?.status === 400) {
-      throw new HttpsError("invalid-argument", "Invalid search parameters. Some place types may not be supported.");
+      console.error("❌ Places search failed:", error.message);
     }
     
     throw new HttpsError("internal", error.message || "Search failed");

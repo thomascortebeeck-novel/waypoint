@@ -166,8 +166,12 @@ class _ImageUploadDialogState extends State<ImageUploadDialog> {
         'updated_at': Timestamp.now(),
       });
       if (mounted) Navigator.of(context).pop(true);
-    } catch (e) {
-      setState(() => _error = 'Upload failed. Please try again.');
+    } catch (e, stack) {
+      debugPrint('Upload error: $e');
+      debugPrint('Stack trace: $stack');
+      if (mounted) {
+        setState(() => _error = 'Upload failed: ${e.toString().split('\n').first}');
+      }
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }

@@ -7,6 +7,7 @@ import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
+import 'package:waypoint/components/builder/day_timeline_section.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/integrations/mapbox_service.dart';
@@ -43,6 +44,47 @@ bool _isInitializing = true;
 DateTime? _lastSavedAt;
 String _saveStatus = ''; // 'Saving...', 'Saved', 'Failed to save'
 
+/// Returns the appropriate time label based on activity category
+String _getActivityTimeLabel() {
+  switch (_activityCategory) {
+    case ActivityCategory.cycling:
+      return 'Cycling Time (h)';
+    case ActivityCategory.roadTripping:
+      return 'Driving Time (h)';
+    case ActivityCategory.skis:
+      return 'Skiing Time (h)';
+    case ActivityCategory.climbing:
+      return 'Climbing Time (h)';
+    case ActivityCategory.cityTrips:
+    case ActivityCategory.tours:
+      return 'Duration (h)';
+    case ActivityCategory.hiking:
+    default:
+      return 'Hiking Time (h)';
+  }
+}
+
+/// Returns the short activity label for route builder
+String _getActivityLabel() {
+  switch (_activityCategory) {
+    case ActivityCategory.cycling:
+      return 'Cycling';
+    case ActivityCategory.roadTripping:
+      return 'Driving';
+    case ActivityCategory.skis:
+      return 'Skiing';
+    case ActivityCategory.climbing:
+      return 'Climbing';
+    case ActivityCategory.cityTrips:
+      return 'Walking';
+    case ActivityCategory.tours:
+      return 'Touring';
+    case ActivityCategory.hiking:
+    default:
+      return 'Hiking';
+  }
+}
+
 final _nameCtrl = TextEditingController();
 final _locationCtrl = TextEditingController();
 final _locationFocusNode = FocusNode();
@@ -50,6 +92,7 @@ List<PlaceSuggestion>? _locationSuggestions;
 bool _searchingLocation = false;
 double? _locationLat;
 double? _locationLng;
+Timer? _locationDebounceTimer; // Debounce timer for location search
 final _descCtrl = TextEditingController();
 final _heroCtrl = TextEditingController();
 final _priceCtrl = TextEditingController(text: '2.00');
@@ -80,6 +123,7 @@ AccommodationType? _accommodationType;
 
 @override
 void dispose() {
+_locationDebounceTimer?.cancel(); // Cancel debounce timer
 _pageController.removeListener(_onPageChanged);
 _pageController.dispose();
 _nameCtrl.dispose();
@@ -745,12 +789,11 @@ _buildActivityCategoryField(),
 const SizedBox(height: 16),
 if (_activityCategory != null &&
 _activityCategory != ActivityCategory.cityTrips &&
-_activityCategory != ActivityCategory.tours)
+_activityCategory != ActivityCategory.tours &&
+_activityCategory != ActivityCategory.roadTripping) ...[
 _buildAccommodationTypeField(),
-if (_activityCategory != null &&
-_activityCategory != ActivityCategory.cityTrips &&
-_activityCategory != ActivityCategory.tours)
 const SizedBox(height: 32),
+],
 
 // FAQ Section
 Text("Frequently Asked Questions", style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
@@ -813,13 +856,23 @@ Widget _buildStep3Packing() {
       ),
     );
   }
-  return Column(
-    children: [
-      // Version selector
-      _buildVersionSelector(),
-      // Packing content
-      Expanded(child: _buildPackingTab()),
-    ],
+  // Use LayoutBuilder to get proper constraints instead of SizedBox.expand
+  // which causes layout issues inside PageView
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      return SizedBox(
+        height: constraints.maxHeight,
+        width: constraints.maxWidth,
+        child: Column(
+          children: [
+            // Version selector
+            _buildVersionSelector(),
+            // Packing content
+            Expanded(child: _buildPackingTab()),
+          ],
+        ),
+      );
+    },
   );
 }
 
@@ -833,13 +886,23 @@ Widget _buildStep4Transport() {
       ),
     );
   }
-  return Column(
-    children: [
-      // Version selector
-      _buildVersionSelector(),
-      // Transportation content
-      Expanded(child: _buildTransportationTab()),
-    ],
+  // Use LayoutBuilder to get proper constraints instead of SizedBox.expand
+  // which causes layout issues inside PageView
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      return SizedBox(
+        height: constraints.maxHeight,
+        width: constraints.maxWidth,
+        child: Column(
+          children: [
+            // Version selector
+            _buildVersionSelector(),
+            // Transportation content
+            Expanded(child: _buildTransportationTab()),
+          ],
+        ),
+      );
+    },
   );
 }
 
@@ -847,19 +910,51 @@ Widget _buildStep4Transport() {
 Widget _buildStep5Days() {
   if (_versions.isEmpty) {
     return Center(
-      child: Text(
-        'Add at least one version first',
-        style: context.textStyles.bodyMedium,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.layers_outlined, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text(
+              'Add at least one version first',
+              style: context.textStyles.titleMedium?.copyWith(color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Go back to the Versions step to create your first adventure version',
+              style: context.textStyles.bodySmall?.copyWith(color: Colors.grey.shade500),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
-  return Column(
-    children: [
-      // Version selector
-      _buildVersionSelector(),
-      // Days content
-      Expanded(child: _buildDaysTab()),
-    ],
+  
+  // Ensure active version index is valid
+  if (_activeVersionIndex >= _versions.length) {
+    _activeVersionIndex = 0;
+  }
+  
+  // Use LayoutBuilder to get proper constraints instead of SizedBox.expand
+  // which causes layout issues inside PageView
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      return SizedBox(
+        height: constraints.maxHeight,
+        width: constraints.maxWidth,
+        child: Column(
+          children: [
+            // Version selector
+            _buildVersionSelector(),
+            // Days content
+            Expanded(child: _buildDaysTab()),
+          ],
+        ),
+      );
+    },
   );
 }
 
@@ -1502,12 +1597,15 @@ Widget _buildDaysTab() {
         child: SingleChildScrollView(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
+              constraints: const BoxConstraints(
+                maxWidth: 900,
+              ),
               child: Padding(
                 padding: AppSpacing.paddingLg,
                 child: Builder(
                   builder: (context) {
                     try {
+                      Log.i('builder', 'Rendering day content for index $_currentDayIndex');
                       return _buildDayCard(_currentDayIndex + 1, versionIndex: _activeVersionIndex);
                     } catch (e, stack) {
                       Log.e('builder', 'Error building day card ${_currentDayIndex + 1}', e, stack);
@@ -1519,6 +1617,7 @@ Widget _buildDaysTab() {
                           border: Border.all(color: Colors.red.shade200),
                         ),
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.error_outline, color: Colors.red.shade700, size: 48),
                             const SizedBox(height: 16),
@@ -1529,29 +1628,32 @@ Widget _buildDaysTab() {
                                 fontWeight: FontWeight.w600,
                                 color: Colors.red.shade900,
                               ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  e.toString(),
+                                  style: TextStyle(fontSize: 13, color: Colors.red.shade700),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              e.toString(),
-                              style: TextStyle(fontSize: 13, color: Colors.red.shade700),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                  },
+                          );
+                        }
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
     ],
   );
 }
 
 Widget _buildDayCard(int dayNum, {required int versionIndex}) {
+Log.i('builder', 'Building day card for day $dayNum, version $versionIndex');
+
+try {
 final vf = _versions[versionIndex];
 final titleCtrl = vf.titleCtrl(dayNum);
 final descCtrl = vf.descCtrl(dayNum);
@@ -1567,6 +1669,8 @@ final activities = vf.activitiesByDay[dayNum] ?? [];
 final dayImageBytes = vf.dayImagesByDay[dayNum];
 final existingImageUrl = vf.existingDayImageUrls[dayNum];
 final hasImage = dayImageBytes != null || existingImageUrl != null;
+
+Log.i('builder', 'Day $dayNum: hasRoute=${existingRoute != null}, accommodations=${accommodations.length}, restaurants=${restaurants.length}, activities=${activities.length}');
 
 return Column(
 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1659,6 +1763,7 @@ extra: {
 'start': vf.startForDay[dayNum],
 'end': vf.endForDay[dayNum],
 'initial': vf.routeByDay[dayNum],
+'activityCategory': _activityCategory,
 },
 );
 if (route != null && mounted) {
@@ -1691,7 +1796,7 @@ Row(
 children: [
 Expanded(child: _buildTextField("Distance (km)", "0", isNumber: true, controller: distCtrl, required: false)),
 const SizedBox(width: 12),
-Expanded(child: _buildTextField("Hiking Time (h)", "0", isNumber: true, controller: timeCtrl, required: false)),
+Expanded(child: _buildTextField(_getActivityTimeLabel(), "0", isNumber: true, controller: timeCtrl, required: false)),
 ],
 ),
 
@@ -1712,6 +1817,41 @@ const SizedBox(height: 8),
 _buildAllWaypointsList(dayNum, vf),
 ],
 );
+} catch (e, stack) {
+Log.e('builder', 'Error building day card for day $dayNum', e, stack);
+return Container(
+padding: const EdgeInsets.all(24),
+decoration: BoxDecoration(
+color: Colors.red.shade50,
+borderRadius: BorderRadius.circular(12),
+border: Border.all(color: Colors.red.shade200),
+),
+child: Column(
+mainAxisSize: MainAxisSize.min,
+children: [
+Icon(Icons.error_outline, color: Colors.red.shade700, size: 48),
+const SizedBox(height: 16),
+Text(
+'Error loading Day $dayNum',
+style: TextStyle(
+fontSize: 18,
+fontWeight: FontWeight.w600,
+color: Colors.red.shade900,
+),
+),
+const SizedBox(height: 8),
+Text(
+'Details: $e',
+style: TextStyle(
+fontSize: 12,
+color: Colors.red.shade700,
+),
+textAlign: TextAlign.center,
+),
+],
+),
+);
+}
 }
 
 Widget _buildAccommodationCard(_AccommodationFormData acc, int dayNum, int idx, _VersionFormData vf) {
@@ -2100,6 +2240,7 @@ child: Text('Not specified'),
 ),
 DropdownMenuItem(value: ActivityCategory.hiking, child: const Text('🥾 Hiking')),
 DropdownMenuItem(value: ActivityCategory.cycling, child: const Text('🚴 Cycling')),
+DropdownMenuItem(value: ActivityCategory.roadTripping, child: const Text('🚗 Road Tripping')),
 DropdownMenuItem(value: ActivityCategory.skis, child: const Text('⛷️ Skiing')),
 DropdownMenuItem(value: ActivityCategory.climbing, child: const Text('🧗 Climbing')),
 DropdownMenuItem(value: ActivityCategory.cityTrips, child: const Text('🏙️ City Trips')),
@@ -2108,8 +2249,8 @@ DropdownMenuItem(value: ActivityCategory.tours, child: const Text('🌏 Tours'))
 onChanged: (value) {
 setState(() {
 _activityCategory = value;
-// Auto-set accommodation type for city trips and tours
-if (value == ActivityCategory.cityTrips || value == ActivityCategory.tours) {
+// Auto-set accommodation type for city trips, tours, and road tripping
+if (value == ActivityCategory.cityTrips || value == ActivityCategory.tours || value == ActivityCategory.roadTripping) {
 _accommodationType = AccommodationType.comfort;
 }
 // Clear accommodation type when category is cleared
@@ -2151,6 +2292,7 @@ color: Colors.grey.shade600,
 const SizedBox(height: 6),
 DropdownButtonFormField<AccommodationType?>(
 value: _accommodationType,
+isExpanded: true,
 decoration: InputDecoration(
 hintText: 'Select accommodation type...',
 filled: true,
@@ -2174,8 +2316,20 @@ const DropdownMenuItem<AccommodationType?>(
 value: null,
 child: Text('Not specified'),
 ),
-DropdownMenuItem(value: AccommodationType.comfort, child: const Text('💰 Comfort - Stay at local accommodations (hotels, hostels, huts, lodges)')),
-DropdownMenuItem(value: AccommodationType.adventure, child: const Text('⛺ Adventure - Bring your own shelter (tent, campervan, bivouac)')),
+DropdownMenuItem(
+  value: AccommodationType.comfort,
+  child: Text(
+    '💰 Comfort - Hotels, hostels, huts, lodges',
+    overflow: TextOverflow.ellipsis,
+  ),
+),
+DropdownMenuItem(
+  value: AccommodationType.adventure,
+  child: Text(
+    '⛺ Adventure - Tent, campervan, bivouac',
+    overflow: TextOverflow.ellipsis,
+  ),
+),
 ],
 onChanged: (value) {
 setState(() {
@@ -2395,6 +2549,7 @@ final tempPlanId = uuid.v4();
 // Upload cover image if bytes are available
 String heroImageUrl;
 if (_coverImageBytes != null) {
+try {
 Log.i('builder', 'Uploading cover image...');
 final path = _storageService.coverImagePath(tempPlanId, _coverImageExtension ?? 'jpg');
 heroImageUrl = await _storageService.uploadImage(
@@ -2403,6 +2558,16 @@ bytes: _coverImageBytes!,
 contentType: 'image/${_coverImageExtension ?? 'jpeg'}',
 );
 Log.i('builder', 'Cover image uploaded successfully');
+} catch (e, stack) {
+Log.e('builder', 'Cover image upload failed', e, stack);
+if (mounted) {
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(content: Text('Failed to upload cover image: ${e.toString().split('\n').first}')),
+);
+}
+setState(() => _isSaving = false);
+return;
+}
 } else {
 heroImageUrl = _heroCtrl.text.trim().isEmpty
 ? 'https://images.unsplash.com/photo-1502920917128-1aa500764cbd?q=80&w=2070&auto=format&fit=crop'
@@ -3497,7 +3662,7 @@ _locationCtrl.removeListener(_onLocationChanged);
 _locationCtrl.addListener(_onLocationChanged);
 }
 
-void _onLocationChanged() async {
+void _onLocationChanged() {
 // Only trigger search if the field has focus (user is actively typing)
 if (!_locationFocusNode.hasFocus) {
 return;
@@ -3505,10 +3670,23 @@ return;
 
 final text = _locationCtrl.text.trim();
 if (text.length < 3) {
-setState(() => _locationSuggestions = null);
+setState(() {
+_locationSuggestions = null;
+_searchingLocation = false;
+});
+// Cancel any pending search
+_locationDebounceTimer?.cancel();
 return;
 }
+
+// Cancel previous timer
+_locationDebounceTimer?.cancel();
+
+// Show loading indicator immediately
 setState(() => _searchingLocation = true);
+
+// Set new debounce timer (500ms delay)
+_locationDebounceTimer = Timer(const Duration(milliseconds: 500), () async {
 try {
 final svc = MapboxService();
 final res = await svc.searchPlaces(text);
@@ -3519,6 +3697,7 @@ debugPrint('searchPlaces error: $e');
 } finally {
 if (mounted) setState(() => _searchingLocation = false);
 }
+});
 }
 
 String _formatDuration(int seconds) {
@@ -3585,6 +3764,74 @@ vf.routeByDay[dayNum] = updatedRoute;
 ScaffoldMessenger.of(context).showSnackBar(
 SnackBar(
 content: Text('${getWaypointLabel(type)} added successfully'),
+backgroundColor: Colors.green,
+),
+);
+}
+}
+
+/// Add a waypoint to a specific time slot category
+Future<void> _addWaypointToCategory(int dayNum, WaypointType type, TimeSlotCategory category, _VersionFormData vf) async {
+// Check if route exists
+final existingRoute = vf.routeByDay[dayNum];
+if (existingRoute == null) {
+ScaffoldMessenger.of(context).showSnackBar(
+const SnackBar(
+content: Text('Please create a route first before adding waypoints'),
+backgroundColor: Colors.orange,
+),
+);
+return;
+}
+
+// Get proximity bias from route
+ll.LatLng? proximityBias;
+if (existingRoute.routePoints.isNotEmpty) {
+final midIndex = existingRoute.routePoints.length ~/ 2;
+final midPoint = existingRoute.routePoints[midIndex];
+proximityBias = ll.LatLng(midPoint['lat']! as double, midPoint['lng']! as double);
+}
+
+// Open add waypoint dialog with Google Places search
+final waypoint = await showDialog<RouteWaypoint>(
+context: context,
+builder: (context) => _AddWaypointFromItineraryDialog(
+type: type,
+proximityBias: proximityBias,
+),
+);
+
+if (waypoint != null && mounted) {
+// Set the category for the new waypoint
+final waypointWithCategory = waypoint.copyWith(timeSlotCategory: category);
+
+// Add waypoint to route
+final updatedWaypoints = [
+...existingRoute.poiWaypoints.map((json) => RouteWaypoint.fromJson(json)),
+waypointWithCategory,
+];
+
+// Update route with new waypoint
+final updatedRoute = DayRoute(
+geometry: existingRoute.geometry,
+distance: existingRoute.distance,
+duration: existingRoute.duration,
+routePoints: existingRoute.routePoints,
+elevationProfile: existingRoute.elevationProfile,
+ascent: existingRoute.ascent,
+descent: existingRoute.descent,
+poiWaypoints: updatedWaypoints.map((w) => w.toJson()).toList(),
+);
+
+setState(() {
+vf.routeByDay[dayNum] = updatedRoute;
+});
+
+Log.i('builder', 'Added ${getWaypointLabel(type)} to ${getTimeSlotLabel(category)} category');
+
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
+content: Text('${getWaypointLabel(type)} added to ${getTimeSlotLabel(category)}'),
 backgroundColor: Colors.green,
 ),
 );
@@ -3701,6 +3948,99 @@ child: const Text('Delete'),
 );
 }
 
+/// Update the suggested time for a waypoint
+void _updateWaypointTime(int dayNum, RouteWaypoint waypoint, String? newTime, _VersionFormData vf) {
+final existingRoute = vf.routeByDay[dayNum];
+if (existingRoute == null) return;
+
+final waypoints = existingRoute.poiWaypoints
+.map((json) => RouteWaypoint.fromJson(json))
+.toList();
+
+// Find and update the waypoint
+final index = waypoints.indexWhere((w) => w.id == waypoint.id);
+if (index < 0) return;
+
+waypoints[index] = waypoints[index].copyWith(suggestedStartTime: newTime);
+
+// Update route
+final updatedRoute = DayRoute(
+geometry: existingRoute.geometry,
+distance: existingRoute.distance,
+duration: existingRoute.duration,
+routePoints: existingRoute.routePoints,
+elevationProfile: existingRoute.elevationProfile,
+ascent: existingRoute.ascent,
+descent: existingRoute.descent,
+poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
+);
+
+setState(() {
+vf.routeByDay[dayNum] = updatedRoute;
+});
+
+Log.i('builder', 'Updated waypoint time: ${waypoint.name} to $newTime');
+}
+
+/// Reorder waypoints within a category
+void _reorderWaypointsInCategory(int dayNum, TimeSlotCategory category, int oldIndex, int newIndex, _VersionFormData vf) {
+final existingRoute = vf.routeByDay[dayNum];
+if (existingRoute == null) return;
+
+// Get all waypoints
+final allWaypoints = existingRoute.poiWaypoints
+.map((json) => RouteWaypoint.fromJson(json))
+.toList();
+
+// Get waypoints in this category
+final categoryWaypoints = allWaypoints
+.where((wp) => wp.timeSlotCategory == category)
+.toList();
+
+if (oldIndex >= categoryWaypoints.length || newIndex > categoryWaypoints.length) return;
+
+// Adjust newIndex for ReorderableListView behavior
+int adjustedNewIndex = newIndex;
+if (newIndex > oldIndex) {
+adjustedNewIndex -= 1;
+}
+
+// Reorder within category
+final item = categoryWaypoints.removeAt(oldIndex);
+categoryWaypoints.insert(adjustedNewIndex, item);
+
+// Merge back into all waypoints, maintaining category order
+final otherWaypoints = allWaypoints
+.where((wp) => wp.timeSlotCategory != category)
+.toList();
+
+// Combine and sort by time slot order
+final updatedWaypoints = [...otherWaypoints, ...categoryWaypoints];
+updatedWaypoints.sort((a, b) {
+final aOrder = a.timeSlotCategory != null ? getTimeSlotOrder(a.timeSlotCategory!) : 999;
+final bOrder = b.timeSlotCategory != null ? getTimeSlotOrder(b.timeSlotCategory!) : 999;
+return aOrder.compareTo(bOrder);
+});
+
+// Update route
+final updatedRoute = DayRoute(
+geometry: existingRoute.geometry,
+distance: existingRoute.distance,
+duration: existingRoute.duration,
+routePoints: existingRoute.routePoints,
+elevationProfile: existingRoute.elevationProfile,
+ascent: existingRoute.ascent,
+descent: existingRoute.descent,
+poiWaypoints: updatedWaypoints.map((w) => w.toJson()).toList(),
+);
+
+setState(() {
+vf.routeByDay[dayNum] = updatedRoute;
+});
+
+Log.i('builder', 'Reordered waypoints in ${getTimeSlotLabel(category)}');
+}
+
 /// Show dialog to select waypoint type before adding
 void _showWaypointTypeDialog(BuildContext context, int dayNum, _VersionFormData vf) {
 showDialog(
@@ -3762,7 +4102,7 @@ child: const Text('Cancel'),
 );
 }
 
-/// Build draggable list of all waypoints for a day
+/// Build timeline layout with categories for all waypoints
 Widget _buildAllWaypointsList(int dayNum, _VersionFormData vf) {
 final existingRoute = vf.routeByDay[dayNum];
 Log.i('builder', 'Building waypoints list for day $dayNum. Route exists: ${existingRoute != null}');
@@ -3789,124 +4129,117 @@ style: TextStyle(color: Colors.grey.shade600),
 );
 }
 
-// Get all waypoints
+// Get all waypoints and auto-assign categories if missing
 final waypoints = existingRoute.poiWaypoints
-.map((json) => RouteWaypoint.fromJson(json))
+.map((json) {
+  final wp = RouteWaypoint.fromJson(json);
+  // Auto-assign time slot category if not set (for existing waypoints)
+  if (wp.timeSlotCategory == null) {
+    final autoCategory = autoAssignTimeSlotCategory(wp);
+    return wp.copyWith(timeSlotCategory: autoCategory);
+  }
+  return wp;
+})
 .toList();
 
-if (waypoints.isEmpty) {
-return Container(
-padding: const EdgeInsets.all(16),
-decoration: BoxDecoration(
-color: Colors.grey.shade100,
-borderRadius: BorderRadius.circular(8),
-),
-child: Row(
-children: [
-Icon(Icons.place, color: Colors.grey.shade600),
-const SizedBox(width: 8),
-Text(
-'No waypoints added',
-style: TextStyle(color: Colors.grey.shade600),
-),
-],
-),
-);
+// If any categories were auto-assigned, save them back to the route
+bool needsUpdate = false;
+for (int i = 0; i < waypoints.length; i++) {
+  if (existingRoute.poiWaypoints[i]['timeSlotCategory'] == null && 
+      waypoints[i].timeSlotCategory != null) {
+    needsUpdate = true;
+    break;
+  }
+}
+if (needsUpdate) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) {
+      setState(() {
+        vf.routeByDay[dayNum] = DayRoute(
+          geometry: existingRoute.geometry,
+          distance: existingRoute.distance,
+          duration: existingRoute.duration,
+          routePoints: existingRoute.routePoints,
+          elevationProfile: existingRoute.elevationProfile,
+          ascent: existingRoute.ascent,
+          descent: existingRoute.descent,
+          poiWaypoints: waypoints.map((wp) => wp.toJson()).toList(),
+        );
+      });
+    }
+  });
 }
 
-return ReorderableListView.builder(
-shrinkWrap: true,
-physics: const NeverScrollableScrollPhysics(),
-itemCount: waypoints.length,
-onReorder: (oldIndex, newIndex) {
-setState(() {
-if (newIndex > oldIndex) {
-newIndex -= 1;
-}
-final waypoint = waypoints.removeAt(oldIndex);
-waypoints.insert(newIndex, waypoint);
-// Update the route with the new order by creating a new DayRoute
-final updatedRoute = DayRoute(
-geometry: existingRoute.geometry,
-distance: existingRoute.distance,
-duration: existingRoute.duration,
-routePoints: existingRoute.routePoints,
-elevationProfile: existingRoute.elevationProfile,
-ascent: existingRoute.ascent,
-descent: existingRoute.descent,
-poiWaypoints: waypoints.map((wp) => wp.toJson()).toList(),
-);
-vf.routeByDay[dayNum] = updatedRoute;
-});
-},
-itemBuilder: (context, index) {
-final wp = waypoints[index];
-return UnifiedWaypointCard(
-key: ValueKey(wp.id),
-waypoint: wp,
-showActions: true,
-onEdit: () => _editWaypointFromItinerary(dayNum, index, vf),
-onDelete: () => _deleteWaypointFromItinerary(dayNum, index, vf),
-);
-},
-);
+Log.i('builder', 'Total waypoints for day $dayNum: ${waypoints.length}');
+
+// Group waypoints by time slot category
+final Map<TimeSlotCategory, List<RouteWaypoint>> waypointsByCategory = {};
+for (final category in TimeSlotCategory.values) {
+  waypointsByCategory[category] = waypoints
+      .where((wp) => wp.timeSlotCategory == category)
+      .toList();
 }
 
-/// Build list of waypoints for a specific type (for displaying in sections)
-Widget _buildWaypointsListForType(int dayNum, WaypointType type, _VersionFormData vf) {
-final existingRoute = vf.routeByDay[dayNum];
-if (existingRoute == null) {
-return Container(
-padding: const EdgeInsets.all(16),
-decoration: BoxDecoration(
-color: Colors.grey.shade100,
-borderRadius: BorderRadius.circular(8),
-),
-child: Row(
-children: [
-Icon(getWaypointIcon(type), color: Colors.grey.shade600),
-const SizedBox(width: 8),
-Text(
-'Create a route first to add ${getWaypointLabel(type).toLowerCase()}s',
-style: TextStyle(color: Colors.grey.shade600),
-),
-],
-),
-);
-}
-
-// Filter waypoints by type
-final waypoints = existingRoute.poiWaypoints
-.map((json) => RouteWaypoint.fromJson(json))
-.where((wp) => wp.type == type)
-.toList();
-
-if (waypoints.isEmpty) {
-return Container(
-padding: const EdgeInsets.all(16),
-decoration: BoxDecoration(
-color: Colors.grey.shade100,
-borderRadius: BorderRadius.circular(8),
-),
-child: Row(
-children: [
-Icon(getWaypointIcon(type), color: Colors.grey.shade600),
-const SizedBox(width: 8),
-Text(
-'No ${getWaypointLabel(type).toLowerCase()}s added',
-style: TextStyle(color: Colors.grey.shade600),
-),
-],
-),
-);
-}
-
+// Build timeline sections for each category - only show sections with waypoints
 return Column(
-children: waypoints.map((wp) => UnifiedWaypointCard(
-waypoint: wp,
-showActions: false,
-isViewOnly: true,
-)).toList(),
+  children: TimeSlotCategory.values.where((category) {
+    final categoryWaypoints = waypointsByCategory[category] ?? [];
+    return categoryWaypoints.isNotEmpty;
+  }).map((category) {
+    final categoryWaypoints = waypointsByCategory[category] ?? [];
+    Log.i('builder', 'Day $dayNum - ${getTimeSlotLabel(category)}: ${categoryWaypoints.length} waypoints');
+    
+    return DayTimelineSection(
+      category: category,
+      waypoints: categoryWaypoints,
+      isExpanded: true,
+      onAddWaypoint: () {
+        // Determine what type to add based on category
+        WaypointType type;
+        switch (category) {
+          case TimeSlotCategory.breakfast:
+          case TimeSlotCategory.lunch:
+          case TimeSlotCategory.dinner:
+            type = WaypointType.restaurant;
+            break;
+          case TimeSlotCategory.accommodation:
+            type = WaypointType.accommodation;
+            break;
+          case TimeSlotCategory.morningActivity:
+          case TimeSlotCategory.allDayActivity:
+          case TimeSlotCategory.afternoonActivity:
+          case TimeSlotCategory.eveningActivity:
+            type = WaypointType.activity;
+            break;
+          case TimeSlotCategory.servicePoint:
+            type = WaypointType.servicePoint;
+            break;
+          case TimeSlotCategory.viewingPoint:
+            type = WaypointType.viewingPoint;
+            break;
+        }
+        _addWaypointToCategory(dayNum, type, category, vf);
+      },
+      onEditWaypoint: (waypoint) {
+        final index = waypoints.indexOf(waypoint);
+        if (index >= 0) {
+          _editWaypointFromItinerary(dayNum, index, vf);
+        }
+      },
+      onDeleteWaypoint: (waypoint) {
+        final index = waypoints.indexOf(waypoint);
+        if (index >= 0) {
+          _deleteWaypointFromItinerary(dayNum, index, vf);
+        }
+      },
+      onTimeChange: (waypoint, newTime) {
+        _updateWaypointTime(dayNum, waypoint, newTime, vf);
+      },
+      onReorder: (oldIndex, newIndex) {
+        _reorderWaypointsInCategory(dayNum, category, oldIndex, newIndex, vf);
+      },
+    );
+  }).toList(),
 );
 }
 

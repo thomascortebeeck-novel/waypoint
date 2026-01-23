@@ -135,16 +135,18 @@ class MapboxService {
   Future<Map<String, dynamic>?> matchRoute({
     required List<ll.LatLng> points,
     bool snapToTrail = true,
+    String profile = 'walking',
   }) async {
     if (points.length < 2) return null;
     try {
       final sw = Stopwatch()..start();
       final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
       final callable = functions.httpsCallable('matchRoute');
-      Log.i('mapbox.cf', 'Calling matchRoute with ${points.length} points');
+      Log.i('mapbox.cf', 'Calling matchRoute with ${points.length} points, profile=$profile');
       final resp = await callable.call({
         'points': points.map((w) => {'lat': w.latitude, 'lng': w.longitude}).toList(),
         'snapToTrail': snapToTrail,
+        'profile': profile,
       });
       final data = Map<String, dynamic>.from(resp.data as Map);
       if (data['geometry'] == null) return null;

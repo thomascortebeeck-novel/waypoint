@@ -65,8 +65,9 @@ class ItineraryImageService {
       final thumbUrl = await _storage.uploadImage(path: '$basePath/cover_256x192.jpg', bytes: thumbJpg, contentType: 'image/jpeg');
 
       return ItineraryImages(original: originalUrl, large: largeUrl, medium: mediumUrl, thumbnail: thumbUrl);
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('Failed to upload itinerary images: $e');
+      debugPrint('Stack trace: $stack');
       rethrow;
     }
   }
