@@ -617,7 +617,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
       return;
     }
     setState(() => _searching = true);
-    _searchDebounce = Timer(const Duration(milliseconds: 500), () => _performSearch(query));
+    _searchDebounce = Timer(const Duration(milliseconds: 800), () => _performSearch(query));
   }
 
   Future<void> _performSearch(String query) async {
@@ -2552,9 +2552,9 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     
     // Check if user pasted a Google Maps link
     if (GoogleLinkParser.isGoogleMapsUrl(query)) {
-      // ✅ ADD DEBOUNCE: Wait 300ms before processing
+      // ✅ ADD DEBOUNCE: Wait 500ms before processing
       _searchDebounce?.cancel();
-      _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _searchDebounce = Timer(const Duration(milliseconds: 500), () {
         if (mounted && _searchController.text.trim() == query) {
           _handleGoogleLink(query);
         }
@@ -2571,7 +2571,7 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     }
     
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 800), () {
       _performSearch(query);
     });
   }

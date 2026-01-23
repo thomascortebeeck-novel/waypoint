@@ -18,6 +18,7 @@ import 'package:waypoint/presentation/widgets/like_button.dart';
 import 'package:waypoint/presentation/widgets/sign_in_bottom_sheet.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
+import 'package:waypoint/utils/route_calculations.dart';
 import 'package:waypoint/services/favorite_service.dart';
 import 'package:waypoint/services/order_service.dart';
 import 'package:waypoint/services/plan_service.dart';
@@ -3434,7 +3435,7 @@ children: [
 Icon(Icons.straighten, color: context.colors.primary),
 const SizedBox(height: 4),
 Text(
-'${(widget.day.route!.distance / 1000).toStringAsFixed(1)} km',
+'${RouteCalculations.formatDayDistanceKm(widget.day)} km',
 style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.bold),
 ),
 Text('Distance', style: context.textStyles.bodySmall?.copyWith(color: Colors.grey)),
@@ -3445,7 +3446,7 @@ children: [
 Icon(Icons.access_time, color: context.colors.primary),
 const SizedBox(height: 4),
 Text(
-'${(widget.day.estimatedTimeMinutes / 60).toStringAsFixed(1)}h',
+RouteCalculations.formatDayDuration(widget.day),
 style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.bold),
 ),
 Text('Hiking time', style: context.textStyles.bodySmall?.copyWith(color: Colors.grey)),

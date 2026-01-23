@@ -5324,7 +5324,7 @@ final query = _searchController.text.trim();
 if (GoogleLinkParser.isGoogleMapsUrl(query)) {
 // ✅ ADD DEBOUNCE: Wait 300ms before processing
 _searchDebounce?.cancel();
-_searchDebounce = Timer(const Duration(milliseconds: 300), () {
+_searchDebounce = Timer(const Duration(milliseconds: 500), () {
 if (mounted && _searchController.text.trim() == query) {
 _handleGoogleLink(query);
 }
@@ -5341,7 +5341,7 @@ return;
 }
 
 _searchDebounce?.cancel();
-_searchDebounce = Timer(const Duration(milliseconds: 500), () {
+_searchDebounce = Timer(const Duration(milliseconds: 800), () {
 _performSearch(query);
 });
 }

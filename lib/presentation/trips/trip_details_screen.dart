@@ -21,6 +21,7 @@ import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
+import 'package:waypoint/utils/route_calculations.dart';
 
 enum DayViewTab { summary, map, waypoints }
 
@@ -586,7 +587,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                         const SizedBox(height: 14),
                         // Version badge (bottom-left like plan page)
                         _buildVersionBadge(),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 48),
                       ],
                     ),
                   ),
@@ -1814,11 +1815,11 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                               children: [
                                 Icon(Icons.straighten, size: 14, color: _textSecondary),
                                 const SizedBox(width: 4),
-                                Text('${((day.route?.distance ?? 0) / 1000).toStringAsFixed(1)} km', style: TextStyle(fontSize: 13, color: _textSecondary)),
+                                Text('${RouteCalculations.formatDayDistanceKm(day)} km', style: TextStyle(fontSize: 13, color: _textSecondary)),
                                 const SizedBox(width: 12),
                                 Icon(Icons.schedule, size: 14, color: _textSecondary),
                                 const SizedBox(width: 4),
-                                Text('${_formatDuration(((day.route?.duration ?? 0) / 60).round())}', style: TextStyle(fontSize: 13, color: _textSecondary)),
+                                Text(RouteCalculations.formatDayDuration(day), style: TextStyle(fontSize: 13, color: _textSecondary)),
                               ],
                             ),
                           ],
@@ -3257,7 +3258,7 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
                   Icon(Icons.straighten, color: widget.primary),
                   const SizedBox(height: 4),
                   Text(
-                    '${(widget.day.route!.distance / 1000).toStringAsFixed(1)} km',
+                    '${RouteCalculations.formatDayDistanceKm(widget.day)} km',
                     style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   Text('Distance', style: context.textStyles.bodySmall?.copyWith(color: Colors.grey)),
@@ -3268,7 +3269,7 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
                   Icon(Icons.access_time, color: widget.primary),
                   const SizedBox(height: 4),
                   Text(
-                    '${(widget.day.estimatedTimeMinutes / 60).toStringAsFixed(1)}h',
+                    RouteCalculations.formatDayDuration(widget.day),
                     style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   Text('Hiking time', style: context.textStyles.bodySmall?.copyWith(color: Colors.grey)),
