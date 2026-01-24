@@ -16,16 +16,18 @@ function getGooglePlacesKey(): string {
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 const GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 
-// Rate limiting: Balanced for real-world usage with client-side debouncing
+// Rate limiting: TEMPORARILY RELAXED until Flutter debouncing optimization is complete
+// TODO: Restore to {max: 100, windowMs: 5 * 60 * 1000} once Flutter side is optimized
 const RATE_LIMITS = {
-  search: {max: 100, windowMs: 5 * 60 * 1000}, // 100 per 5 minutes
-  details: {max: 60, windowMs: 5 * 60 * 1000}, // 60 per 5 minutes
-  photo: {max: 100, windowMs: 5 * 60 * 1000}, // 100 per 5 minutes
-  geocode: {max: 30, windowMs: 5 * 60 * 1000}, // 30 per 5 minutes
+  search: {max: 200, windowMs: 5 * 60 * 1000}, // 200 per 5 minutes (TEMPORARY)
+  details: {max: 100, windowMs: 5 * 60 * 1000}, // 100 per 5 minutes (TEMPORARY)
+  photo: {max: 150, windowMs: 5 * 60 * 1000}, // 150 per 5 minutes (TEMPORARY)
+  geocode: {max: 50, windowMs: 5 * 60 * 1000}, // 50 per 5 minutes (TEMPORARY)
 };
 
-// Burst protection: Allow reasonable typing speed (15 requests per 10 seconds)
-const BURST_LIMIT = 15;
+// Burst protection: TEMPORARILY DISABLED until Flutter debouncing is optimized
+// TODO: Restore to 15 once Flutter side is optimized
+const BURST_LIMIT = 50; // Relaxed (was 15)
 const BURST_WINDOW = 10000; // 10 seconds
 
 // Server-side cache (consider Redis/Memorystore for production)
