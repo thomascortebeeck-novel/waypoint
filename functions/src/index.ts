@@ -14,32 +14,111 @@ export const fetchMeta = onCall({region: "us-central1"}, async (request) => {
     const urlRaw = (request.data && (request.data as any).url) ?? "";
     const url = String(urlRaw).trim();
     if (!url) {
+      console.log("[fetchMeta] No URL provided");
       return {title: null, description: null, image: null, siteName: null};
     }
+
+    console.log("[fetchMeta] Fetching:", url);
 
     const res = await fetch(url, {
       redirect: "follow",
       headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        "pragma": "no-cache",
       },
     });
 
+    console.log("[fetchMeta] Response status:", res.status);
+    
     const html = await res.text();
+    console.log("[fetchMeta] HTML length:", html.length);
 
-    const pick = (re: RegExp) => (html.match(re)?.[1] || "").trim() || null;
-    const get = (name: string) =>
-      pick(new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)["']`, "i")) ||
-      pick(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${name}["']`, "i"));
+    // Decode common HTML entities
+    const decodeEntities = (str: string | null): string | null => {
+      if (!str) return null;
+      return str
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .trim();
+    };
 
-    const title = get("og:title") || get("twitter:title") || pick(/<title[^>]*>(.*?)<\/title>/is);
-    const description = get("og:description") || get("twitter:description") || get("description");
-    const image = get("og:image") || get("twitter:image");
-    const siteName = get("og:site_name");
+    // Extract all meta tags for parsing
+    const metaTagRegex = /<meta\s+([^>]*)>/gi;
+    const metaTags: Map<string, string> = new Map();
+    
+    let match;
+    while ((match = metaTagRegex.exec(html)) !== null) {
+      const attrs = match[1];
+      
+      // Extract property or name attribute
+      const propMatch = attrs.match(/(?:property|name)\s*=\s*["']([^"']+)["']/i);
+      const contentMatch = attrs.match(/content\s*=\s*["']([^"']*)["']/i);
+      
+      if (propMatch && contentMatch) {
+        const key = propMatch[1].toLowerCase();
+        const value = contentMatch[1];
+        if (value && !metaTags.has(key)) {
+          metaTags.set(key, value);
+        }
+      }
+    }
+
+    console.log("[fetchMeta] Found meta tags:", Array.from(metaTags.keys()).join(", "));
+
+    // Extract <title> tag as fallback
+    const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+    const pageTitle = titleMatch ? titleMatch[1].trim() : null;
+
+    // Build result with priority order
+    const title = decodeEntities(
+      metaTags.get("og:title") || 
+      metaTags.get("twitter:title") || 
+      pageTitle
+    );
+    
+    const description = decodeEntities(
+      metaTags.get("og:description") || 
+      metaTags.get("twitter:description") || 
+      metaTags.get("description")
+    );
+    
+    let image = metaTags.get("og:image") || metaTags.get("twitter:image") || null;
+    
+    // Handle relative image URLs
+    if (image && !image.startsWith("http")) {
+      try {
+        const urlObj = new URL(url);
+        if (image.startsWith("//")) {
+          image = urlObj.protocol + image;
+        } else if (image.startsWith("/")) {
+          image = urlObj.origin + image;
+        } else {
+          image = urlObj.origin + "/" + image;
+        }
+      } catch {
+        // Keep as is if URL parsing fails
+      }
+    }
+    
+    const siteName = decodeEntities(
+      metaTags.get("og:site_name") || 
+      metaTags.get("application-name")
+    );
+
+    console.log("[fetchMeta] Extracted - title:", title, "desc:", description?.substring(0, 50), "image:", image);
 
     return {title, description, image, siteName};
   } catch (e) {
-    console.error("fetchMeta failed", e);
+    console.error("[fetchMeta] Error:", e);
     return {title: null, description: null, image: null, siteName: null};
   }
 });

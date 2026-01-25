@@ -2535,6 +2535,7 @@ bool _airbnbAddressConfirmed = false;
 Timer? _searchDebounce;
 String _lastSearchedQuery = ''; // Track last successful search to prevent duplicates
 Map<String, dynamic>? _extractedMetadata; // Stores extracted URL metadata
+bool _hasSearchedOrExtracted = false; // Track if user has searched or extracted
 
 @override
 void initState() {
@@ -2566,23 +2567,55 @@ return;
 setState(() => _extractingMetadata = true);
 
 try {
+Log.i('waypoint_dialog', 'Calling fetchMeta for URL: $url');
 final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
 final callable = functions.httpsCallable('fetchMeta');
 final result = await callable.call<Map<String, dynamic>>({'url': url});
 final data = result.data as Map<String, dynamic>?;
 
+Log.i('waypoint_dialog', 'fetchMeta response received: $data');
+
 if (data != null && mounted) {
+// Store the metadata including the original URL
+final metadataWithUrl = Map<String, dynamic>.from(data);
+metadataWithUrl['url'] = url; // Store the original URL
+  
+// Extract values first
+final title = data['title']?.toString() ?? '';
+final description = data['description']?.toString() ?? '';
+final image = data['image']?.toString() ?? '';
+final siteName = data['siteName']?.toString() ?? '';
+
+Log.i('waypoint_dialog', 'Extracted - title: "$title", description: "$description", image: "$image", siteName: "$siteName"');
+
+// Always set _hasSearchedOrExtracted to true and store metadata
 setState(() {
-_extractedMetadata = data;
-// Populate the fields with extracted data
-if (data['title'] != null && data['title'].toString().isNotEmpty) {
-_nameController.text = data['title'];
-}
-if (data['description'] != null && data['description'].toString().isNotEmpty) {
-_descController.text = data['description'];
-}
+_extractedMetadata = metadataWithUrl;
+_hasSearchedOrExtracted = true;
 });
 
+// Update controllers AFTER setState to trigger rebuild
+if (title.isNotEmpty) {
+_nameController.text = title;
+Log.i('waypoint_dialog', 'Name field updated with: $title');
+}
+if (description.isNotEmpty) {
+_descController.text = description;
+Log.i('waypoint_dialog', 'Description field updated with: $description');
+}
+
+if (title.isEmpty && description.isEmpty && image.isEmpty) {
+if (mounted) {
+ScaffoldMessenger.of(context).showSnackBar(
+const SnackBar(
+content: Text('⚠ No metadata found for this URL'),
+backgroundColor: Colors.orange,
+duration: Duration(seconds: 3),
+),
+);
+}
+} else {
+if (mounted) {
 ScaffoldMessenger.of(context).showSnackBar(
 const SnackBar(
 content: Text('✓ Metadata extracted successfully'),
@@ -2590,6 +2623,19 @@ backgroundColor: Colors.green,
 duration: Duration(seconds: 2),
 ),
 );
+}
+}
+} else {
+Log.w('waypoint_dialog', 'fetchMeta returned null data');
+if (mounted) {
+ScaffoldMessenger.of(context).showSnackBar(
+const SnackBar(
+content: Text('No metadata could be extracted'),
+backgroundColor: Colors.orange,
+duration: Duration(seconds: 3),
+),
+);
+}
 }
 } catch (e) {
 Log.e('waypoint_dialog', 'Failed to extract metadata', e);
@@ -2686,12 +2732,13 @@ final details = await _placesService.getPlaceDetails(placeId);
 
 if (details != null && mounted) {
 ScaffoldMessenger.of(context).clearSnackBars(); // Clear loading message
-setState(() {
-_selectedPlace = details;
 _nameController.text = details.name;
 _descController.text = details.address ?? '';
 _searchController.text = details.name;
+setState(() {
+_selectedPlace = details;
 _searching = false;
+_hasSearchedOrExtracted = true;
 });
 
 ScaffoldMessenger.of(context).showSnackBar(
@@ -2797,12 +2844,13 @@ Future<void> _selectPlace(PlacePrediction prediction) async {
 final details = await _placesService.getPlaceDetails(prediction.placeId);
 
 if (details != null && mounted) {
-setState(() {
-_selectedPlace = details;
 _nameController.text = details.name;
 _descController.text = details.address ?? '';
 _searchController.text = details.name;
+setState(() {
+_selectedPlace = details;
 _searchResults = [];
+_hasSearchedOrExtracted = true;
 });
 }
 }
@@ -3123,10 +3171,18 @@ style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
 ),
 IconButton(
 icon: const Icon(Icons.close, size: 18),
-onPressed: () => setState(() {
-_selectedPlace = null;
+onPressed: () {
 _searchController.clear();
-}),
+_nameController.clear();
+_descController.clear();
+setState(() {
+_selectedPlace = null;
+// Only reset if no metadata is extracted either
+if (_extractedMetadata == null) {
+_hasSearchedOrExtracted = false;
+}
+});
+},
 ),
 ],
 ),
@@ -3241,12 +3297,18 @@ style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
 ),
 IconButton(
 icon: const Icon(Icons.close, size: 18),
-onPressed: () => setState(() {
-_extractedMetadata = null;
+onPressed: () {
 _urlController.clear();
 _nameController.clear();
 _descController.clear();
-}),
+setState(() {
+_extractedMetadata = null;
+// Only reset if no place is selected either
+if (_selectedPlace == null) {
+_hasSearchedOrExtracted = false;
+}
+});
+},
 ),
 ],
 ),
@@ -3386,6 +3448,8 @@ onTap: () => setState(() => _activityTime = time),
 )).toList(),
 ),
 ],
+// Only show waypoint details fields after search or extraction
+if (_hasSearchedOrExtracted) ...[
 const SizedBox(height: 20),
 Container(height: 1, color: Colors.grey.shade100, margin: const EdgeInsets.only(bottom: 20)),
 _ModernTextField(
@@ -3404,6 +3468,88 @@ hintText: 'Add notes, tips, or details...',
 prefixIcon: Icons.notes_rounded,
 maxLines: 3,
 ),
+// Show Image preview if available from extraction
+if (_extractedMetadata != null && _extractedMetadata!['image'] != null && _extractedMetadata!['image'].toString().isNotEmpty) ...[
+const SizedBox(height: 16),
+Row(
+children: [
+Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+const SizedBox(width: 8),
+Text('Image', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+],
+),
+const SizedBox(height: 8),
+Container(
+height: 120,
+width: double.infinity,
+decoration: BoxDecoration(
+borderRadius: BorderRadius.circular(12),
+border: Border.all(color: Colors.grey.shade200),
+),
+child: ClipRRect(
+borderRadius: BorderRadius.circular(12),
+child: Image.network(
+_extractedMetadata!['image'],
+fit: BoxFit.cover,
+errorBuilder: (_, __, ___) => Container(
+color: Colors.grey.shade100,
+child: Center(
+child: Column(
+mainAxisSize: MainAxisSize.min,
+children: [
+Icon(Icons.broken_image_outlined, size: 32, color: Colors.grey.shade400),
+const SizedBox(height: 4),
+Text('Image unavailable', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+],
+),
+),
+),
+loadingBuilder: (context, child, loadingProgress) {
+if (loadingProgress == null) return child;
+return Container(
+color: Colors.grey.shade100,
+child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+);
+},
+),
+),
+),
+],
+// Show URL if available from extraction
+if (_extractedMetadata != null && _extractedMetadata!['url'] != null && _extractedMetadata!['url'].toString().isNotEmpty) ...[
+const SizedBox(height: 16),
+Row(
+children: [
+Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+const SizedBox(width: 8),
+Text('URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+],
+),
+const SizedBox(height: 8),
+Container(
+padding: const EdgeInsets.all(12),
+decoration: BoxDecoration(
+color: Colors.grey.shade50,
+borderRadius: BorderRadius.circular(12),
+border: Border.all(color: Colors.grey.shade200),
+),
+child: Row(
+children: [
+Icon(Icons.link_rounded, size: 18, color: Colors.grey.shade500),
+const SizedBox(width: 10),
+Expanded(
+child: Text(
+_extractedMetadata!['url'],
+style: TextStyle(fontSize: 13, color: Colors.blue.shade700),
+maxLines: 2,
+overflow: TextOverflow.ellipsis,
+),
+),
+],
+),
+),
+],
+],
 ],
 ),
 ),
@@ -3436,6 +3582,32 @@ child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
 children: [
 Text('Place selected', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
+],
+),
+),
+],
+),
+)
+else if (_extractedMetadata != null && widget.proximityBias != null)
+Expanded(
+child: Row(
+children: [
+Container(
+width: 36,
+height: 36,
+decoration: BoxDecoration(
+color: const Color(0xFFE8F5E9),
+borderRadius: BorderRadius.circular(10),
+),
+child: const Icon(Icons.link_rounded, size: 18, color: Color(0xFF428A13)),
+),
+const SizedBox(width: 10),
+const Flexible(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text('URL metadata extracted', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
 Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
 ],
 ),
@@ -3540,10 +3712,15 @@ return widget.proximityBias != null; // Must have a location set
 if (_selectedType == WaypointType.accommodation && _accommodationType == null) return false;
 if (_accommodationType == POIAccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
 
-// Allow saving if either place is selected OR metadata is extracted (except for non-airbnb accommodations)
+// Allow saving if:
+// 1. Place is selected from Google (has location)
+// 2. Metadata is extracted AND we have a proximity bias (map location)
+// 3. Airbnb with confirmed address
 final hasPlace = _selectedPlace != null;
-final hasMetadata = _extractedMetadata != null;
-if (_accommodationType != POIAccommodationType.airbnb && !hasPlace) return false;
+final hasMetadataWithLocation = _extractedMetadata != null && widget.proximityBias != null;
+final hasAirbnbLocation = _accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed;
+
+if (!hasPlace && !hasMetadataWithLocation && !hasAirbnbLocation) return false;
 
 return true;
 }
