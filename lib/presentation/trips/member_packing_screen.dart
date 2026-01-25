@@ -240,7 +240,14 @@ class _MemberPackingScreenState extends State<MemberPackingScreen> {
   }
 
   Future<void> _toggleItem(String itemId, bool checked) async {
-    if (_userId == null) return;
+    if (_userId == null || _packing == null) return;
+    
+    // Optimistic update
+    final updatedItems = Map<String, bool>.from(_packing!.items);
+    updatedItems[itemId] = checked;
+    
+    final optimisticPacking = _packing!.copyWith(items: updatedItems);
+    setState(() => _packing = optimisticPacking);
     
     try {
       await _trips.toggleMemberPackingItem(
@@ -250,11 +257,15 @@ class _MemberPackingScreenState extends State<MemberPackingScreen> {
         checked: checked,
       );
 
-      // Refresh packing
+      // Refresh packing to get accurate counts
       final packing = await _trips.getMemberPacking(widget.tripId, _userId!);
-      setState(() => _packing = packing);
+      if (packing != null) {
+        setState(() => _packing = packing);
+      }
     } catch (e) {
       debugPrint('Error toggling item: $e');
+      // Revert optimistic update on error
+      _load();
     }
   }
 }

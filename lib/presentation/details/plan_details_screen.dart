@@ -1918,44 +1918,20 @@ if (selectedVersion == null || selectedVersion!.packingCategories.isEmpty) {
 return const SizedBox.shrink();
 }
 
+// Hide entire section for non-purchasers (like waypoints tab)
+if (!_hasPurchasedOptimistic) {
+return const SizedBox.shrink();
+}
+
 return Padding(
 padding: const EdgeInsets.all(24),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
 children: [
-Row(
-children: [
-Expanded(
-child: Text('What to bring', style: context.textStyles.headlineSmall),
-),
-if (!_hasPurchasedOptimistic)
-Tooltip(
-message: 'Purchase this plan to unlock the packing list',
-child: Icon(
-Icons.lock_outline,
-size: 20,
-color: _textMuted,
-),
-),
-],
-),
-if (_hasPurchasedOptimistic) ...[
-const SizedBox(height: 8),
-Text(
-'Interactive demo - checkboxes are not saved',
-style: context.textStyles.bodySmall?.copyWith(color: Colors.grey),
-),
-],
+Text('What to bring', style: context.textStyles.headlineSmall),
 const SizedBox(height: 16),
-if (_hasPurchasedOptimistic)
 Column(
 children: selectedVersion!.packingCategories.map((category) => _PackingCategoryWidget(category: category)).toList(),
-)
-else
-_buildLockedContentPlaceholder(
-context,
-icon: Icons.backpack,
-message: 'Purchase to unlock packing list',
 ),
 ],
 ),
@@ -2609,7 +2585,11 @@ textAlign: TextAlign.center,
 }
 
 Widget _buildDayMap(BuildContext context, DayItinerary day) {
-if (day.route == null || day.route!.routePoints.isEmpty) {
+// Check if there are any waypoints to display
+final hasWaypoints = day.route?.poiWaypoints.isNotEmpty ?? false;
+final hasRoute = day.route != null && day.route!.routePoints.isNotEmpty;
+
+if (!hasRoute && !hasWaypoints) {
 return Center(
 child: Padding(
 padding: const EdgeInsets.all(24),
@@ -2629,8 +2609,9 @@ style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
 }
 
 // Use geometry coordinates (snapped trail path) if available, otherwise fallback to routePoints
-final geometryCoords = day.route!.geometry['coordinates'] as List?;
-final coordinates = (geometryCoords != null && geometryCoords.isNotEmpty)
+final geometryCoords = day.route?.geometry['coordinates'] as List?;
+final coordinates = hasRoute
+? (geometryCoords != null && geometryCoords.isNotEmpty)
 ? geometryCoords.map((c) {
 if (c is Map) {
 // Firestore-safe format: {lng, lat}
@@ -2643,12 +2624,13 @@ return null;
 }).whereType<LatLng>().toList()
 : day.route!.routePoints
 .map((p) => LatLng(p['lat']!, p['lng']!))
-.toList();
+.toList()
+: <LatLng>[];
 
 // Collect POI waypoint markers from route
 final waypointMarkers = <Marker>[];
 
-for (final poiJson in day.route!.poiWaypoints) {
+for (final poiJson in day.route?.poiWaypoints ?? []) {
 try {
 final poi = RouteWaypoint.fromJson(poiJson);
 waypointMarkers.add(
@@ -2684,17 +2666,75 @@ for (final marker in waypointMarkers) {
 allPoints.add(marker.point);
 }
 
-final bounds = _calculateBounds(allPoints);
-final center = LatLng(
-(bounds.north + bounds.south) / 2,
-(bounds.east + bounds.west) / 2,
+// Safety check: if no points at all, shouldn't happen but just in case
+if (allPoints.isEmpty) {
+return Center(
+child: Padding(
+padding: const EdgeInsets.all(24),
+child: Column(
+mainAxisAlignment: MainAxisAlignment.center,
+children: [
+Icon(Icons.map_outlined, size: 64, color: Colors.grey.shade400),
+const SizedBox(height: 16),
+Text(
+'No map data available',
+style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey),
+),
+],
+),
+),
 );
+}
+
+// Calculate bounds only if we have multiple distinct points
+LatLngBounds? bounds;
+LatLng center = allPoints.first;
+double zoom = 12.0;
+
+if (allPoints.length > 1) {
+  double minLat = allPoints.first.latitude;
+  double maxLat = allPoints.first.latitude;
+  double minLng = allPoints.first.longitude;
+  double maxLng = allPoints.first.longitude;
+  
+  for (final point in allPoints) {
+    if (point.latitude < minLat) minLat = point.latitude;
+    if (point.latitude > maxLat) maxLat = point.latitude;
+    if (point.longitude < minLng) minLng = point.longitude;
+    if (point.longitude > maxLng) maxLng = point.longitude;
+  }
+  
+  center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+  
+  // Only create bounds if there's actual area
+  final latDiff = maxLat - minLat;
+  final lngDiff = maxLng - minLng;
+  final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+  
+  if (maxDiff > 0.0001) {
+    bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+    
+    // Calculate zoom
+    if (maxDiff > 10) zoom = 5;
+    else if (maxDiff > 5) zoom = 6;
+    else if (maxDiff > 2) zoom = 7;
+    else if (maxDiff > 1) zoom = 8;
+    else if (maxDiff > 0.5) zoom = 9;
+    else if (maxDiff > 0.25) zoom = 10;
+    else if (maxDiff > 0.1) zoom = 11;
+    else zoom = 12;
+  } else {
+    // All points are the same, don't use bounds
+    bounds = null;
+    zoom = 14.0;
+  }
+}
 
 return _DayMapWidget(
 coordinates: coordinates,
 waypointMarkers: waypointMarkers,
 initialCenter: center,
-initialZoom: _calculateZoomLevel(bounds),
+initialZoom: zoom,
 bounds: bounds,
 day: day,
 primary: context.colors.primary,
@@ -3249,7 +3289,7 @@ final List<LatLng> coordinates;
 final List<Marker> waypointMarkers;
 final LatLng initialCenter;
 final double initialZoom;
-final LatLngBounds bounds;
+final LatLngBounds? bounds;
 final DayItinerary day;
 final Color primary;
 
@@ -3258,7 +3298,7 @@ required this.coordinates,
 required this.waypointMarkers,
 required this.initialCenter,
 required this.initialZoom,
-required this.bounds,
+this.bounds,
 required this.day,
 required this.primary,
 });
@@ -3287,12 +3327,22 @@ class _DayMapWidgetState extends State<_DayMapWidget> with AutomaticKeepAliveCli
   
   void _fitBounds() {
     if (!_mapReady) return;
-    _mapController.fitCamera(
-      CameraFit.bounds(
-        bounds: widget.bounds,
-        padding: const EdgeInsets.all(50),
-      ),
-    );
+    
+    // Only fit bounds if we have actual bounds (not a single point)
+    if (widget.bounds != null) {
+      try {
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: widget.bounds!,
+            padding: const EdgeInsets.all(50),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Error fitting bounds: $e');
+        // Fallback to just centering
+        _mapController.move(widget.initialCenter, widget.initialZoom);
+      }
+    }
   }
   
   void _zoomIn() {
@@ -3348,6 +3398,7 @@ TileLayer(
 urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
 userAgentPackageName: 'com.waypoint.app',
 ),
+if (widget.coordinates.isNotEmpty)
 PolylineLayer(
 polylines: [
 Polyline(
@@ -3502,7 +3553,6 @@ State<_PackingCategoryWidget> createState() => _PackingCategoryWidgetState();
 
 class _PackingCategoryWidgetState extends State<_PackingCategoryWidget> {
 bool _isExpanded = false;
-final Set<String> _checkedItems = {};
 
 @override
 Widget build(BuildContext context) {
@@ -3553,27 +3603,24 @@ fontWeight: FontWeight.bold,
 ),
 onExpansionChanged: (expanded) => setState(() => _isExpanded = expanded),
 children: widget.category.items.map((item) {
-final isChecked = _checkedItems.contains(item.id);
-return CheckboxListTile(
-value: isChecked,
-onChanged: (checked) {
-setState(() {
-if (checked == true) {
-_checkedItems.add(item.id);
-} else {
-_checkedItems.remove(item.id);
-}
-});
-},
-title: Text(
+return Padding(
+padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+child: Row(
+children: [
+Icon(
+Icons.circle,
+size: 6,
+color: context.colors.onSurfaceVariant,
+),
+const SizedBox(width: 12),
+Expanded(
+child: Text(
 item.name,
-style: context.textStyles.bodyMedium?.copyWith(
-decoration: isChecked ? TextDecoration.lineThrough : null,
-color: isChecked ? Colors.grey : null,
+style: context.textStyles.bodyMedium,
 ),
 ),
-controlAffinity: ListTileControlAffinity.leading,
-contentPadding: EdgeInsets.zero,
+],
+),
 );
 }).toList(),
 ),

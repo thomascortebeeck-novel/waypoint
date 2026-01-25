@@ -2167,7 +2167,11 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   }
 
   Widget _buildDayMap(DayItinerary day, int dayNumber) {
-    if (day.route == null || day.route!.routePoints.isEmpty) {
+    // Check if there are any waypoints to display
+    final hasWaypoints = day.route?.poiWaypoints.isNotEmpty ?? false;
+    final hasRoute = day.route != null && day.route!.routePoints.isNotEmpty;
+
+    if (!hasRoute && !hasWaypoints) {
       return Center(
         child: Text(
           'No route available',
@@ -2179,21 +2183,23 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
     }
 
     // Use geometry coordinates (snapped trail path) if available, otherwise fallback to routePoints
-    final geometryCoords = day.route!.geometry['coordinates'] as List?;
-    final coordinates = (geometryCoords != null && geometryCoords.isNotEmpty)
-        ? geometryCoords.map((c) {
-            if (c is Map) {
-              // Firestore-safe format: {lng, lat}
-              return LatLng((c['lat'] as num).toDouble(), (c['lng'] as num).toDouble());
-            } else if (c is List) {
-              // GeoJSON format: [lng, lat]
-              return LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble());
-            }
-            return null;
-          }).whereType<LatLng>().toList()
-        : day.route!.routePoints
-            .map((p) => LatLng(p['lat']!, p['lng']!))
-            .toList();
+    final geometryCoords = day.route?.geometry['coordinates'] as List?;
+    final coordinates = hasRoute
+        ? (geometryCoords != null && geometryCoords.isNotEmpty)
+            ? geometryCoords.map((c) {
+                if (c is Map) {
+                  // Firestore-safe format: {lng, lat}
+                  return LatLng((c['lat'] as num).toDouble(), (c['lng'] as num).toDouble());
+                } else if (c is List) {
+                  // GeoJSON format: [lng, lat]
+                  return LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble());
+                }
+                return null;
+              }).whereType<LatLng>().toList()
+            : day.route!.routePoints
+                .map((p) => LatLng(p['lat']!, p['lng']!))
+                .toList()
+        : <LatLng>[];
 
     // Get selected waypoints if available
     final selection = _daySelections[dayNumber - 1];
@@ -2208,8 +2214,20 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       allPoints.add(marker.point);
     }
     
+    // Safety check: if no points at all, return empty state
+    if (allPoints.isEmpty) {
+      return Center(
+        child: Text(
+          'No map data available',
+          style: context.textStyles.bodyMedium?.copyWith(
+            color: context.colors.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+    
     // Calculate bounds for fit-to-bounds
-    LatLng center = coordinates.isNotEmpty ? coordinates.first : const LatLng(0, 0);
+    LatLng center = allPoints.first;
     double zoom = 13.0;
     LatLngBounds? bounds;
     
@@ -2227,24 +2245,28 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       }
       
       center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
-      bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
       
-      // Calculate zoom based on bounds
+      // Only create bounds if there's actual area (not all points are the same)
       final latDiff = maxLat - minLat;
       final lngDiff = maxLng - minLng;
       final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
       
-      if (maxDiff > 0.5) zoom = 9.0;
-      else if (maxDiff > 0.2) zoom = 10.0;
-      else if (maxDiff > 0.1) zoom = 11.0;
-      else if (maxDiff > 0.05) zoom = 12.0;
-      else zoom = 13.0;
-    } else if (allPoints.length == 1) {
-      bounds = LatLngBounds(allPoints.first, allPoints.first);
+      if (maxDiff > 0.0001) {
+        // Points are not all the same, create bounds
+        bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+        
+        // Calculate zoom based on bounds
+        if (maxDiff > 0.5) zoom = 9.0;
+        else if (maxDiff > 0.2) zoom = 10.0;
+        else if (maxDiff > 0.1) zoom = 11.0;
+        else if (maxDiff > 0.05) zoom = 12.0;
+        else zoom = 13.0;
+      } else {
+        // All points are essentially the same, don't use bounds
+        bounds = null;
+        zoom = 14.0;
+      }
     }
-    
-    // Create fallback bounds if null
-    bounds ??= LatLngBounds(center, center);
 
     return _TripDayMapWidget(
       coordinates: coordinates,
@@ -3059,7 +3081,7 @@ class _TripDayMapWidget extends StatefulWidget {
   final List<Marker> waypointMarkers;
   final LatLng initialCenter;
   final double initialZoom;
-  final LatLngBounds bounds;
+  final LatLngBounds? bounds;
   final DayItinerary day;
   final Color primary;
   final VoidCallback? onExpandTap;
@@ -3069,7 +3091,7 @@ class _TripDayMapWidget extends StatefulWidget {
     required this.waypointMarkers,
     required this.initialCenter,
     required this.initialZoom,
-    required this.bounds,
+    this.bounds,
     required this.day,
     required this.primary,
     this.onExpandTap,
@@ -3097,12 +3119,22 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
   
   void _fitBounds() {
     if (!_mapReady) return;
-    _mapController.fitCamera(
-      CameraFit.bounds(
-        bounds: widget.bounds,
-        padding: const EdgeInsets.all(50),
-      ),
-    );
+    
+    // Only fit bounds if we have actual bounds (not a single point)
+    if (widget.bounds != null) {
+      try {
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: widget.bounds!,
+            padding: const EdgeInsets.all(50),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Error fitting bounds: $e');
+        // Fallback to just centering
+        _mapController.move(widget.initialCenter, widget.initialZoom);
+      }
+    }
   }
   
   void _zoomIn() {
@@ -3152,15 +3184,16 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
                       urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
                       userAgentPackageName: 'com.waypoint.app',
                     ),
-                    PolylineLayer(
-                      polylines: [
-                        Polyline(
-                          points: widget.coordinates,
-                          strokeWidth: 4.0,
-                          color: widget.primary,
-                        ),
-                      ],
-                    ),
+                    if (widget.coordinates.isNotEmpty)
+                      PolylineLayer(
+                        polylines: [
+                          Polyline(
+                            points: widget.coordinates,
+                            strokeWidth: 4.0,
+                            color: widget.primary,
+                          ),
+                        ],
+                      ),
                     MarkerLayer(
                       markers: [
                         // Start marker (A)

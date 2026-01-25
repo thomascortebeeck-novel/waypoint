@@ -110,6 +110,10 @@ class RouteWaypoint {
   String? suggestedStartTime; // HH:MM format (24h), set by plan builder
   String? actualStartTime; // HH:MM format (24h), set by trip owner
 
+  // URL/Link metadata (from Open Graph extraction)
+  String? linkUrl; // Original URL
+  String? linkImageUrl; // Image URL extracted from Open Graph
+
   RouteWaypoint({
     String? id,
     required this.type,
@@ -136,6 +140,8 @@ class RouteWaypoint {
     this.timeSlotCategory,
     this.suggestedStartTime,
     this.actualStartTime,
+    this.linkUrl,
+    this.linkImageUrl,
   }) : id = id ?? const Uuid().v4();
 
   Map<String, dynamic> toJson() => {
@@ -164,6 +170,8 @@ class RouteWaypoint {
         if (timeSlotCategory != null) 'timeSlotCategory': timeSlotCategory!.name,
         if (suggestedStartTime != null) 'suggestedStartTime': suggestedStartTime,
         if (actualStartTime != null) 'actualStartTime': actualStartTime,
+        if (linkUrl != null) 'linkUrl': linkUrl,
+        if (linkImageUrl != null) 'linkImageUrl': linkImageUrl,
       };
 
   factory RouteWaypoint.fromJson(Map<String, dynamic> json) => RouteWaypoint(
@@ -220,6 +228,8 @@ class RouteWaypoint {
             : null,
         suggestedStartTime: json['suggestedStartTime'] as String?,
         actualStartTime: json['actualStartTime'] as String?,
+        linkUrl: json['linkUrl'] as String?,
+        linkImageUrl: json['linkImageUrl'] as String?,
       );
 
   RouteWaypoint copyWith({
@@ -248,6 +258,8 @@ class RouteWaypoint {
     TimeSlotCategory? timeSlotCategory,
     Object? suggestedStartTime = _undefined,
     Object? actualStartTime = _undefined,
+    String? linkUrl,
+    String? linkImageUrl,
   }) =>
       RouteWaypoint(
         id: id ?? this.id,
@@ -275,6 +287,8 @@ class RouteWaypoint {
         timeSlotCategory: timeSlotCategory ?? this.timeSlotCategory,
         suggestedStartTime: suggestedStartTime == _undefined ? this.suggestedStartTime : suggestedStartTime as String?,
         actualStartTime: actualStartTime == _undefined ? this.actualStartTime : actualStartTime as String?,
+        linkUrl: linkUrl ?? this.linkUrl,
+        linkImageUrl: linkImageUrl ?? this.linkImageUrl,
       );
 }
 

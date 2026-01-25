@@ -1216,15 +1216,33 @@ class TripService {
     required bool checked,
   }) async {
     try {
-      await _firestore
+      final docRef = _firestore
           .collection(_collection)
           .doc(tripId)
           .collection(_memberPackingCollection)
-          .doc(memberId)
-          .update({
-            'items.$itemId': checked,
-            'updated_at': Timestamp.now(),
-          });
+          .doc(memberId);
+      
+      // Check if document exists
+      final doc = await docRef.get();
+      
+      if (!doc.exists) {
+        debugPrint('Member packing document does not exist, creating it first');
+        // Create the document with this single item checked
+        await docRef.set({
+          'id': memberId,
+          'trip_id': tripId,
+          'member_id': memberId,
+          'items': {itemId: checked},
+          'created_at': Timestamp.now(),
+          'updated_at': Timestamp.now(),
+        });
+      } else {
+        // Document exists, update it
+        await docRef.update({
+          'items.$itemId': checked,
+          'updated_at': Timestamp.now(),
+        });
+      }
     } catch (e) {
       debugPrint('Error toggling member packing item: $e');
       rethrow;
