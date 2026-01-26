@@ -101,7 +101,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
           options: fm.MapOptions(initialCenter: center, initialZoom: 12),
           children: [
             fm.TileLayer(
-              urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
+              urlTemplate: defaultRasterTileUrl,
               userAgentPackageName: 'com.waypoint.app',
               tileProvider: kIsWeb ? fm.NetworkTileProvider() : tileProviderOrNetwork(),
             ),

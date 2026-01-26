@@ -2073,10 +2073,8 @@ Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
       ),
       children: [
         fm.TileLayer(
-          urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}@2x?access_token=$mapboxPublicToken',
+          urlTemplate: defaultRasterTileUrl,
           userAgentPackageName: 'com.waypoint.app',
-          tileSize: 512,
-          zoomOffset: -1,
         ),
         // Route polyline
         if (routeCoordinates.isNotEmpty)

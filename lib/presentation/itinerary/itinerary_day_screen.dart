@@ -5,6 +5,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/trip_model.dart';
@@ -581,11 +582,8 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
       children: [
         // Map tiles
         fm.TileLayer(
-          urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/{z}/{x}/{y}@2x?access_token={accessToken}',
-          additionalOptions: const {
-            'accessToken': 'pk.eyJ1IjoiYm91ZGV3aWpubWFydGluIiwiYSI6ImNtNWxsN3Z4cjAxaDMyanM4dTV5ZzRjenEifQ.OD3zJNXlJe-_oYT-pQmUwQ',
-          },
-          userAgentPackageName: 'com.example.waypoint',
+          urlTemplate: defaultRasterTileUrl,
+          userAgentPackageName: 'com.waypoint.app',
         ),
         // Route line
         if (day.route?.geometry != null) _buildPreviewRoutePolyline(day),

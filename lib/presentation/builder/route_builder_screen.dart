@@ -276,7 +276,7 @@ await _showMapTapActionPicker(context, latLng);
 ),
 children: [
 fm.TileLayer(
-urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
+urlTemplate: defaultRasterTileUrl,
 userAgentPackageName: 'com.waypoint.app',
 ),
 if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
@@ -454,7 +454,7 @@ await _showMapTapActionPicker(context, latLng);
 ),
 children: [
 fm.TileLayer(
-urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
+urlTemplate: defaultRasterTileUrl,
 userAgentPackageName: 'com.waypoint.app',
 ),
 if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
