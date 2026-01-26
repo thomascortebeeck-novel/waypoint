@@ -32,3 +32,7 @@ export 'lists/settings_item.dart';
 
 // Waypoint cards
 export 'waypoint/unified_waypoint_card.dart';
+
+// Map components
+export 'map/waypoint_map_card.dart';
+export 'map/fullscreen_route_map.dart';

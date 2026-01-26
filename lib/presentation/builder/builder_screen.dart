@@ -2095,78 +2095,100 @@ Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
         if (route != null && route.routePoints.isNotEmpty)
           fm.MarkerLayer(
             markers: [
-              // Start marker
+              // Start marker (A) - Largest for route endpoints
               fm.Marker(
                 point: ll.LatLng(
                   route.routePoints.first['lat']!,
                   route.routePoints.first['lng']!,
                 ),
-                width: 40,
-                height: 40,
+                width: 48,
+                height: 48,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50),
+                    color: const Color(0xFF52B788), // Success green
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
+                    border: Border.all(color: Colors.white, width: 3.5),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
                       ),
                     ],
                   ),
                   child: const Center(
-                    child: Icon(Icons.play_arrow, color: Colors.white, size: 18),
+                    child: Text(
+                      'A',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),
-              // End marker
+              // End marker (B) - Largest for route endpoints
               if (route.routePoints.length > 1)
                 fm.Marker(
                   point: ll.LatLng(
                     route.routePoints.last['lat']!,
                     route.routePoints.last['lng']!,
                   ),
-                  width: 40,
-                  height: 40,
+                  width: 48,
+                  height: 48,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF44336),
+                      color: const Color(0xFFD62828), // Error red
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
+                      border: Border.all(color: Colors.white, width: 3.5),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
                         ),
                       ],
                     ),
                     child: const Center(
-                      child: Icon(Icons.flag, color: Colors.white, size: 18),
+                      child: Text(
+                        'B',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                 ),
             ],
           ),
-        // POI waypoint markers
+        // Custom POI waypoint markers - Prominent but smaller than Start/End
         if (poiWaypoints.isNotEmpty)
           fm.MarkerLayer(
             markers: poiWaypoints
                 .map((wp) => fm.Marker(
                       point: wp.position,
-                      width: 44,
-                      height: 44,
+                      width: 36,
+                      height: 36,
                       child: Container(
                         decoration: BoxDecoration(
-                          color: getWaypointColor(wp.type),
+                          color: Colors.white,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
+                          border: Border.all(
+                            color: getWaypointColor(wp.type),
+                            width: 3.5,
+                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 6,
+                              color: getWaypointColor(wp.type).withValues(alpha: 0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
                           ],
@@ -2174,8 +2196,8 @@ Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
                         child: Center(
                           child: Icon(
                             getWaypointIcon(wp.type),
-                            color: Colors.white,
-                            size: 22,
+                            color: getWaypointColor(wp.type),
+                            size: 18,
                           ),
                         ),
                       ),

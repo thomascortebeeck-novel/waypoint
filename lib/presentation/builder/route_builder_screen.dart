@@ -288,27 +288,31 @@ markers: [
 for (int i = 0; i < _points.length; i++)
 fm.Marker(
 point: _points[i],
-width: 44,
-height: 44,
+width: i == 0 || i == _points.length - 1 ? 48 : 32,
+height: i == 0 || i == _points.length - 1 ? 48 : 32,
 child: GestureDetector(
 onTap: () => _showRoutePointOptions(i),
 child: Container(
 decoration: BoxDecoration(
 color: i == 0
-? const Color(0xFF4CAF50)
-: (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+? const Color(0xFF52B788)
+: (i == _points.length - 1 ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
 shape: BoxShape.circle,
-border: Border.all(color: Colors.white, width: 3),
+border: Border.all(color: Colors.white, width: i == 0 || i == _points.length - 1 ? 3.5 : 2.5),
 boxShadow: [
-BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+BoxShadow(
+color: Colors.black.withValues(alpha: i == 0 || i == _points.length - 1 ? 0.35 : 0.25),
+blurRadius: i == 0 || i == _points.length - 1 ? 8 : 5,
+offset: Offset(0, i == 0 || i == _points.length - 1 ? 3 : 2),
+),
 ],
 ),
 child: Center(
-child: Icon(
-i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
-color: Colors.white,
-size: i == _points.length - 1 || i == 0 ? 20 : 14,
-),
+child: i == 0
+? const Text('A', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
+: i == _points.length - 1
+? const Text('B', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
+: const Icon(Icons.circle, color: Colors.white, size: 14),
 ),
 ),
 ),
@@ -320,18 +324,29 @@ fm.MarkerLayer(
 markers: _poiWaypoints
 .map((wp) => fm.Marker(
 point: wp.position,
-width: 48,
-height: 48,
+width: 36,
+height: 36,
 child: GestureDetector(
 onTap: () => _editWaypoint(wp),
 child: Container(
 decoration: BoxDecoration(
-color: getWaypointColor(wp.type),
+color: Colors.white,
 shape: BoxShape.circle,
-border: Border.all(color: Colors.white, width: 3),
-boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2))],
+border: Border.all(color: getWaypointColor(wp.type), width: 3.5),
+boxShadow: [
+BoxShadow(
+color: getWaypointColor(wp.type).withValues(alpha: 0.3),
+blurRadius: 8,
+spreadRadius: 2,
 ),
-child: Center(child: Icon(getWaypointIcon(wp.type), color: Colors.white, size: 24)),
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.2),
+blurRadius: 4,
+offset: const Offset(0, 2),
+),
+],
+),
+child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 18)),
 ),
 ),
 ))
@@ -414,27 +429,31 @@ markers: [
 for (int i = 0; i < _points.length; i++)
 fm.Marker(
 point: _points[i],
-width: 44,
-height: 44,
+width: i == 0 || i == _points.length - 1 ? 48 : 32,
+height: i == 0 || i == _points.length - 1 ? 48 : 32,
 child: GestureDetector(
 onTap: () => _showRoutePointOptions(i),
 child: Container(
 decoration: BoxDecoration(
 color: i == 0
-? const Color(0xFF4CAF50)
-: (i == _points.length - 1 ? const Color(0xFFF44336) : const Color(0xFFFF9800)),
+? const Color(0xFF52B788)
+: (i == _points.length - 1 ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
 shape: BoxShape.circle,
-border: Border.all(color: Colors.white, width: 3),
+border: Border.all(color: Colors.white, width: i == 0 || i == _points.length - 1 ? 3.5 : 2.5),
 boxShadow: [
-BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2)),
+BoxShadow(
+color: Colors.black.withValues(alpha: i == 0 || i == _points.length - 1 ? 0.35 : 0.25),
+blurRadius: i == 0 || i == _points.length - 1 ? 8 : 5,
+offset: Offset(0, i == 0 || i == _points.length - 1 ? 3 : 2),
+),
 ],
 ),
 child: Center(
-child: Icon(
-i == 0 ? Icons.play_arrow : (i == _points.length - 1 ? Icons.flag : Icons.circle),
-color: Colors.white,
-size: i == _points.length - 1 || i == 0 ? 20 : 14,
-),
+child: i == 0
+? const Text('A', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
+: i == _points.length - 1
+? const Text('B', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
+: const Icon(Icons.circle, color: Colors.white, size: 14),
 ),
 ),
 ),
@@ -446,18 +465,29 @@ fm.MarkerLayer(
 markers: _poiWaypoints
 .map((wp) => fm.Marker(
 point: wp.position,
-width: 48,
-height: 48,
+width: 36,
+height: 36,
 child: GestureDetector(
 onTap: () => _editWaypoint(wp),
 child: Container(
 decoration: BoxDecoration(
-color: getWaypointColor(wp.type),
+color: Colors.white,
 shape: BoxShape.circle,
-border: Border.all(color: Colors.white, width: 3),
-boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2))],
+border: Border.all(color: getWaypointColor(wp.type), width: 3.5),
+boxShadow: [
+BoxShadow(
+color: getWaypointColor(wp.type).withValues(alpha: 0.3),
+blurRadius: 8,
+spreadRadius: 2,
 ),
-child: Center(child: Icon(getWaypointIcon(wp.type), color: Colors.white, size: 24)),
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.2),
+blurRadius: 4,
+offset: const Offset(0, 2),
+),
+],
+),
+child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 18)),
 ),
 ),
 ))
