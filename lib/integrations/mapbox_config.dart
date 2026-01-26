@@ -20,7 +20,7 @@ const mapboxStyleUri = String.fromEnvironment(
   defaultValue: 'mapbox://styles/thomascortebeeck93/cmkv0yv7a006401s9akepciwf',
 );
 
-// Alternative style URIs for testing
+// Alternative style URIs
 const customWaypointStyle = 'mapbox://styles/thomascortebeeck93/cmkv0yv7a006401s9akepciwf';
 const outdoorsStyle = 'mapbox://styles/mapbox/outdoors-v12';
 const satelliteStyle = 'mapbox://styles/mapbox/satellite-streets-v12';

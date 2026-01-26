@@ -78,7 +78,7 @@ class _TripTrackingCardState extends State<TripTrackingCard> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
+                urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
                 userAgentPackageName: 'com.waypoint.app',
               ),
               PolylineLayer(polylines: [

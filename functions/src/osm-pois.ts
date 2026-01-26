@@ -142,38 +142,112 @@ out body qt ${limit};
 
 /**
  * Fetch from Overpass API with multiple endpoint fallbacks
+ * Uses proper headers required by OSM usage policy
  */
 async function fetchWithFallback(query: string): Promise<any> {
+  // Endpoints ordered by reliability for server-side requests
+  // Main overpass-api.de and its mirrors
   const endpoints = [
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
   ];
 
+  // OSM requires proper User-Agent identification
+  // See: https://operations.osmfoundation.org/policies/nominatim/
+  const baseHeaders = {
+    "User-Agent": "WaypointApp/1.0 (outdoor-hiking-app; https://waypoint-app.com)",
+    "Accept": "application/json",
+    "Accept-Language": "en",
+    "Accept-Encoding": "gzip, deflate",
+  };
+
   let lastError: any;
-  for (const endpoint of endpoints) {
+  
+  // Try POST method first on all endpoints
+  for (let i = 0; i < endpoints.length; i++) {
+    const endpoint = endpoints[i];
     try {
-      logger.info(`Trying Overpass endpoint: ${endpoint}`);
-      const resp = await axios.post(
-        endpoint,
-        `data=${encodeURIComponent(query)}`,
-        {
-          headers: {"Content-Type": "application/x-www-form-urlencoded"},
-          timeout: 25000,
-        }
-      );
-      logger.info(`Overpass endpoint ${endpoint} succeeded`);
+      logger.info(`Trying Overpass endpoint (POST): ${endpoint}`);
+      
+      // Add small delay between retries to be respectful
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      const resp = await axios({
+        method: "POST",
+        url: endpoint,
+        data: `data=${encodeURIComponent(query)}`,
+        headers: {
+          ...baseHeaders,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout: 25000,
+        maxRedirects: 3,
+        validateStatus: (status) => status < 500, // Accept 4xx to inspect response
+      });
+      
+      // Check if we got a valid response
+      if (resp.status >= 400) {
+        logger.warn(`Endpoint ${endpoint} returned status ${resp.status}`);
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      
+      // Check if response is actually JSON (some endpoints return HTML errors)
+      if (typeof resp.data === "string" && resp.data.includes("<!DOCTYPE")) {
+        logger.warn(`Endpoint ${endpoint} returned HTML instead of JSON`);
+        throw new Error("Received HTML instead of JSON response");
+      }
+      
+      logger.info(`Overpass endpoint ${endpoint} succeeded with POST`);
       return resp.data;
     } catch (e: any) {
-      logger.warn(`Overpass endpoint ${endpoint} failed:`, e.message);
+      const status = e.response?.status;
+      logger.warn(`Overpass POST ${endpoint} failed: ${status || e.message}`);
       lastError = e;
-      // If it's the last endpoint, throw the error
-      if (endpoint === endpoints[endpoints.length - 1]) {
-        throw lastError;
-      }
-      // Otherwise try next endpoint
     }
   }
+  
+  // If all POST requests failed, try GET method (some servers handle it differently)
+  logger.info("All POST requests failed, trying GET method...");
+  for (let i = 0; i < endpoints.length; i++) {
+    const endpoint = endpoints[i];
+    try {
+      logger.info(`Trying Overpass endpoint (GET): ${endpoint}`);
+      
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      const resp = await axios({
+        method: "GET",
+        url: `${endpoint}?data=${encodeURIComponent(query)}`,
+        headers: baseHeaders,
+        timeout: 25000,
+        maxRedirects: 3,
+        validateStatus: (status) => status < 500,
+      });
+      
+      if (resp.status >= 400) {
+        logger.warn(`GET ${endpoint} returned status ${resp.status}`);
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      
+      if (typeof resp.data === "string" && resp.data.includes("<!DOCTYPE")) {
+        logger.warn(`GET ${endpoint} returned HTML instead of JSON`);
+        throw new Error("Received HTML instead of JSON response");
+      }
+      
+      logger.info(`Overpass endpoint ${endpoint} succeeded with GET`);
+      return resp.data;
+    } catch (e: any) {
+      const status = e.response?.status;
+      logger.warn(`Overpass GET ${endpoint} failed: ${status || e.message}`);
+      lastError = e;
+    }
+  }
+  
   throw lastError;
 }
 

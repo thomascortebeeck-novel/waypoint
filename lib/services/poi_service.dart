@@ -79,8 +79,13 @@ class POIService {
 
       Log.i('poi', 'Fetched ${pois.length} POIs successfully');
       return pois;
-    } catch (e) {
-      Log.e('poi', 'Failed to fetch POIs', e);
+    } catch (e, stack) {
+      Log.e('poi', 'Failed to fetch POIs: $e');
+      Log.e('poi', 'Stack trace: $stack');
+      // Check if it's a FirebaseFunctionsException
+      if (e is FirebaseFunctionsException) {
+        Log.e('poi', 'Firebase Functions error: code=${e.code}, message=${e.message}, details=${e.details}');
+      }
       return [];
     }
   }
