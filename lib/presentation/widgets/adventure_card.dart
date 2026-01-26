@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/core/theme/colors.dart';
+import 'package:waypoint/components/badges/waypoint_badge.dart';
+
 
 enum AdventureCardVariant {
   standard,
@@ -310,16 +313,13 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
 
   Widget _buildPriceBadge(BuildContext context) {
     final isFree = widget.plan.minPrice == 0;
-    final bgColor = isFree ? const Color(0xFF10B981) : const Color(0xFFF59E0B);
-
+    
     return Positioned(
       top: 16,
       right: 16,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(8), // Matches WaypointBadge radius
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.15),
@@ -328,14 +328,9 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             ),
           ],
         ),
-        child: Text(
-          isFree ? 'FREE' : '€${widget.plan.minPrice.toStringAsFixed(0)}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        child: isFree 
+          ? WaypointBadge.free()
+          : WaypointBadge.price('€${widget.plan.minPrice.toStringAsFixed(0)}'),
       ),
     );
   }
@@ -346,10 +341,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
       top: 16,
       left: 16,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isPublished ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(8), // Matches WaypointBadge radius
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.15),
@@ -358,13 +351,9 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             ),
           ],
         ),
-        child: Text(
+        child: WaypointBadge.status(
           isPublished ? 'Published' : 'Draft',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
+          isDraft: !isPublished,
         ),
       ),
     );

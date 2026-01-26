@@ -6,6 +6,7 @@ initializeApp();
 import {onCall} from "firebase-functions/v2/https";
 export {getDirections, matchRoute, getElevationProfile} from "./mapbox";
 export {placesSearch, placeDetails, geocodeAddress, placePhoto} from "./google-places";
+export {getOutdoorPOIs} from "./osm-pois";
 
 // Simple callable function to fetch OpenGraph/Twitter meta tags for a given URL.
 // Returns: { title, description, image, siteName }
@@ -18,7 +19,50 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     return {title: null, description: null, image: null, siteName: null};
   }
 
+  // URL validation & sanitization
+  try {
+    const urlObj = new URL(url);
+    // Only allow http/https protocols
+    if (!["http:", "https:"].includes(urlObj.protocol)) {
+      console.log("[fetchMeta] Invalid protocol:", urlObj.protocol);
+      return {title: null, description: null, image: null, siteName: null};
+    }
+  } catch {
+    console.log("[fetchMeta] Invalid URL format:", url);
+    return {title: null, description: null, image: null, siteName: null};
+  }
+
   console.log("[fetchMeta] Fetching:", url);
+
+  // Clean up title (remove redundant location/stars based on site)
+  const cleanTitle = (title: string | null, siteName: string | null): string | null => {
+    if (!title) return null;
+
+    let cleaned = title;
+
+    // Remove star ratings at the start (★★★★★ or ☆☆☆☆☆)
+    cleaned = cleaned.replace(/^[★☆]+\s*/, "");
+
+    // Site-specific cleaning
+    const siteNameLower = (siteName || "").toLowerCase();
+    
+    if (siteNameLower.includes("booking.com") || siteNameLower === "booking.com") {
+      // Remove ", City, Country" suffix for booking.com
+      // e.g., "Hotel Name, Sevilla, Spanje" → "Hotel Name"
+      cleaned = cleaned.replace(/,\s*[^,]+,\s*[^,]+$/, "");
+    }
+
+    // Remove trailing star ratings like "(4.5 stars)" or "- 4 stars"
+    cleaned = cleaned.replace(/[-–]\s*\d+(\.\d+)?\s*stars?\s*$/i, "");
+    cleaned = cleaned.replace(/\(\s*\d+(\.\d+)?\s*stars?\s*\)\s*$/i, "");
+
+    // Remove common suffixes like "| Site Name" or "- Site Name" if site name is known
+    if (siteName && cleaned.toLowerCase().endsWith(siteName.toLowerCase())) {
+      cleaned = cleaned.replace(new RegExp(`\\s*[-|–]\\s*${siteName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i"), "");
+    }
+
+    return cleaned.trim();
+  };
 
   // Decode common HTML entities
   const decodeEntities = (str: string | null): string | null => {
@@ -103,7 +147,10 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       metaTags.get("application-name")
     );
 
-    return {title, description, image, siteName};
+    // Apply title cleaning based on site
+    const cleanedTitle = cleanTitle(title, siteName);
+
+    return {title: cleanedTitle, description, image, siteName};
   };
 
   // Strategy 1: Direct fetch with browser-like headers
@@ -139,13 +186,13 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       
       // If we found meaningful data, return it
       if (result.title || result.description || result.image) {
-        console.log("[fetchMeta] Strategy 1 success - title:", result.title, "desc:", result.description?.substring(0, 50), "image:", result.image);
-        return result;
+        console.log("[fetchMeta] ✓ Strategy 1 (Desktop browser) succeeded - title:", result.title, "desc:", result.description?.substring(0, 50), "image:", result.image);
+        return {...result, _strategy: 1};
       }
       console.log("[fetchMeta] Strategy 1: No meaningful metadata found in HTML");
     }
   } catch (e) {
-    console.log("[fetchMeta] Strategy 1 failed:", e);
+    console.log("[fetchMeta] ✗ Strategy 1 failed:", e);
   }
 
   // Strategy 2: Try with a mobile User-Agent (some sites serve different content)
@@ -167,12 +214,12 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       const result = parseHtml(html, url);
       
       if (result.title || result.description || result.image) {
-        console.log("[fetchMeta] Strategy 2 success - title:", result.title);
-        return result;
+        console.log("[fetchMeta] ✓ Strategy 2 (Mobile User-Agent) succeeded - title:", result.title);
+        return {...result, _strategy: 2};
       }
     }
   } catch (e) {
-    console.log("[fetchMeta] Strategy 2 failed:", e);
+    console.log("[fetchMeta] ✗ Strategy 2 failed:", e);
   }
 
   // Strategy 3: Try as a bot/crawler (some sites specifically serve OG tags to bots)
@@ -193,12 +240,12 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       const result = parseHtml(html, url);
       
       if (result.title || result.description || result.image) {
-        console.log("[fetchMeta] Strategy 3 success - title:", result.title);
-        return result;
+        console.log("[fetchMeta] ✓ Strategy 3 (Facebook bot) succeeded - title:", result.title);
+        return {...result, _strategy: 3};
       }
     }
   } catch (e) {
-    console.log("[fetchMeta] Strategy 3 failed:", e);
+    console.log("[fetchMeta] ✗ Strategy 3 failed:", e);
   }
 
   // Strategy 4: Construct title from URL as last resort
@@ -221,14 +268,16 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       }
     }
     
+    console.log("[fetchMeta] ✓ Strategy 4 (URL parsing fallback) used - title:", title);
     return {
       title: title,
       description: `Link from ${hostname}`,
       image: null,
       siteName: hostname,
+      _strategy: 4,
     };
   } catch (e) {
-    console.log("[fetchMeta] Strategy 4 failed:", e);
+    console.log("[fetchMeta] ✗ Strategy 4 failed:", e);
   }
 
   console.log("[fetchMeta] All strategies failed");

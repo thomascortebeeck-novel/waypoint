@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/core/theme/colors.dart';
 
 /// Activity Categories Carousel
 class ActivityCategoriesCarousel extends StatelessWidget {
@@ -205,11 +206,11 @@ class PromoCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF10B981), Color(0xFF059669)],
+          colors: [BrandColors.primaryLight, BrandColors.primary],
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF10B981).withValues(alpha: 0.3),
+            color: BrandColors.primary.withValues(alpha: 0.3),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -280,7 +281,7 @@ class PromoCard extends StatelessWidget {
                     onPressed: () {},
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF059669),
+                      foregroundColor: BrandColors.primary,
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
