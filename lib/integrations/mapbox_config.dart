@@ -11,7 +11,7 @@
 
 const mapboxPublicToken = String.fromEnvironment(
   'MAPBOX_PUBLIC_TOKEN',
-  defaultValue: 'pk.eyJ1IjoidGhvbWFzY29ydGViZWVjazkzIiwiYSI6ImNtazFtbDhncDA2bDEzZ3F5eXh3Mm9pc3UifQ.Zt295Dc_mTs9L7rvgpJ4dA',
+  defaultValue: 'pk.eyJ1IjoidGhvbWFzY29ydGViZWVjazkzIiwiYSI6ImNtZ2YwdHNkcTAyd2gybHNjY3Z4cTNzY2EifQ.JumF23xtbixumEUT62FVKQ',
 );
 
 // Custom Waypoint style; teams can override with --dart-define.

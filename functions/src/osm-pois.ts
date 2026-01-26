@@ -94,41 +94,34 @@ function buildOverpassQuery(
   poiTypes: string[],
   limit: number
 ): string {
-  // Map POI types to OSM tag queries
-  const tagMap: Record<string, string> = {
-    campsite: 'node["tourism"="camp_site"]',
-    hut: 'node["tourism"~"wilderness_hut|alpine_hut"]',
-    viewpoint: 'node["tourism"="viewpoint"]',
-    water: '(node["amenity"="drinking_water"];node["natural"="spring"];)',
-    shelter: 'node["amenity"="shelter"]',
-    parking: 'node["amenity"="parking"]["access"!="private"]',
-    trailhead: 'node["highway"="trailhead"]',
-    picnicSite: 'node["tourism"="picnic_site"]',
-    toilets: 'node["amenity"="toilets"]',
-    informationBoard: 'node["tourism"="information"]["information"="board"]',
-    peakSummit: 'node["natural"="peak"]',
-    waterfall: 'node["natural"="waterfall"]',
-    cave: 'node["natural"="cave_entrance"]',
-    bench: 'node["amenity"="bench"]',
-    rangerStation: 'node["amenity"="ranger_station"]',
-    emergencyPhone: 'node["emergency"="phone"]',
-    guidepost: 'node["information"="guidepost"]',
+  // Map POI types to OSM tag queries (all as simple node queries - bbox will be added later)
+  const tagMap: Record<string, string[]> = {
+    campsite: ['node["tourism"="camp_site"]'],
+    hut: ['node["tourism"~"wilderness_hut|alpine_hut"]'],
+    viewpoint: ['node["tourism"="viewpoint"]'],
+    water: ['node["amenity"="drinking_water"]', 'node["natural"="spring"]'],
+    shelter: ['node["amenity"="shelter"]'],
+    parking: ['node["amenity"="parking"]["access"!="private"]'],
+    trailhead: ['node["highway"="trailhead"]'],
+    picnicSite: ['node["tourism"="picnic_site"]'],
+    toilets: ['node["amenity"="toilets"]'],
+    informationBoard: ['node["tourism"="information"]["information"="board"]'],
+    peakSummit: ['node["natural"="peak"]'],
+    waterfall: ['node["natural"="waterfall"]'],
+    cave: ['node["natural"="cave_entrance"]'],
+    bench: ['node["amenity"="bench"]'],
+    rangerStation: ['node["amenity"="ranger_station"]'],
+    emergencyPhone: ['node["emergency"="phone"]'],
+    guidepost: ['node["information"="guidepost"]'],
   };
 
   const bbox = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
   
-  // Build node queries for each requested type
+  // Build node queries for each requested type - flatten all queries and add bbox
   const nodeQueries = poiTypes
     .filter((type) => tagMap[type]) // only include known types
-    .map((type) => {
-      const query = tagMap[type];
-      // Add bbox to each query part
-      if (query.startsWith("(")) {
-        // Multiple queries wrapped in parentheses
-        return query.replace(/node\[/g, `node[`).replace(/\];/g, `](${bbox});`);
-      }
-      return `${query}(${bbox});`;
-    })
+    .flatMap((type) => tagMap[type]) // flatten array of query arrays
+    .map((query) => `${query}(${bbox});`) // add bbox to each query
     .join("\n  ");
 
   return `
