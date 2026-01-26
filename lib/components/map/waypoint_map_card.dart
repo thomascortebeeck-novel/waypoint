@@ -84,9 +84,11 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
     if (_loadingPOIs || !_mapReady) return;
     
     setState(() => _loadingPOIs = true);
+    Log.i('map', '🔍 Starting to load OSM POIs...');
     
     try {
       final bounds = _mapController.camera.visibleBounds;
+      Log.i('map', '📍 Map bounds: S=${bounds.south.toStringAsFixed(2)}, W=${bounds.west.toStringAsFixed(2)}, N=${bounds.north.toStringAsFixed(2)}, E=${bounds.east.toStringAsFixed(2)}');
       
       // Load main outdoor POI types
       final pois = await POIService.fetchPOIs(
@@ -109,10 +111,10 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
           _osmPOIs = pois;
           _loadingPOIs = false;
         });
-        Log.i('map', 'Loaded ${pois.length} OSM POIs');
+        Log.i('map', '✅ Loaded ${pois.length} OSM POIs successfully');
       }
-    } catch (e) {
-      Log.e('map', 'Failed to load POIs', e);
+    } catch (e, stack) {
+      Log.e('map', '❌ Failed to load POIs', e, stack);
       if (mounted) {
         setState(() => _loadingPOIs = false);
       }

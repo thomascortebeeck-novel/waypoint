@@ -14,11 +14,16 @@ const mapboxPublicToken = String.fromEnvironment(
   defaultValue: 'pk.eyJ1IjoidGhvbWFzY29ydGViZWVjazkzIiwiYSI6ImNtazFtbDhncDA2bDEzZ3F5eXh3Mm9pc3UifQ.Zt295Dc_mTs9L7rvgpJ4dA',
 );
 
-// Default Outdoors style; teams can override with --dart-define.
+// Custom Waypoint style; teams can override with --dart-define.
 const mapboxStyleUri = String.fromEnvironment(
   'MAPBOX_STYLE_URI',
-  defaultValue: 'mapbox://styles/mapbox/outdoors-v12',
+  defaultValue: 'mapbox://styles/thomascortebeeck93/cmkv0yv7a006401s9akepciwf',
 );
+
+// Alternative style URIs for testing
+const customWaypointStyle = 'mapbox://styles/thomascortebeeck93/cmkv0yv7a006401s9akepciwf';
+const outdoorsStyle = 'mapbox://styles/mapbox/outdoors-v12';
+const satelliteStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
 
 // TileStore path name for offline regions; the native SDK will resolve a
 // platform specific directory.

@@ -13,6 +13,8 @@ import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/models/poi_model.dart';
+import 'package:waypoint/services/poi_service.dart';
 import 'package:waypoint/presentation/widgets/elevation_chart.dart';
 import 'package:waypoint/utils/logger.dart';
 import 'package:waypoint/utils/google_link_parser.dart';
@@ -70,10 +72,19 @@ bool _waypointsExpanded = true;
 bool _hintDismissed = false;
 bool _addingWaypointViaMap = false; // True when waiting for user to tap map to add waypoint
 
+// OSM POIs
+List<POI> _osmPOIs = [];
+bool _loadingPOIs = false;
+
 @override
 void initState() {
 super.initState();
 Log.i('route_builder', 'RouteBuilderScreen init');
+WidgetsBinding.instance.addPostFrameCallback((_) {
+if (mounted) {
+_loadPOIs();
+}
+});
 try {
 if (widget.start != null) _points.add(widget.start!);
 if (widget.end != null) _points.add(widget.end!);
@@ -265,10 +276,8 @@ await _showMapTapActionPicker(context, latLng);
 ),
 children: [
 fm.TileLayer(
-urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}@2x?access_token=$mapboxPublicToken',
+urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
 userAgentPackageName: 'com.waypoint.app',
-tileSize: 512,
-zoomOffset: -1,
 ),
 if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
 fm.PolylineLayer(
@@ -319,6 +328,45 @@ child: i == 0
 ),
 ],
 ),
+// OSM POI markers (subtle, background)
+if (_osmPOIs.isNotEmpty)
+fm.MarkerLayer(
+markers: _osmPOIs
+.map((poi) => fm.Marker(
+point: poi.coordinates,
+width: 24,
+height: 24,
+child: GestureDetector(
+onTap: () => _showOSMPOIDetails(poi),
+child: Container(
+width: 24,
+height: 24,
+decoration: BoxDecoration(
+color: poi.type.color.withValues(alpha: 0.7),
+shape: BoxShape.circle,
+border: Border.all(
+color: Colors.white.withValues(alpha: 0.8),
+width: 1.5,
+),
+boxShadow: [
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.15),
+blurRadius: 2,
+offset: const Offset(0, 1),
+),
+],
+),
+child: Icon(
+poi.type.icon,
+color: Colors.white,
+size: 14,
+),
+),
+),
+))
+.toList(),
+),
+// Custom POI waypoints (bold, prominent)
 if (_poiWaypoints.isNotEmpty)
 fm.MarkerLayer(
 markers: _poiWaypoints
@@ -406,10 +454,8 @@ await _showMapTapActionPicker(context, latLng);
 ),
 children: [
 fm.TileLayer(
-urlTemplate: 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/512/{z}/{x}/{y}@2x?access_token=$mapboxPublicToken',
+urlTemplate: 'https://api.mapbox.com/styles/v1/thomascortebeeck93/cmkv0yv7a006401s9akepciwf/tiles/512/{z}/{x}/{y}?access_token=$mapboxPublicToken',
 userAgentPackageName: 'com.waypoint.app',
-tileSize: 512,
-zoomOffset: -1,
 ),
 if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
 fm.PolylineLayer(
@@ -460,6 +506,45 @@ child: i == 0
 ),
 ],
 ),
+// OSM POI markers (subtle, background)
+if (_osmPOIs.isNotEmpty)
+fm.MarkerLayer(
+markers: _osmPOIs
+.map((poi) => fm.Marker(
+point: poi.coordinates,
+width: 24,
+height: 24,
+child: GestureDetector(
+onTap: () => _showOSMPOIDetails(poi),
+child: Container(
+width: 24,
+height: 24,
+decoration: BoxDecoration(
+color: poi.type.color.withValues(alpha: 0.7),
+shape: BoxShape.circle,
+border: Border.all(
+color: Colors.white.withValues(alpha: 0.8),
+width: 1.5,
+),
+boxShadow: [
+BoxShadow(
+color: Colors.black.withValues(alpha: 0.15),
+blurRadius: 2,
+offset: const Offset(0, 1),
+),
+],
+),
+child: Icon(
+poi.type.icon,
+color: Colors.white,
+size: 14,
+),
+),
+),
+))
+.toList(),
+),
+// Custom POI waypoints (bold, prominent)
 if (_poiWaypoints.isNotEmpty)
 fm.MarkerLayer(
 markers: _poiWaypoints
@@ -701,6 +786,113 @@ setState(() {
 _searchResults = [];
 _searchController.clear();
 });
+}
+
+Future<void> _loadPOIs() async {
+if (_loadingPOIs) return;
+
+setState(() => _loadingPOIs = true);
+Log.i('route_builder', '🔍 Starting to load OSM POIs...');
+
+try {
+final bounds = _map.camera.visibleBounds;
+Log.i('route_builder', '📍 Map bounds: S=${bounds.south.toStringAsFixed(2)}, W=${bounds.west.toStringAsFixed(2)}, N=${bounds.north.toStringAsFixed(2)}, E=${bounds.east.toStringAsFixed(2)}');
+
+// Load main outdoor POI types
+final pois = await POIService.fetchPOIs(
+southWest: ll.LatLng(bounds.south, bounds.west),
+northEast: ll.LatLng(bounds.north, bounds.east),
+poiTypes: [
+POIType.campsite,
+POIType.hut,
+POIType.viewpoint,
+POIType.water,
+POIType.shelter,
+POIType.parking,
+POIType.toilets,
+POIType.picnicSite,
+],
+maxResults: 100,
+);
+
+if (mounted) {
+setState(() {
+_osmPOIs = pois;
+_loadingPOIs = false;
+});
+Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs successfully');
+}
+} catch (e, stack) {
+Log.e('route_builder', '❌ Failed to load POIs', e, stack);
+if (mounted) {
+setState(() => _loadingPOIs = false);
+}
+}
+}
+
+void _showOSMPOIDetails(POI poi) {
+showModalBottomSheet(
+context: context,
+builder: (context) => Container(
+padding: const EdgeInsets.all(24),
+child: Column(
+mainAxisSize: MainAxisSize.min,
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Row(
+children: [
+Container(
+width: 40,
+height: 40,
+decoration: BoxDecoration(
+color: poi.type.color,
+borderRadius: BorderRadius.circular(8),
+),
+child: Icon(poi.type.icon, color: Colors.white, size: 20),
+),
+const SizedBox(width: 12),
+Expanded(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+poi.name,
+style: const TextStyle(
+fontSize: 18,
+fontWeight: FontWeight.bold,
+),
+),
+Text(
+'${poi.type.displayName} (OSM)',
+style: TextStyle(
+fontSize: 14,
+color: Colors.grey.shade600,
+),
+),
+],
+),
+),
+],
+),
+if (poi.description != null) ...[
+const SizedBox(height: 16),
+Text(
+poi.description!,
+style: const TextStyle(fontSize: 15),
+),
+],
+const SizedBox(height: 16),
+Text(
+'${poi.coordinates.latitude.toStringAsFixed(5)}, ${poi.coordinates.longitude.toStringAsFixed(5)}',
+style: TextStyle(
+fontSize: 13,
+color: Colors.grey.shade600,
+),
+),
+],
+),
+),
+);
 }
 
 Future<void> _updatePreview() async {
