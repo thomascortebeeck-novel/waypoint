@@ -1,0 +1,76 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
+
+/// Unified map controller interface that works with both vector and raster maps
+/// This abstraction allows seamless switching between online (vector) and offline (raster) modes
+abstract class WaypointMapController {
+  /// Set camera position and zoom level
+  Future<void> setCamera(
+    LatLng center,
+    double zoom, {
+    double? bearing,
+    double? tilt,
+  });
+
+  /// Animate camera to new position
+  Future<void> animateCamera(
+    LatLng center,
+    double zoom, {
+    Duration duration = const Duration(milliseconds: 500),
+  });
+
+  /// Add or update route polyline on map
+  Future<void> addRoutePolyline(
+    List<LatLng> points, {
+    Color color = const Color(0xFF4CAF50),
+    double width = 4.0,
+  });
+
+  /// Remove route polyline from map
+  Future<void> removeRoutePolyline();
+
+  /// Add marker to map
+  Future<void> addMarker(
+    String id,
+    LatLng position, {
+    Widget? customWidget,
+    String? iconAsset,
+  });
+
+  /// Remove marker from map
+  Future<void> removeMarker(String id);
+
+  /// Set user location indicator
+  Future<void> setUserLocation(
+    LatLng position, {
+    double? heading,
+  });
+
+  /// Stream of map tap events
+  Stream<LatLng> get onMapTap;
+
+  /// Stream of camera position changes
+  Stream<CameraPosition> get onCameraMove;
+
+  /// Get current camera position
+  CameraPosition? get currentPosition;
+
+  /// Dispose resources
+  void dispose();
+}
+
+/// Camera position data
+class CameraPosition {
+  final LatLng center;
+  final double zoom;
+  final double bearing;
+  final double tilt;
+
+  const CameraPosition({
+    required this.center,
+    required this.zoom,
+    this.bearing = 0,
+    this.tilt = 0,
+  });
+}

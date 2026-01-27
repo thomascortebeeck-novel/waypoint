@@ -75,6 +75,9 @@ bool _addingWaypointViaMap = false; // True when waiting for user to tap map to 
 // OSM POIs
 List<POI> _osmPOIs = [];
 bool _loadingPOIs = false;
+Timer? _poiDebounce;
+ll.LatLng? _lastPOICenter;
+double? _lastPOIZoom;
 
 @override
 void initState() {
@@ -123,6 +126,7 @@ Log.e('route_builder', 'init failed', e, stack);
 @override
 void dispose() {
 _searchDebounce?.cancel();
+_poiDebounce?.cancel();
 _searchController.dispose();
 _searchFocusNode.dispose();
 super.dispose();
@@ -265,6 +269,7 @@ mapController: _map,
 options: fm.MapOptions(
 initialCenter: center,
 initialZoom: 11,
+onPositionChanged: _onMapPositionChanged,
 onTap: (tapPos, latLng) async {
 if (_searchResults.isNotEmpty) {
 setState(() => _searchResults = []);
@@ -443,6 +448,7 @@ mapController: _map,
 options: fm.MapOptions(
 initialCenter: center,
 initialZoom: 11,
+onPositionChanged: _onMapPositionChanged,
 onTap: (tapPos, latLng) async {
 if (_searchResults.isNotEmpty) {
 setState(() => _searchResults = []);
@@ -788,11 +794,52 @@ _searchController.clear();
 });
 }
 
-Future<void> _loadPOIs() async {
-if (_loadingPOIs) return;
+/// Called when map position changes - debounce POI reload
+  void _onMapPositionChanged(fm.MapCamera camera, bool hasGesture) {
+    // Cancel any pending debounce
+    _poiDebounce?.cancel();
+    
+    // Calculate if position or zoom changed significantly
+    final positionChanged = _lastPOICenter != null && 
+        _calculateDistance(_lastPOICenter!, camera.center) > 2.0; // 2km threshold
+    final zoomChanged = _lastPOIZoom != null && 
+        (camera.zoom - _lastPOIZoom!).abs() > 0.5; // Reload if zoom changes by more than 0.5 levels
+    
+    // Reload if camera moved significantly, zoom changed, or no POIs loaded yet
+    final shouldReload = _lastPOICenter == null ||
+        positionChanged ||
+        zoomChanged ||
+        _osmPOIs.isEmpty;
+    
+    if (shouldReload) {
+      // Debounce to avoid too many API calls
+      _poiDebounce = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          _loadPOIs();
+        }
+      });
+    }
+  }
 
-setState(() => _loadingPOIs = true);
-Log.i('route_builder', '🔍 Starting to load OSM POIs...');
+  /// Calculate distance between two points in kilometers
+  double _calculateDistance(ll.LatLng p1, ll.LatLng p2) {
+    const double earthRadius = 6371; // km
+    final lat1 = p1.latitude * pi / 180;
+    final lat2 = p2.latitude * pi / 180;
+    final dLat = (p2.latitude - p1.latitude) * pi / 180;
+    final dLng = (p2.longitude - p1.longitude) * pi / 180;
+    
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1) * cos(lat2) * sin(dLng / 2) * sin(dLng / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadius * c;
+  }
+
+  Future<void> _loadPOIs() async {
+    if (_loadingPOIs) return;
+
+    setState(() => _loadingPOIs = true);
+    Log.i('route_builder', '🔍 Starting to load OSM POIs...');
 
 try {
 final bounds = _map.camera.visibleBounds;
@@ -819,8 +866,10 @@ if (mounted) {
 setState(() {
 _osmPOIs = pois;
 _loadingPOIs = false;
+_lastPOICenter = _map.camera.center; // Track last loaded center
+_lastPOIZoom = _map.camera.zoom; // Track last loaded zoom
 });
-Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs successfully');
+Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs at zoom ${_map.camera.zoom.toStringAsFixed(1)}');
 }
 } catch (e, stack) {
 Log.e('route_builder', '❌ Failed to load POIs', e, stack);
