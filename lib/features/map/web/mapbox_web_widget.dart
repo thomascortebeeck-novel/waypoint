@@ -52,6 +52,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   }
 
   html.DivElement _createMapContainer() {
+    print('🗺️ [MapboxWeb] Creating map container with ID: $_viewId');
     final container = html.DivElement()
       ..id = _viewId
       ..style.width = '100%'
@@ -59,8 +60,10 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
     // Inject Mapbox GL JS if not already present
     _injectMapboxScripts().then((_) {
+      print('🗺️ [MapboxWeb] Mapbox scripts loaded successfully');
       _createMap(container);
     }).catchError((e) {
+      print('🗺️ [MapboxWeb] ERROR loading Mapbox scripts: $e');
       setState(() => _errorMessage = 'Failed to load Mapbox: $e');
     });
 
@@ -70,8 +73,11 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   Future<void> _injectMapboxScripts() async {
     // Check if Mapbox GL JS is already loaded
     if (js.context.hasProperty('mapboxgl')) {
+      print('🗺️ [MapboxWeb] Mapbox GL JS already loaded, skipping injection');
       return;
     }
+    
+    print('🗺️ [MapboxWeb] Injecting Mapbox GL JS scripts...');
 
     // Add Mapbox GL CSS
     final cssLink = html.LinkElement()
@@ -94,9 +100,27 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   }
 
   void _createMap(html.DivElement container) {
+    print('🗺️ [MapboxWeb] _createMap called for container: $_viewId');
+    
     // Wait for container to be in DOM
     Future.delayed(const Duration(milliseconds: 100), () {
+      print('🗺️ [MapboxWeb] Starting map initialization after delay...');
       try {
+        // DEBUG: Get device pixel ratio
+        final devicePixelRatio = html.window.devicePixelRatio ?? 1;
+        
+        print('🗺️ Mapbox Web Debug Info:');
+        print('  Style URI: $mapboxStyleUri');
+        print('  Device Pixel Ratio: $devicePixelRatio');
+        print('  Initial Zoom: ${widget.initialZoom}');
+        print('  Container ID: $_viewId');
+        
+        // Cap pixelRatio at 2 to prevent zoom level mismatch on very high-DPI displays
+        final cappedPixelRatio = devicePixelRatio > 2 ? 2 : devicePixelRatio;
+        if (devicePixelRatio > 2) {
+          print('  ⚠️ Pixel ratio capped from $devicePixelRatio to 2');
+        }
+        
         final mapOptions = js.JsObject.jsify({
           'container': _viewId,
           // Use the SAME custom Mapbox style as mobile!
@@ -109,6 +133,8 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
           'maxPitch': 85,
           // Enable 3D terrain
           'projection': 'globe',
+          // Cap pixelRatio to prevent zoom mismatch
+          'pixelRatio': cappedPixelRatio,
         });
 
         // Create map
@@ -139,6 +165,12 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         map.callMethod('on', ['moveend', js.allowInterop(() {
           _updateCameraState(map);
         })]);
+
+        // DEBUG: Log zoom changes
+        map.callMethod('on', ['zoom', js.allowInterop(() {
+          final currentZoom = map.callMethod('getZoom', []);
+          print('📍 Current zoom level: $currentZoom');
+        })]);
       } catch (e) {
         setState(() => _errorMessage = 'Failed to create map: $e');
       }
@@ -167,6 +199,10 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   void _onMapLoaded(js.JsObject map) {
     setState(() => _isMapReady = true);
 
+    // DEBUG: Log final zoom level after map loads
+    final loadedZoom = map.callMethod('getZoom', []);
+    print('✅ Map loaded successfully at zoom: $loadedZoom');
+
     // Enable 3D terrain (Mapbox terrain is included in Standard style)
     _enable3DTerrain(map);
 
@@ -193,11 +229,17 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       removeRoute: () {
         _removeRouteFromMap(map);
       },
-      addMarker: (id, lat, lng) {
-        _addMarkerToMap(map, id, lat, lng);
+      addMarker: (id, lat, lng, draggable) {
+        _addMarkerToMap(map, id, lat, lng, draggable: draggable);
       },
       removeMarker: (id) {
         _removeMarkerFromMap(id);
+      },
+      setMarkerDraggable: (id, draggable) {
+        _setMarkerDraggable(id, draggable);
+      },
+      updateMarkerPosition: (id, lat, lng) {
+        _updateMarkerPosition(id, lat, lng);
       },
       initialPosition: CameraPosition(
         center: widget.initialCenter,
@@ -314,8 +356,9 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   }
 
   final Map<String, js.JsObject> _markers = {};
+  final Map<String, bool> _markerDraggableState = {};
 
-  void _addMarkerToMap(js.JsObject map, String id, double lat, double lng) {
+  void _addMarkerToMap(js.JsObject map, String id, double lat, double lng, {bool draggable = false}) {
     // Remove existing marker with same ID
     _removeMarkerFromMap(id);
 
@@ -324,13 +367,13 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       
       // Create custom marker element
       final el = html.DivElement()
-        ..className = 'waypoint-marker'
+        ..className = 'waypoint-marker ${draggable ? 'draggable' : ''}'
         ..style.width = '24px'
         ..style.height = '24px'
         ..style.borderRadius = '50%'
         ..style.border = '3px solid white'
         ..style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
-        ..style.cursor = 'pointer';
+        ..style.cursor = draggable ? 'move' : 'pointer';
 
       if (id == 'user_location') {
         // Blue pulsing marker for user location
@@ -346,13 +389,55 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       final marker = js.JsObject(mapboxgl['Marker'], [js.JsObject.jsify({
         'element': el,
         'anchor': 'center',
+        'draggable': draggable,
       })])
         ..callMethod('setLngLat', [js.JsObject.jsify([lng, lat])])
         ..callMethod('addTo', [map]);
+      
+      // Setup drag event listeners if draggable
+      if (draggable) {
+        marker.callMethod('on', ['dragstart', js.allowInterop(() {
+          _controller?.onMarkerDragStart(id, lat, lng);
+        })]);
+        
+        marker.callMethod('on', ['drag', js.allowInterop(() {
+          final lngLat = marker.callMethod('getLngLat', []);
+          _controller?.onMarkerDragging(id, lngLat['lat'], lngLat['lng']);
+        })]);
+        
+        marker.callMethod('on', ['dragend', js.allowInterop(() {
+          final lngLat = marker.callMethod('getLngLat', []);
+          _controller?.onMarkerDragEnd(id, lngLat['lat'], lngLat['lng']);
+        })]);
+      }
 
       _markers[id] = marker;
+      _markerDraggableState[id] = draggable;
     } catch (e) {
       print('Failed to add marker: $e');
+    }
+  }
+  
+  void _setMarkerDraggable(String id, bool draggable) {
+    final marker = _markers[id];
+    if (marker != null) {
+      try {
+        marker.callMethod('setDraggable', [draggable]);
+        _markerDraggableState[id] = draggable;
+      } catch (e) {
+        print('Failed to set marker draggable: $e');
+      }
+    }
+  }
+  
+  void _updateMarkerPosition(String id, double lat, double lng) {
+    final marker = _markers[id];
+    if (marker != null) {
+      try {
+        marker.callMethod('setLngLat', [js.JsObject.jsify([lng, lat])]);
+      } catch (e) {
+        print('Failed to update marker position: $e');
+      }
     }
   }
 
@@ -363,6 +448,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         marker.callMethod('remove', []);
       } catch (_) {}
       _markers.remove(id);
+      _markerDraggableState.remove(id);
     }
   }
 

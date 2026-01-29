@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/poi_model.dart';
@@ -9,8 +11,8 @@ import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/poi_service.dart';
 import 'package:waypoint/utils/logger.dart';
 
-/// Full-screen route builder map
-/// Allows editing routes and managing waypoints
+/// Full-screen route map viewer (read-only)
+/// Uses AdaptiveMapWidget with Mapbox rendering for beautiful visuals
 class FullscreenRouteMap extends StatefulWidget {
   final DayItinerary day;
   final Function(DayItinerary) onDayUpdated;
@@ -28,7 +30,7 @@ class FullscreenRouteMap extends StatefulWidget {
 }
 
 class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
-  final fm.MapController _mapController = fm.MapController();
+  WaypointMapController? _mapController;
   bool _mapReady = false;
   List<POI> _osmPOIs = [];
   bool _loadingPOIs = false;
@@ -46,26 +48,71 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _onMapReady();
-      }
-    });
   }
 
   void _onMapReady() {
-    if (_mapReady) return;
+    if (_mapReady || _mapController == null) return;
     setState(() => _mapReady = true);
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
+        _addMapData();
         _fitBounds();
         _loadPOIs();
       }
     });
   }
 
-  void _fitBounds() {
-    if (!_mapReady || !mounted) return;
+  /// Add route and markers to the map using the controller API
+  Future<void> _addMapData() async {
+    if (_mapController == null) return;
+
+    // Add route polyline
+    final routePoints = _parseRouteCoordinates();
+    if (routePoints.isNotEmpty) {
+      await _mapController!.addRoutePolyline(
+        routePoints,
+        color: const Color(0xFF4CAF50),
+        width: 4.0,
+      );
+    }
+
+    // Add start marker
+    if (widget.day.startLat != null && widget.day.startLng != null) {
+      await _mapController!.addMarker(
+        'start',
+        ll.LatLng(widget.day.startLat!, widget.day.startLng!),
+      );
+    }
+
+    // Add end marker
+    if (widget.day.endLat != null && widget.day.endLng != null) {
+      await _mapController!.addMarker(
+        'end',
+        ll.LatLng(widget.day.endLat!, widget.day.endLng!),
+      );
+    }
+
+    // Add waypoint markers
+    if (widget.day.route != null) {
+      for (final wpJson in widget.day.route!.poiWaypoints) {
+        try {
+          if (wpJson is Map<String, dynamic> && 
+              wpJson['position'] != null &&
+              wpJson['position']['lat'] != null && 
+              wpJson['position']['lng'] != null) {
+            final wp = RouteWaypoint.fromJson(wpJson);
+            await _mapController!.addMarker(
+              'waypoint_${wp.name}',
+              wp.position,
+            );
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _fitBounds() async {
+    if (!_mapReady || !mounted || _mapController == null) return;
     
     final bounds = <ll.LatLng>[];
 
@@ -134,22 +181,32 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
     }
 
     try {
-      _mapController.move(center, zoom);
+      await _mapController!.animateCamera(center, zoom);
     } catch (_) {}
   }
 
   Future<void> _loadPOIs() async {
-    if (_loadingPOIs || !_mapReady) return;
+    if (_loadingPOIs || !_mapReady || _mapController == null) return;
     
     setState(() => _loadingPOIs = true);
     
     try {
-      // Get map bounds
-      final bounds = _mapController.camera.visibleBounds;
+      // Get visible bounds from current camera position
+      final currentPos = _mapController!.currentPosition;
+      if (currentPos == null) {
+        setState(() => _loadingPOIs = false);
+        return;
+      }
+
+      // Calculate approximate bounds based on zoom level
+      final center = currentPos.center;
+      final zoom = currentPos.zoom;
+      final latOffset = 0.1 / zoom;
+      final lngOffset = 0.1 / zoom;
       
       final pois = await POIService.fetchPOIs(
-        southWest: ll.LatLng(bounds.south, bounds.west),
-        northEast: ll.LatLng(bounds.north, bounds.east),
+        southWest: ll.LatLng(center.latitude - latOffset, center.longitude - lngOffset),
+        northEast: ll.LatLng(center.latitude + latOffset, center.longitude + lngOffset),
         poiTypes: _selectedPOITypes.toList(),
         maxResults: 200,
       );
@@ -159,6 +216,15 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
           _osmPOIs = pois;
           _loadingPOIs = false;
         });
+        
+        // Add POI markers to map
+        for (final poi in pois) {
+          await _mapController!.addMarker(
+            'poi_${poi.id}',
+            poi.coordinates,
+          );
+        }
+        
         Log.i('map', 'Loaded ${pois.length} OSM POIs');
       }
     } catch (e) {
@@ -198,14 +264,18 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
     return points;
   }
 
-  void _zoomIn() {
-    final currentZoom = _mapController.camera.zoom;
-    _mapController.move(_mapController.camera.center, currentZoom + 1);
+  Future<void> _zoomIn() async {
+    if (_mapController == null) return;
+    final currentPos = _mapController!.currentPosition;
+    if (currentPos == null) return;
+    await _mapController!.animateCamera(currentPos.center, currentPos.zoom + 1);
   }
 
-  void _zoomOut() {
-    final currentZoom = _mapController.camera.zoom;
-    _mapController.move(_mapController.camera.center, currentZoom - 1);
+  Future<void> _zoomOut() async {
+    if (_mapController == null) return;
+    final currentPos = _mapController!.currentPosition;
+    if (currentPos == null) return;
+    await _mapController!.animateCamera(currentPos.center, currentPos.zoom - 1);
   }
 
   @override
@@ -222,43 +292,22 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
       }
     }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Full-screen map
-          fm.FlutterMap(
-            mapController: _mapController,
-            options: fm.MapOptions(
-              initialCenter: initialCenter,
-              initialZoom: 12,
-              interactionOptions: const fm.InteractionOptions(
-                flags: fm.InteractiveFlag.all,
-                enableMultiFingerGestureRace: true,
-              ),
-              onPositionChanged: (position, hasGesture) {
-                // Reload POIs when map moves significantly
-                if (hasGesture) {
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    if (mounted && !_loadingPOIs) {
-                      _loadPOIs();
-                    }
-                  });
-                }
-              },
-            ),
-            children: [
-              // Map tiles - using custom Mapbox style
-              fm.TileLayer(
-                urlTemplate: defaultRasterTileUrl,
-                userAgentPackageName: 'com.waypoint.app',
-              ),
-              // Route line
-              if (widget.day.route?.geometry != null) _buildRoutePolyline(),
-              // Markers
-              fm.MarkerLayer(markers: _buildMarkers()),
-            ],
-          ),
+    final mapConfig = MapConfiguration.mainMap(
+      styleUri: mapboxStyleUri,
+      rasterTileUrl: defaultRasterTileUrl,
+      enable3DTerrain: true,
+      initialZoom: 12.0,
+    );
 
+    return Scaffold(
+      body: AdaptiveMapWidget(
+        initialCenter: initialCenter,
+        configuration: mapConfig,
+        onMapCreated: (controller) {
+          _mapController = controller;
+          _onMapReady();
+        },
+        overlays: [
           // Top bar
           Positioned(
             top: 0,
@@ -322,139 +371,6 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
         ],
       ),
     );
-  }
-
-  Widget _buildRoutePolyline() {
-    final points = _parseRouteCoordinates();
-    if (points.isEmpty) return const SizedBox.shrink();
-
-    return fm.PolylineLayer(
-      polylines: [
-        fm.Polyline(
-          points: points,
-          strokeWidth: 4,
-          color: const Color(0xFF4CAF50),
-          borderStrokeWidth: 2,
-          borderColor: Colors.white,
-        ),
-      ],
-    );
-  }
-
-  List<fm.Marker> _buildMarkers() {
-    final markers = <fm.Marker>[];
-
-    // Start marker (A) - 40px, distinct from POIs
-    if (widget.day.startLat != null && widget.day.startLng != null) {
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(widget.day.startLat!, widget.day.startLng!),
-          width: 40,
-          height: 40,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF52B788),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'A',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // End marker (B) - 40px, distinct from POIs
-    if (widget.day.endLat != null && widget.day.endLng != null) {
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(widget.day.endLat!, widget.day.endLng!),
-          width: 40,
-          height: 40,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFD62828),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'B',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // OSM POI markers (subtle, background context)
-    for (final poi in _osmPOIs) {
-      markers.add(
-        fm.Marker(
-          point: poi.coordinates,
-          width: 24,
-          height: 24,
-          child: GestureDetector(
-            onTap: () => _showPOIDetails(poi),
-            child: _buildOSMPOIMarker(poi),
-          ),
-        ),
-      );
-    }
-
-    // Custom waypoint markers (bold, prominent - USER'S PLAN)
-    if (widget.day.route != null) {
-      for (final wpJson in widget.day.route!.poiWaypoints) {
-        try {
-          if (wpJson is Map<String, dynamic> && 
-              wpJson['position'] != null &&
-              wpJson['position']['lat'] != null && 
-              wpJson['position']['lng'] != null) {
-            final wp = RouteWaypoint.fromJson(wpJson);
-            markers.add(
-              fm.Marker(
-                point: wp.position,
-                width: 36,
-                height: 36,
-                child: GestureDetector(
-                  onTap: () => _showWaypointDetails(wp),
-                  child: _buildCustomWaypointMarker(wp),
-                ),
-              ),
-            );
-          }
-        } catch (_) {}
-      }
-    }
-
-    return markers;
   }
 
   Widget _buildTopButton({required IconData icon, required VoidCallback onTap}) {
@@ -596,203 +512,6 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
             );
           }),
         ],
-      ),
-    );
-  }
-
-  /// Build minimalistic OSM POI marker (subtle, background context)
-  Widget _buildOSMPOIMarker(POI poi) {
-    return Container(
-      width: 24,
-      height: 24,
-      decoration: BoxDecoration(
-        color: poi.type.color.withValues(alpha: 0.7),
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.8),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Icon(
-        poi.type.icon,
-        color: Colors.white,
-        size: 14,
-      ),
-    );
-  }
-
-  /// Build bold Custom Waypoint marker (prominent, core feature)
-  Widget _buildCustomWaypointMarker(RouteWaypoint waypoint) {
-    final waypointColor = getWaypointColor(waypoint.type);
-    
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: waypointColor,
-          width: 3.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-          BoxShadow(
-            color: waypointColor.withValues(alpha: 0.4),
-            blurRadius: 8,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Icon(
-        getWaypointIcon(waypoint.type),
-        color: waypointColor,
-        size: 20,
-      ),
-    );
-  }
-
-  void _showPOIDetails(POI poi) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: poi.type.color,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(poi.type.icon, color: Colors.white, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        poi.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        '${poi.type.displayName} (OSM)',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (poi.description != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                poi.description!,
-                style: const TextStyle(fontSize: 15),
-              ),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              '${poi.coordinates.latitude.toStringAsFixed(5)}, ${poi.coordinates.longitude.toStringAsFixed(5)}',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showWaypointDetails(RouteWaypoint waypoint) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: getWaypointColor(waypoint.type),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    getWaypointIcon(waypoint.type),
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        waypoint.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        getWaypointLabel(waypoint.type),
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (waypoint.description != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                waypoint.description!,
-                style: const TextStyle(fontSize: 15),
-              ),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              '${waypoint.position.latitude.toStringAsFixed(5)}, ${waypoint.position.longitude.toStringAsFixed(5)}',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

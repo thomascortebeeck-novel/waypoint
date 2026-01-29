@@ -36,6 +36,7 @@ abstract class WaypointMapController {
     LatLng position, {
     Widget? customWidget,
     String? iconAsset,
+    bool draggable = false,
   });
 
   /// Remove marker from map
@@ -46,6 +47,15 @@ abstract class WaypointMapController {
     LatLng position, {
     double? heading,
   });
+  
+  /// Make a marker draggable (for route building)
+  Future<void> setMarkerDraggable(String markerId, bool draggable);
+  
+  /// Listen to marker drag events
+  Stream<MarkerDragEvent> get onMarkerDrag;
+  
+  /// Update marker position programmatically
+  Future<void> updateMarkerPosition(String markerId, LatLng position);
 
   /// Stream of map tap events
   Stream<LatLng> get onMapTap;
@@ -73,4 +83,29 @@ class CameraPosition {
     this.bearing = 0,
     this.tilt = 0,
   });
+}
+
+/// Marker drag event data
+class MarkerDragEvent {
+  final String markerId;
+  final LatLng position;
+  final MarkerDragState state;
+  
+  const MarkerDragEvent({
+    required this.markerId,
+    required this.position,
+    required this.state,
+  });
+}
+
+/// Marker drag states
+enum MarkerDragState {
+  /// Drag started
+  dragStart,
+  
+  /// Dragging in progress
+  drag,
+  
+  /// Drag ended
+  dragEnd,
 }

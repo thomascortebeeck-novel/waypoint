@@ -49,6 +49,7 @@ State<RouteBuilderScreen> createState() => _RouteBuilderScreenState();
 }
 
 class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
+// FlutterMap controller for web-based map
 final fm.MapController _map = fm.MapController();
 final _svc = MapboxService();
 final _searchController = TextEditingController();
@@ -83,6 +84,8 @@ double? _lastPOIZoom;
 void initState() {
 super.initState();
 Log.i('route_builder', 'RouteBuilderScreen init');
+Log.i('route_builder', '🗺️ Using flutter_map with raster tiles (MapboxEverywhere not yet supported for editing)');
+Log.i('route_builder', '🗺️ Tile URL: $defaultRasterTileUrl');
 WidgetsBinding.instance.addPostFrameCallback((_) {
 if (mounted) {
 _loadPOIs();

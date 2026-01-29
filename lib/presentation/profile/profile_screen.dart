@@ -67,6 +67,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: StreamBuilder(
                 stream: auth.authStateChanges,
                 builder: (context, snapshot) {
+                  // Wait for stream to initialize
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(48.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+                  
                   final firebaseUser = snapshot.data;
                   if (firebaseUser == null) {
                     return _LoggedOutView(

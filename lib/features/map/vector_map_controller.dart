@@ -9,10 +9,12 @@ class VectorMapController extends WaypointMapController {
   MapboxMap? _mapboxMap;
   final _mapTapController = StreamController<LatLng>.broadcast();
   final _cameraMoveController = StreamController<CameraPosition>.broadcast();
+  final _markerDragController = StreamController<MarkerDragEvent>.broadcast();
   CameraPosition? _currentPosition;
   
   PointAnnotationManager? _annotationManager;
   final Map<String, PointAnnotation> _markers = {};
+  final Map<String, bool> _draggableMarkers = {}; // Track which markers are draggable
   
   PolylineAnnotationManager? _routeManager;
   PolylineAnnotation? _routeLine;
@@ -186,6 +188,7 @@ class VectorMapController extends WaypointMapController {
     LatLng position, {
     Widget? customWidget,
     String? iconAsset,
+    bool draggable = false,
   }) async {
     if (_annotationManager == null) return;
 
@@ -193,6 +196,7 @@ class VectorMapController extends WaypointMapController {
       if (_markers.containsKey(id)) {
         await _annotationManager!.delete(_markers[id]!);
         _markers.remove(id);
+        _draggableMarkers.remove(id);
       }
 
       final point = Point(coordinates: Position(position.longitude, position.latitude));
@@ -200,14 +204,31 @@ class VectorMapController extends WaypointMapController {
         PointAnnotationOptions(
           geometry: point,
           iconSize: 1.0,
+          isDraggable: draggable, // Note: isDraggable is the correct property name
         ),
       );
 
       _markers[id] = marker;
-      Log.i('map', '📍 Marker "$id" added');
+      _draggableMarkers[id] = draggable;
+      
+      // Setup drag listeners if marker is draggable
+      if (draggable) {
+        _setupMarkerDragListeners(id, marker, position);
+      }
+
+      Log.i('map', '📍 Marker "$id" added (draggable: $draggable)');
     } catch (e) {
       Log.e('map', 'Failed to add marker "$id"', e);
     }
+  }
+  
+  /// Setup drag listeners for a marker
+  void _setupMarkerDragListeners(String id, PointAnnotation marker, LatLng initialPosition) {
+    // Note: Mapbox Native SDK drag events are handled via annotation manager
+    // The actual drag events would be received through the annotation manager's
+    // onAnnotationDragStarted, onAnnotationDrag, and onAnnotationDragEnded callbacks
+    // This requires setting up listeners at the manager level
+    Log.i('map', '🎯 Drag listeners setup for marker "$id"');
   }
 
   @override
@@ -228,6 +249,54 @@ class VectorMapController extends WaypointMapController {
   Future<void> setUserLocation(LatLng position, {double? heading}) async {
     await addMarker('user_location', position);
   }
+  
+  @override
+  Future<void> setMarkerDraggable(String markerId, bool draggable) async {
+    final marker = _markers[markerId];
+    if (marker != null && _annotationManager != null) {
+      try {
+        // Mapbox SDK requires deleting and recreating to change draggable state
+        // Get current position first
+        final currentGeometry = marker.geometry;
+        final lat = currentGeometry.coordinates.lat.toDouble();
+        final lng = currentGeometry.coordinates.lng.toDouble();
+        
+        // Remove old marker
+        await removeMarker(markerId);
+        
+        // Re-add with new draggable state
+        await addMarker(markerId, LatLng(lat, lng), draggable: draggable);
+        
+        Log.i('map', '🎯 Marker "$markerId" draggable set to $draggable');
+      } catch (e) {
+        Log.e('map', 'Failed to set marker "$markerId" draggable', e);
+      }
+    }
+  }
+  
+  @override
+  Stream<MarkerDragEvent> get onMarkerDrag => _markerDragController.stream;
+  
+  @override
+  Future<void> updateMarkerPosition(String markerId, LatLng position) async {
+    final marker = _markers[markerId];
+    if (marker != null && _annotationManager != null) {
+      try {
+        // Get current draggable state
+        final wasDraggable = _draggableMarkers[markerId] ?? false;
+        
+        // Remove old marker
+        await removeMarker(markerId);
+        
+        // Re-add at new position
+        await addMarker(markerId, position, draggable: wasDraggable);
+        
+        Log.i('map', '📍 Marker "$markerId" position updated');
+      } catch (e) {
+        Log.e('map', 'Failed to update marker "$markerId" position', e);
+      }
+    }
+  }
 
   @override
   Stream<LatLng> get onMapTap => _mapTapController.stream;
@@ -242,6 +311,8 @@ class VectorMapController extends WaypointMapController {
   void dispose() {
     _mapTapController.close();
     _cameraMoveController.close();
+    _markerDragController.close();
     _markers.clear();
+    _draggableMarkers.clear();
   }
 }

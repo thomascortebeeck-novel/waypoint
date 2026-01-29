@@ -3,12 +3,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
-import 'package:flutter_map/flutter_map.dart' as fm;
-import 'package:waypoint/integrations/offline_tile_provider.dart';
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/theme.dart';
 
+/// Live GPS tracking screen with route following
+/// Uses AdaptiveMapWidget with Mapbox for beautiful terrain visualization
 class TrackingScreen extends StatefulWidget {
   final DayItinerary day;
   const TrackingScreen({super.key, required this.day});
@@ -20,6 +23,7 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen> {
   StreamSubscription<Position>? _sub;
   Position? _position;
+  WaypointMapController? _mapController;
   double _offRouteMeters = 0;
   late final List<ll.LatLng> _routeLine;
   final _distCalc = const ll.Distance();
@@ -33,7 +37,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
   double? _vertMPerHr;
   double _progressMeters = 0;
   
-
   @override
   void initState() {
     super.initState();
@@ -68,6 +71,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
         final vRate = (sp != null && grade != null) ? (sp * 1000 / 3600) * (grade / 100) * 3600 : null; // m/h
         final remaining = (_routeLengthMeters - proj.alongMeters).clamp(0, double.infinity);
         final eta = (sp != null && sp > 0.2) ? Duration(seconds: (remaining / (sp * 1000 / 3600)).round()) : null;
+        
+        // Update map with user location
+        if (_mapController != null) {
+          _mapController!.setUserLocation(user, heading: pos.heading);
+          // Center map on user location
+          _mapController!.animateCamera(user, 15);
+        }
+        
         setState(() {
           _position = pos;
           _offRouteMeters = off;
@@ -85,6 +96,25 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
   }
 
+  void _onMapReady() {
+    if (_mapController == null) return;
+    
+    // Add route polyline
+    if (_routeLine.isNotEmpty) {
+      _mapController!.addRoutePolyline(
+        _routeLine,
+        color: Colors.blue,
+        width: 4.0,
+      );
+    }
+    
+    // If we already have a position, show it
+    if (_position != null) {
+      final userPos = ll.LatLng(_position!.latitude, _position!.longitude);
+      _mapController!.setUserLocation(userPos, heading: _position!.heading);
+    }
+  }
+
   @override
   void dispose() {
     _sub?.cancel();
@@ -95,73 +125,73 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Widget build(BuildContext context) {
     final center = _routeLine.isNotEmpty ? _routeLine.first : const ll.LatLng(46.8, 8.23);
 
-    return Scaffold(
-      body: Stack(children: [
-        fm.FlutterMap(
-          options: fm.MapOptions(initialCenter: center, initialZoom: 12),
-          children: [
-            fm.TileLayer(
-              urlTemplate: defaultRasterTileUrl,
-              userAgentPackageName: 'com.waypoint.app',
-              tileProvider: kIsWeb ? fm.NetworkTileProvider() : tileProviderOrNetwork(),
-            ),
-            if (_routeLine.isNotEmpty)
-              fm.PolylineLayer(polylines: [fm.Polyline(points: _routeLine, color: Colors.blue, strokeWidth: 4)]),
-            fm.MarkerLayer(markers: [
-              if (_position != null) fm.Marker(point: ll.LatLng(_position!.latitude, _position!.longitude), width: 26, height: 26, child: _puck()),
-            ])
-          ],
-        ),
+    final mapConfig = MapConfiguration.mainMap(
+      styleUri: mapboxStyleUri,
+      rasterTileUrl: defaultRasterTileUrl,
+      enable3DTerrain: true,
+      initialZoom: 12.0,
+    );
 
-        Positioned(
-          top: 50,
-          left: 16,
-          right: 16,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  const Icon(Icons.directions_walk),
-                  const SizedBox(width: 8),
-                  Text('Off route: ${_offRouteMeters.toStringAsFixed(0)} m'),
-                  const Spacer(),
-                  if (_speedKmh != null) Padding(padding: const EdgeInsets.only(right: 10), child: Row(children: [const Icon(Icons.speed, size: 16), const SizedBox(width: 4), Text('${_speedKmh!.toStringAsFixed(1)} km/h')]),),
-                  if (_eta != null) Padding(padding: const EdgeInsets.only(right: 10), child: Row(children: [const Icon(Icons.schedule, size: 16), const SizedBox(width: 4), Text(_formatEta(_eta!))])),
-                  if (_gradePercent != null) Padding(padding: const EdgeInsets.only(right: 10), child: Row(children: [const Icon(Icons.landscape, size: 16), const SizedBox(width: 4), Text('${_gradePercent!.toStringAsFixed(0)}%')])),
-                  if (_vertMPerHr != null) Row(children: [const Icon(Icons.trending_up, size: 16), const SizedBox(width: 4), Text('${_vertMPerHr!.round()} m/h')]),
-                ],
+    return Scaffold(
+      body: AdaptiveMapWidget(
+        initialCenter: center,
+        configuration: mapConfig,
+        onMapCreated: (controller) {
+          _mapController = controller;
+          _onMapReady();
+        },
+        overlays: [
+          // Top stats card
+          Positioned(
+            top: 50,
+            left: 16,
+            right: 16,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.directions_walk),
+                    const SizedBox(width: 8),
+                    Text('Off route: ${_offRouteMeters.toStringAsFixed(0)} m'),
+                    const Spacer(),
+                    if (_speedKmh != null) Padding(padding: const EdgeInsets.only(right: 10), child: Row(children: [const Icon(Icons.speed, size: 16), const SizedBox(width: 4), Text('${_speedKmh!.toStringAsFixed(1)} km/h')]),),
+                    if (_eta != null) Padding(padding: const EdgeInsets.only(right: 10), child: Row(children: [const Icon(Icons.schedule, size: 16), const SizedBox(width: 4), Text(_formatEta(_eta!))])),
+                    if (_gradePercent != null) Padding(padding: const EdgeInsets.only(right: 10), child: Row(children: [const Icon(Icons.landscape, size: 16), const SizedBox(width: 4), Text('${_gradePercent!.toStringAsFixed(0)}%')])),
+                    if (_vertMPerHr != null) Row(children: [const Icon(Icons.trending_up, size: 16), const SizedBox(width: 4), Text('${_vertMPerHr!.round()} m/h')]),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        Positioned(
-          bottom: 120,
-          left: 16,
-          right: 16,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  Text('Progress', style: context.textStyles.labelSmall),
-                  Text(_routeLengthMeters > 0 ? '${(_progressMeters / _routeLengthMeters * 100).toStringAsFixed(0)}%' : '0%'),
+          
+          // Progress card
+          Positioned(
+            bottom: 120,
+            left: 16,
+            right: 16,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    Text('Progress', style: context.textStyles.labelSmall),
+                    Text(_routeLengthMeters > 0 ? '${(_progressMeters / _routeLengthMeters * 100).toStringAsFixed(0)}%' : '0%'),
+                  ]),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(
+                    value: _routeLengthMeters > 0 ? (_progressMeters / _routeLengthMeters).clamp(0.0, 1.0) : 0,
+                    backgroundColor: Colors.grey.shade300,
+                    valueColor: AlwaysStoppedAnimation(Theme.of(context).colorScheme.primary),
+                  ),
                 ]),
-                const SizedBox(height: 6),
-                LinearProgressIndicator(
-                  value: _routeLengthMeters > 0 ? (_progressMeters / _routeLengthMeters).clamp(0.0, 1.0) : 0,
-                  backgroundColor: Colors.grey.shade300,
-                  valueColor: AlwaysStoppedAnimation(Theme.of(context).colorScheme.primary),
-                ),
-              ]),
+              ),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
-
-  Widget _puck() => Container(decoration: BoxDecoration(color: Colors.blue, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)));
 
   ll.LatLng _nearestPointOnRoute(ll.LatLng p, List<ll.LatLng> line) {
     if (line.isEmpty) return p;

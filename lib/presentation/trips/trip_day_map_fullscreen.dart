@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
@@ -10,6 +12,7 @@ import 'package:waypoint/presentation/widgets/elevation_chart.dart';
 import 'package:waypoint/theme.dart';
 
 /// Full-screen map view for a trip day (AllTrails-style)
+/// Uses AdaptiveMapWidget with Mapbox rendering for beautiful 3D terrain
 class TripDayMapFullscreen extends StatefulWidget {
   final DayItinerary day;
   final int dayNumber;
@@ -25,48 +28,91 @@ class TripDayMapFullscreen extends StatefulWidget {
 }
 
 class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
-  final fm.MapController _mapController = fm.MapController();
+  WaypointMapController? _mapController;
   bool _showElevation = false;
   bool _mapReady = false;
 
   @override
   void initState() {
     super.initState();
-    // Schedule fit bounds after first frame to ensure map is ready
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _onMapReady();
-      }
-    });
   }
 
   void _onMapReady() {
-    if (_mapReady) return;
+    if (_mapReady || _mapController == null) return;
     setState(() => _mapReady = true);
-    // Small delay to ensure map controller is fully initialized
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
+        _addMapData();
         _fitBounds();
       }
     });
   }
 
-  void _fitBounds() {
-    if (!_mapReady || !mounted) {
-      return;
+  /// Add route and markers using controller API
+  Future<void> _addMapData() async {
+    if (_mapController == null) return;
+
+    // Add route polyline
+    final routePoints = _parseRouteCoordinates();
+    if (routePoints.isNotEmpty) {
+      await _mapController!.addRoutePolyline(
+        routePoints,
+        color: const Color(0xFF4CAF50),
+        width: 4.0,
+      );
+      debugPrint('Added route with ${routePoints.length} points');
     }
+
+    // Add start marker
+    if (widget.day.startLat != null && widget.day.startLng != null) {
+      await _mapController!.addMarker(
+        'start',
+        ll.LatLng(widget.day.startLat!, widget.day.startLng!),
+      );
+    }
+
+    // Add end marker
+    if (widget.day.endLat != null && widget.day.endLng != null) {
+      await _mapController!.addMarker(
+        'end',
+        ll.LatLng(widget.day.endLat!, widget.day.endLng!),
+      );
+    }
+
+    // Add waypoint markers
+    if (widget.day.route != null && widget.day.route!.poiWaypoints.isNotEmpty) {
+      for (final wpJson in widget.day.route!.poiWaypoints) {
+        try {
+          if (wpJson is Map<String, dynamic> && 
+              wpJson['position'] != null &&
+              wpJson['position']['lat'] != null && 
+              wpJson['position']['lng'] != null) {
+            final wp = RouteWaypoint.fromJson(wpJson);
+            await _mapController!.addMarker(
+              'waypoint_${wp.name}',
+              wp.position,
+            );
+          }
+        } catch (e) {
+          debugPrint('Skipping waypoint: $e');
+        }
+      }
+    }
+  }
+
+  Future<void> _fitBounds() async {
+    if (!_mapReady || !mounted || _mapController == null) return;
     
     final day = widget.day;
     final bounds = <ll.LatLng>[];
 
-    // Add all route geometry points for accurate bounds
+    // Add route geometry points
     final routePoints = _parseRouteCoordinates();
     if (routePoints.isNotEmpty) {
       bounds.addAll(routePoints);
-      debugPrint('Added ${routePoints.length} route geometry points to bounds');
     }
 
-    // Add start/end points as fallback
+    // Add start/end points
     if (day.startLat != null && day.startLng != null) {
       bounds.add(ll.LatLng(day.startLat!, day.startLng!));
     }
@@ -74,7 +120,7 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
       bounds.add(ll.LatLng(day.endLat!, day.endLng!));
     }
 
-    // Add POI waypoint positions
+    // Add waypoint positions
     if (day.route != null && day.route!.poiWaypoints.isNotEmpty) {
       for (final wpJson in day.route!.poiWaypoints) {
         try {
@@ -85,16 +131,11 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
             final wp = RouteWaypoint.fromJson(wpJson);
             bounds.add(wp.position);
           }
-        } catch (e) {
-          debugPrint('Skipping waypoint with invalid position: $e');
-        }
+        } catch (_) {}
       }
     }
 
-    if (bounds.isEmpty) {
-      debugPrint('No bounds to fit');
-      return;
-    }
+    if (bounds.isEmpty) return;
 
     // Calculate bounds
     double minLat = bounds.first.latitude;
@@ -109,7 +150,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
       if (point.longitude > maxLng) maxLng = point.longitude;
     }
 
-    // Add padding to bounds
     final latPadding = (maxLat - minLat) * 0.15;
     final lngPadding = (maxLng - minLng) * 0.15;
     minLat -= latPadding;
@@ -134,30 +174,30 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
     }
 
     try {
-      _mapController.move(center, zoom);
-      debugPrint('Map fitted to bounds: center=$center, zoom=$zoom, ${bounds.length} points');
-    } catch (e) {
-      debugPrint('Error fitting bounds: $e');
-    }
+      await _mapController!.animateCamera(center, zoom);
+    } catch (_) {}
   }
 
-  void _zoomIn() {
-    final currentZoom = _mapController.camera.zoom;
-    _mapController.move(_mapController.camera.center, currentZoom + 1);
+  Future<void> _zoomIn() async {
+    if (_mapController == null) return;
+    final currentPos = _mapController!.currentPosition;
+    if (currentPos == null) return;
+    await _mapController!.animateCamera(currentPos.center, currentPos.zoom + 1);
   }
 
-  void _zoomOut() {
-    final currentZoom = _mapController.camera.zoom;
-    _mapController.move(_mapController.camera.center, currentZoom - 1);
+  Future<void> _zoomOut() async {
+    if (_mapController == null) return;
+    final currentPos = _mapController!.currentPosition;
+    if (currentPos == null) return;
+    await _mapController!.animateCamera(currentPos.center, currentPos.zoom - 1);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Calculate initial center from route data
-    ll.LatLng initialCenter = ll.LatLng(68.35, 18.83); // Default
+    // Calculate initial center
+    ll.LatLng initialCenter = ll.LatLng(68.35, 18.83);
     if (widget.day.startLat != null && widget.day.startLng != null) {
       if (widget.day.endLat != null && widget.day.endLng != null) {
-        // Center between start and end
         initialCenter = ll.LatLng(
           (widget.day.startLat! + widget.day.endLat!) / 2,
           (widget.day.startLng! + widget.day.endLng!) / 2,
@@ -167,37 +207,22 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
       }
     }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Full-screen map
-          fm.FlutterMap(
-            mapController: _mapController,
-            options: fm.MapOptions(
-              initialCenter: initialCenter,
-              initialZoom: 12,
-              onMapReady: () {
-                // This callback is called by flutter_map when ready
-                debugPrint('Flutter map onMapReady callback');
-              },
-              interactionOptions: const fm.InteractionOptions(
-                flags: fm.InteractiveFlag.all,
-                enableMultiFingerGestureRace: true,
-              ),
-            ),
-            children: [
-              // Map tiles
-              fm.TileLayer(
-                urlTemplate: defaultRasterTileUrl,
-                userAgentPackageName: 'com.waypoint.app',
-              ),
-              // Route line
-              if (widget.day.route?.geometry != null) _buildRoutePolyline(),
-              // Markers
-              fm.MarkerLayer(markers: _buildMarkers()),
-            ],
-          ),
+    final mapConfig = MapConfiguration.mainMap(
+      styleUri: mapboxStyleUri,
+      rasterTileUrl: defaultRasterTileUrl,
+      enable3DTerrain: true,
+      initialZoom: 12.0,
+    );
 
+    return Scaffold(
+      body: AdaptiveMapWidget(
+        initialCenter: initialCenter,
+        configuration: mapConfig,
+        onMapCreated: (controller) {
+          _mapController = controller;
+          _onMapReady();
+        },
+        overlays: [
           // Top app bar
           Positioned(
             top: 0,
@@ -236,9 +261,7 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                     ),
                     _buildTopButton(
                       icon: Icons.layers_outlined,
-                      onTap: () {
-                        // Placeholder for map layers
-                      },
+                      onTap: () {},
                     ),
                   ],
                 ),
@@ -270,7 +293,7 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
             ),
           ),
 
-          // Bottom sheet with elevation chart
+          // Bottom sheet with elevation
           Positioned(
             left: 0,
             right: 0,
@@ -300,7 +323,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                 ),
                 child: Column(
                   children: [
-                    // Drag handle
                     Container(
                       margin: const EdgeInsets.only(top: 12),
                       width: 40,
@@ -311,8 +333,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Title and stats
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Column(
@@ -350,8 +370,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
-                    // Elevation chart
                     if (_showElevation && widget.day.route?.elevationProfile != null)
                       Expanded(
                         child: SingleChildScrollView(
@@ -379,8 +397,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                           ),
                         ),
                       ),
-
-                    // Action buttons
                     if (!_showElevation)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -391,7 +407,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                                 icon: Icons.download_outlined,
                                 label: 'Download',
                                 onTap: () {
-                                  // Placeholder for download functionality
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Download feature coming soon')),
                                   );
@@ -405,7 +420,6 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                                 icon: Icons.navigation,
                                 label: 'Start',
                                 onTap: () {
-                                  // Placeholder for start navigation
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Navigation feature coming soon')),
                                   );
@@ -426,192 +440,33 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
     );
   }
 
-  /// Parse route geometry coordinates (supports both array and Map formats)
   List<ll.LatLng> _parseRouteCoordinates() {
     final geometry = widget.day.route?.geometry;
-    if (geometry == null) {
-      debugPrint('No route geometry available');
-      return [];
-    }
+    if (geometry == null) return [];
 
     final coords = geometry['coordinates'] as List?;
-    if (coords == null || coords.isEmpty) {
-      debugPrint('No coordinates in geometry');
-      return [];
-    }
+    if (coords == null || coords.isEmpty) return [];
 
     final points = <ll.LatLng>[];
     for (final c in coords) {
       try {
         if (c is List && c.length >= 2) {
-          // Array format: [lng, lat]
           final lng = (c[0] as num?)?.toDouble();
           final lat = (c[1] as num?)?.toDouble();
           if (lat != null && lng != null) {
             points.add(ll.LatLng(lat, lng));
           }
         } else if (c is Map) {
-          // Firestore-safe Map format: {lng: ..., lat: ...}
           final lat = (c['lat'] as num?)?.toDouble();
           final lng = (c['lng'] as num?)?.toDouble();
           if (lat != null && lng != null) {
             points.add(ll.LatLng(lat, lng));
           }
         }
-      } catch (e) {
-        debugPrint('Error parsing coordinate: $e');
-      }
+      } catch (_) {}
     }
     
-    debugPrint('Parsed ${points.length} route points from ${coords.length} coordinates');
     return points;
-  }
-
-  Widget _buildRoutePolyline() {
-    final points = _parseRouteCoordinates();
-    
-    if (points.isEmpty) {
-      debugPrint('No valid points parsed from coordinates');
-      return const SizedBox.shrink();
-    }
-
-    debugPrint('Building route polyline with ${points.length} points');
-    return fm.PolylineLayer(
-      polylines: [
-        fm.Polyline(
-          points: points,
-          strokeWidth: 4,
-          color: const Color(0xFF4CAF50),
-          borderStrokeWidth: 2,
-          borderColor: Colors.white,
-        ),
-      ],
-    );
-  }
-
-  List<fm.Marker> _buildMarkers() {
-    final markers = <fm.Marker>[];
-    final day = widget.day;
-
-    // Start marker (A)
-    if (day.startLat != null && day.startLng != null) {
-      debugPrint('Adding start marker at ${day.startLat}, ${day.startLng}');
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(day.startLat!, day.startLng!),
-          width: 36,
-          height: 36,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'A',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // End marker (B)
-    if (day.endLat != null && day.endLng != null) {
-      debugPrint('Adding end marker at ${day.endLat}, ${day.endLng}');
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(day.endLat!, day.endLng!),
-          width: 36,
-          height: 36,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF44336),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'B',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // POI waypoint markers
-    if (day.route != null && day.route!.poiWaypoints.isNotEmpty) {
-      debugPrint('Processing ${day.route!.poiWaypoints.length} POI waypoints');
-      for (final wpJson in day.route!.poiWaypoints) {
-        try {
-          if (wpJson is Map<String, dynamic> && 
-              wpJson['position'] != null &&
-              wpJson['position']['lat'] != null && 
-              wpJson['position']['lng'] != null) {
-            final wp = RouteWaypoint.fromJson(wpJson);
-            debugPrint('Adding POI marker for ${wp.name} at ${wp.position}');
-            markers.add(
-              fm.Marker(
-                point: wp.position,
-                width: 36,
-                height: 36,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: getWaypointColor(wp.type),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 4,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    getWaypointIcon(wp.type),
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-              ),
-            );
-          }
-        } catch (e) {
-          // Skip waypoints with invalid data
-          debugPrint('Skipping waypoint marker with invalid data: $e');
-        }
-      }
-    }
-
-    debugPrint('Total markers: ${markers.length}');
-    return markers;
   }
 
   Widget _buildTopButton({required IconData icon, required VoidCallback onTap}) {

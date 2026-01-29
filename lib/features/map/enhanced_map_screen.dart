@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/features/map/tracking_overlay_widget.dart';
+import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/utils/logger.dart';
 
 /// Enhanced map screen with vector tiles, 3D terrain, and offline support
@@ -183,11 +185,19 @@ class _EnhancedMapScreenState extends State<EnhancedMapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Use Main Map configuration (Mapbox vector with fallback)
+    final mapConfig = MapConfiguration.mainMap(
+      styleUri: mapboxStyleUri,
+      rasterTileUrl: defaultRasterTileUrl,
+      enable3DTerrain: true,
+      initialZoom: 12.0,
+      initialTilt: 0.0,
+    );
+
     return Scaffold(
       body: AdaptiveMapWidget(
         initialCenter: _center,
-        initialZoom: 12.0,
-        initialTilt: 0.0,
+        configuration: mapConfig,
         onMapCreated: _onMapCreated,
         overlays: [
           // Top bar with back button and status

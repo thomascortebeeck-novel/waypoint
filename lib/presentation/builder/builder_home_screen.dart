@@ -22,27 +22,55 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = _auth.currentUserId;
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 1024;
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          _buildHeader(context, isDesktop),
-          SliverPadding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 32 : 16,
-              vertical: 8,
-            ),
-            sliver: uid == null
-                ? SliverToBoxAdapter(child: _SignedOutState(onAction: _showSignInRequired))
-                : _buildPlansContent(context, uid, isDesktop),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
-        ],
+      body: StreamBuilder(
+        stream: _auth.authStateChanges,
+        builder: (context, authSnapshot) {
+          // Wait for auth state to load
+          if (authSnapshot.connectionState == ConnectionState.waiting) {
+            return CustomScrollView(
+              slivers: [
+                _buildHeader(context, isDesktop),
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32 : 16,
+                    vertical: 8,
+                  ),
+                  sliver: SliverToBoxAdapter(child: _LoadingState()),
+                ),
+              ],
+            );
+          }
+          
+          final uid = authSnapshot.data?.uid;
+          
+          return CustomScrollView(
+            slivers: [
+              _buildHeader(context, isDesktop),
+              SliverPadding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isDesktop ? 32 : 16,
+                  vertical: 8,
+                ),
+                sliver: uid == null
+                    ? SliverToBoxAdapter(child: _SignedOutState(onAction: _showSignInRequired))
+                    : _buildPlansContent(context, uid, isDesktop),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 100)),
+            ],
+          );
+        },
       ),
-      floatingActionButton: _buildFAB(context, uid),
+      floatingActionButton: StreamBuilder(
+        stream: _auth.authStateChanges,
+        builder: (context, snapshot) {
+          final uid = snapshot.data?.uid;
+          return _buildFAB(context, uid);
+        },
+      ),
     );
   }
 
