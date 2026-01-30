@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
 import 'dart:js' as js;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waypoint/features/map/web/web_map_controller.dart';
@@ -35,6 +36,11 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   WebMapController? _controller;
   bool _isMapReady = false;
   String? _errorMessage;
+  Timer? _loadTimeout;
+  bool _usedFallbackStyle = false;
+  
+  // Fallback to Mapbox standard outdoors style if custom style fails
+  static const _fallbackStyleUri = 'mapbox://styles/mapbox/outdoors-v12';
 
   @override
   void initState() {
@@ -52,7 +58,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   }
 
   html.DivElement _createMapContainer() {
-    print('🗺️ [MapboxWeb] Creating map container with ID: $_viewId');
+    debugPrint('🗺️ [MapboxWeb] Creating map container with ID: $_viewId');
     final container = html.DivElement()
       ..id = _viewId
       ..style.width = '100%'
@@ -60,10 +66,10 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
     // Inject Mapbox GL JS if not already present
     _injectMapboxScripts().then((_) {
-      print('🗺️ [MapboxWeb] Mapbox scripts loaded successfully');
+      debugPrint('🗺️ [MapboxWeb] Mapbox scripts loaded successfully');
       _createMap(container);
     }).catchError((e) {
-      print('🗺️ [MapboxWeb] ERROR loading Mapbox scripts: $e');
+      debugPrint('🗺️ [MapboxWeb] ERROR loading Mapbox scripts: $e');
       setState(() => _errorMessage = 'Failed to load Mapbox: $e');
     });
 
@@ -73,22 +79,22 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   Future<void> _injectMapboxScripts() async {
     // Check if Mapbox GL JS is already loaded
     if (js.context.hasProperty('mapboxgl')) {
-      print('🗺️ [MapboxWeb] Mapbox GL JS already loaded, skipping injection');
+      debugPrint('🗺️ [MapboxWeb] Mapbox GL JS already loaded, skipping injection');
       return;
     }
     
-    print('🗺️ [MapboxWeb] Injecting Mapbox GL JS scripts...');
+    debugPrint('🗺️ [MapboxWeb] Injecting Mapbox GL JS scripts...');
 
     // Add Mapbox GL CSS
     final cssLink = html.LinkElement()
       ..rel = 'stylesheet'
-      ..href = 'https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css';
+      ..href = 'https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css';
     html.document.head!.append(cssLink);
 
     // Add Mapbox GL JS
     final scriptCompleter = Completer<void>();
     final script = html.ScriptElement()
-      ..src = 'https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js'
+      ..src = 'https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.js'
       ..onLoad.listen((_) => scriptCompleter.complete())
       ..onError.listen((e) => scriptCompleter.completeError('Script load failed'));
     html.document.head!.append(script);
@@ -99,41 +105,41 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     js.context['mapboxgl']['accessToken'] = mapboxPublicToken;
   }
 
-  void _createMap(html.DivElement container) {
-    print('🗺️ [MapboxWeb] _createMap called for container: $_viewId');
+  void _createMap(html.DivElement container, {String? styleOverride}) {
+    final styleToUse = styleOverride ?? mapboxStyleUri;
+    
+    debugPrint('🗺️ [MapboxWeb] _createMap called for container: $_viewId');
     
     // Wait for container to be in DOM
     Future.delayed(const Duration(milliseconds: 100), () {
-      print('🗺️ [MapboxWeb] Starting map initialization after delay...');
+      debugPrint('🗺️ [MapboxWeb] Starting map initialization after delay...');
       try {
         // DEBUG: Get device pixel ratio
         final devicePixelRatio = html.window.devicePixelRatio ?? 1;
         
-        print('🗺️ Mapbox Web Debug Info:');
-        print('  Style URI: $mapboxStyleUri');
-        print('  Device Pixel Ratio: $devicePixelRatio');
-        print('  Initial Zoom: ${widget.initialZoom}');
-        print('  Container ID: $_viewId');
+        debugPrint('🗺️ Mapbox Web Debug Info:');
+        debugPrint('  Style URI: $styleToUse');
+        debugPrint('  Device Pixel Ratio: $devicePixelRatio');
+        debugPrint('  Initial Zoom: ${widget.initialZoom}');
+        debugPrint('  Container ID: $_viewId');
         
         // Cap pixelRatio at 2 to prevent zoom level mismatch on very high-DPI displays
         final cappedPixelRatio = devicePixelRatio > 2 ? 2 : devicePixelRatio;
         if (devicePixelRatio > 2) {
-          print('  ⚠️ Pixel ratio capped from $devicePixelRatio to 2');
+          debugPrint('  ⚠️ Pixel ratio capped from $devicePixelRatio to 2');
         }
         
         final mapOptions = js.JsObject.jsify({
           'container': _viewId,
-          // Use the SAME custom Mapbox style as mobile!
-          'style': mapboxStyleUri,
+          'style': styleToUse,
           'center': [widget.initialCenter.longitude, widget.initialCenter.latitude],
           'zoom': widget.initialZoom,
           'pitch': widget.initialTilt,
           'bearing': widget.initialBearing,
           'attributionControl': true,
           'maxPitch': 85,
-          // Enable 3D terrain
-          'projection': 'globe',
-          // Cap pixelRatio to prevent zoom mismatch
+          // Note: 'globe' projection removed - it can cause slow loading
+          // and compatibility issues on some devices
           'pixelRatio': cappedPixelRatio,
         });
 
@@ -143,14 +149,75 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
         // Store map reference for later use
         js.context['waypointMap_$_viewId'] = map;
+        
+        // Set up a timeout to detect style loading failures
+        // Increased timeout to 15 seconds to account for slow connections
+        _loadTimeout?.cancel();
+        _loadTimeout = Timer(const Duration(seconds: 15), () {
+          if (!_isMapReady && mounted) {
+            debugPrint('⏱️ [MapboxWeb] Map load timeout after 15 seconds');
+            if (!_usedFallbackStyle) {
+              debugPrint('🔄 [MapboxWeb] Retrying with fallback style...');
+              _usedFallbackStyle = true;
+              _recreateMapWithFallback(container);
+            } else {
+              // Don't show error immediately - try to force refresh
+              debugPrint('⚠️ [MapboxWeb] Fallback also timed out - map may still be loading');
+              // Give it one more chance with a longer timeout
+              _loadTimeout = Timer(const Duration(seconds: 10), () {
+                if (!_isMapReady && mounted) {
+                  setState(() => _errorMessage = 'Map failed to load. Please refresh the page.');
+                }
+              });
+            }
+          }
+        });
 
-        // Set up event listeners
+        // Set up event listeners - both 'load' and 'style.load' for reliability
         map.callMethod('on', ['load', js.allowInterop(() {
+          debugPrint('✅ [MapboxWeb] Map "load" event fired');
+          _loadTimeout?.cancel();
           _onMapLoaded(map);
         })]);
+        
+        // Also listen to 'style.load' as a backup
+        map.callMethod('on', ['style.load', js.allowInterop(() {
+          debugPrint('✅ [MapboxWeb] Style "style.load" event fired');
+          if (!_isMapReady) {
+            _loadTimeout?.cancel();
+            _onMapLoaded(map);
+          }
+        })]);
+        
+        // Listen to 'idle' event as another confirmation
+        map.callMethod('once', ['idle', js.allowInterop(() {
+          debugPrint('✅ [MapboxWeb] Map "idle" event fired');
+          if (!_isMapReady) {
+            _loadTimeout?.cancel();
+            _onMapLoaded(map);
+          }
+        })]);
 
+        // Handle style.error event for more specific error info
         map.callMethod('on', ['error', js.allowInterop((e) {
-          print('Mapbox error: ${e['error']?['message'] ?? e}');
+          final errorMsg = e['error']?['message']?.toString() ?? e.toString();
+          debugPrint('Mapbox error: $errorMsg');
+          
+          // Check if this is a style-related error and we haven't tried fallback yet
+          if (!_isMapReady && !_usedFallbackStyle && 
+              (errorMsg.contains('style') || 
+               errorMsg.contains('Bare objects') || 
+               errorMsg.contains('image variant'))) {
+            debugPrint('🔄 [MapboxWeb] Style error detected, switching to fallback...');
+            _loadTimeout?.cancel();
+            _usedFallbackStyle = true;
+            // Small delay to let current map cleanup
+            Future.delayed(const Duration(milliseconds: 500), () {
+              if (mounted && !_isMapReady) {
+                _recreateMapWithFallback(container);
+              }
+            });
+          }
         })]);
 
         map.callMethod('on', ['click', js.allowInterop((e) {
@@ -159,40 +226,76 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         })]);
 
         map.callMethod('on', ['move', js.allowInterop(() {
-          _updateCameraState(map);
+          if (_isMapReady) _updateCameraState(map);
         })]);
 
         map.callMethod('on', ['moveend', js.allowInterop(() {
-          _updateCameraState(map);
-        })]);
-
-        // DEBUG: Log zoom changes
-        map.callMethod('on', ['zoom', js.allowInterop(() {
-          final currentZoom = map.callMethod('getZoom', []);
-          print('📍 Current zoom level: $currentZoom');
+          if (_isMapReady) _updateCameraState(map);
         })]);
       } catch (e) {
-        setState(() => _errorMessage = 'Failed to create map: $e');
+        debugPrint('🗺️ [MapboxWeb] Exception creating map: $e');
+        if (!_usedFallbackStyle) {
+          _usedFallbackStyle = true;
+          _recreateMapWithFallback(container);
+        } else {
+          setState(() => _errorMessage = 'Failed to create map: $e');
+        }
       }
+    });
+  }
+  
+  void _recreateMapWithFallback(html.DivElement container) {
+    debugPrint('🔄 [MapboxWeb] Starting fallback recreation...');
+    
+    // Clean up existing map thoroughly
+    try {
+      final existingMap = js.context['waypointMap_$_viewId'];
+      if (existingMap != null) {
+        debugPrint('🧹 [MapboxWeb] Removing existing map instance');
+        existingMap.callMethod('remove', []);
+        js.context.deleteProperty('waypointMap_$_viewId');
+      }
+    } catch (e) {
+      debugPrint('⚠️ [MapboxWeb] Error removing existing map: $e');
+    }
+    
+    // Clear the container's inner HTML to ensure clean state
+    try {
+      container.innerHtml = '';
+    } catch (_) {}
+    
+    // Small delay to allow DOM cleanup before recreating
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      debugPrint('🗺️ [MapboxWeb] Creating map with fallback style: $_fallbackStyleUri');
+      _createMap(container, styleOverride: _fallbackStyleUri);
     });
   }
 
   void _updateCameraState(js.JsObject map) {
+    // Don't process camera updates until map is fully ready and controller exists
+    if (!_isMapReady || _controller == null) return;
+    
     try {
       final center = map.callMethod('getCenter', []);
       final zoom = map.callMethod('getZoom', []);
       final bearing = map.callMethod('getBearing', []);
       final pitch = map.callMethod('getPitch', []);
       
+      // Safely extract values with null checks
+      final lat = center?['lat'];
+      final lng = center?['lng'];
+      if (lat == null || lng == null || zoom == null) return;
+      
       _controller?.onCameraChanged(
-        (center['lat'] as num).toDouble(),
-        (center['lng'] as num).toDouble(),
+        (lat as num).toDouble(),
+        (lng as num).toDouble(),
         (zoom as num).toDouble(),
-        (bearing as num).toDouble(),
-        (pitch as num).toDouble(),
+        (bearing as num?)?.toDouble() ?? 0.0,
+        (pitch as num?)?.toDouble() ?? 0.0,
       );
     } catch (e) {
-      // Ignore camera update errors
+      // Ignore camera update errors - these can happen during rapid updates
     }
   }
 
@@ -201,7 +304,8 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
     // DEBUG: Log final zoom level after map loads
     final loadedZoom = map.callMethod('getZoom', []);
-    print('✅ Map loaded successfully at zoom: $loadedZoom');
+    final styleInfo = _usedFallbackStyle ? '(using fallback style)' : '(using custom style)';
+    debugPrint('✅ Map loaded successfully at zoom: $loadedZoom $styleInfo');
 
     // Enable 3D terrain (Mapbox terrain is included in Standard style)
     _enable3DTerrain(map);
@@ -254,21 +358,29 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
   void _enable3DTerrain(js.JsObject map) {
     try {
-      // Mapbox Standard style already includes terrain configuration
-      // We just need to ensure it's enabled
+      // Check if mapbox-dem source exists before enabling terrain
+      final existingSource = map.callMethod('getSource', ['mapbox-dem']);
       
-      // Check if terrain source exists, if not add it
-      final style = map.callMethod('getStyle', []);
-      if (style != null) {
-        // Add terrain exaggeration for better 3D effect
-        map.callMethod('setTerrain', [js.JsObject.jsify({
-          'source': 'mapbox-dem',
-          'exaggeration': 1.5,
+      if (existingSource == null) {
+        // Add terrain source if not present in the style
+        map.callMethod('addSource', ['mapbox-dem', js.JsObject.jsify({
+          'type': 'raster-dem',
+          'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+          'tileSize': 512,
+          'maxzoom': 14,
         })]);
       }
+      
+      // Enable terrain with exaggeration
+      map.callMethod('setTerrain', [js.JsObject.jsify({
+        'source': 'mapbox-dem',
+        'exaggeration': 1.5,
+      })]);
+      
+      debugPrint('✅ 3D terrain enabled');
     } catch (e) {
-      // Terrain might already be configured in the style
-      print('Terrain setup note: $e');
+      // Terrain setup failed - this is non-critical, map still works
+      debugPrint('⚠️ Terrain setup skipped: $e');
     }
   }
 
@@ -326,7 +438,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         },
       })]);
     } catch (e) {
-      print('Failed to add route: $e');
+      debugPrint('Failed to add route: $e');
     }
   }
 
@@ -414,7 +526,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       _markers[id] = marker;
       _markerDraggableState[id] = draggable;
     } catch (e) {
-      print('Failed to add marker: $e');
+      debugPrint('Failed to add marker: $e');
     }
   }
   
@@ -425,7 +537,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         marker.callMethod('setDraggable', [draggable]);
         _markerDraggableState[id] = draggable;
       } catch (e) {
-        print('Failed to set marker draggable: $e');
+        debugPrint('Failed to set marker draggable: $e');
       }
     }
   }
@@ -436,7 +548,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       try {
         marker.callMethod('setLngLat', [js.JsObject.jsify([lng, lat])]);
       } catch (e) {
-        print('Failed to update marker position: $e');
+        debugPrint('Failed to update marker position: $e');
       }
     }
   }
@@ -514,6 +626,9 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
   @override
   void dispose() {
+    // Cancel timeout timer
+    _loadTimeout?.cancel();
+    
     // Clean up markers
     for (final marker in _markers.values) {
       try {

@@ -33,4 +33,16 @@ class MapFeatureFlags {
     'ALLOW_MAPBOX_FALLBACK',
     defaultValue: true,
   );
+  
+  /// Use legacy flutter_map editor in Route Builder
+  /// 
+  /// When true: Uses the proven flutter_map implementation (rollback path)
+  /// When false: Uses the new AdaptiveMapWidget with Mapbox (default)
+  /// 
+  /// This is a SAFETY SWITCH for instant rollback if Mapbox editing has issues.
+  /// To enable legacy: flutter run --dart-define=USE_LEGACY_EDITOR=true
+  static const bool useLegacyEditor = bool.fromEnvironment(
+    'USE_LEGACY_EDITOR',
+    defaultValue: false, // Default to new Mapbox editor
+  );
 }

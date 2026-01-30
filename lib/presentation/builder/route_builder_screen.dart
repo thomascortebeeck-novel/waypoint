@@ -22,6 +22,10 @@ import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/components.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/map_feature_flags.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 
 /// Full-page route builder screen
 class RouteBuilderScreen extends StatefulWidget {
@@ -80,14 +84,62 @@ Timer? _poiDebounce;
 ll.LatLng? _lastPOICenter;
 double? _lastPOIZoom;
 
+// Camera state for Mapbox mode (flutter_map uses _map.camera instead)
+ll.LatLng? _currentCameraCenter;
+double? _currentCameraZoom;
+
+// Mapbox controller reference for camera commands
+WaypointMapController? _mapboxController;
+
 @override
 void initState() {
 super.initState();
 Log.i('route_builder', 'RouteBuilderScreen init');
-Log.i('route_builder', '🗺️ Using flutter_map with raster tiles (MapboxEverywhere not yet supported for editing)');
+if (MapFeatureFlags.useLegacyEditor) {
+  Log.i('route_builder', '🗺️ Using LEGACY flutter_map editor (feature flag enabled)');
+} else if (MapFeatureFlags.useMapboxEverywhere) {
+  Log.i('route_builder', '🗺️ Using NEW Mapbox editor (AdaptiveMapWidget)');
+} else {
+  Log.i('route_builder', '🗺️ Using flutter_map with raster tiles');
+}
 Log.i('route_builder', '🗺️ Tile URL: $defaultRasterTileUrl');
+
+// Initialize camera state for Mapbox mode synchronously (Issue #5 fix - set earlier)
+if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
+  _currentCameraZoom = 11.0;
+  // Set initial center immediately (use widget params which are available now)
+  // Note: _poiWaypoints and _points may not be populated yet, so use widget.start first
+  _currentCameraCenter = widget.start ?? const ll.LatLng(61.0, 8.5);
+  Log.i('route_builder', '📍 Initial camera set: $_currentCameraCenter @ zoom $_currentCameraZoom');
+}
+
 WidgetsBinding.instance.addPostFrameCallback((_) {
 if (mounted) {
+// Refine camera center based on loaded data (may update from initial value)
+if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
+  final refinedCenter = _poiWaypoints.firstOrNull?.position ?? 
+                        _points.firstOrNull ?? 
+                        widget.start ?? 
+                        const ll.LatLng(61.0, 8.5);
+  
+  // Only refine if the center actually changed and we have a controller
+  if (_currentCameraCenter != refinedCenter && _mapboxController != null) {
+    setState(() {
+      _currentCameraCenter = refinedCenter;
+    });
+    
+    // Actually move the map to the refined position
+    _mapboxController!.animateCamera(refinedCenter, _currentCameraZoom ?? 11.0);
+    
+    Log.i('route_builder', '📍 Camera refined and moved to: $refinedCenter');
+  } else if (_currentCameraCenter != refinedCenter) {
+    // Controller not ready yet, just update state (map will use this on creation)
+    setState(() {
+      _currentCameraCenter = refinedCenter;
+    });
+    Log.i('route_builder', '📍 Camera center refined (controller not ready): $refinedCenter');
+  }
+}
 _loadPOIs();
 }
 });
@@ -132,7 +184,96 @@ _searchDebounce?.cancel();
 _poiDebounce?.cancel();
 _searchController.dispose();
 _searchFocusNode.dispose();
+_mapboxController = null;
 super.dispose();
+}
+
+/// Get current camera center - works in both flutter_map and Mapbox modes
+ll.LatLng _getCameraCenter() {
+  if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
+    return _map.camera.center;
+  }
+  // Fallback chain for Mapbox mode
+  return _currentCameraCenter ?? 
+         _poiWaypoints.firstOrNull?.position ?? 
+         _points.firstOrNull ?? 
+         widget.start ?? 
+         const ll.LatLng(61.0, 8.5);
+}
+
+/// Get current camera zoom - works in both flutter_map and Mapbox modes  
+double _getCameraZoom() {
+  if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
+    return _map.camera.zoom;
+  }
+  return _currentCameraZoom ?? 11.0;
+}
+
+/// Handle zoom controls - works in both flutter_map and Mapbox modes
+void _handleZoom(int delta) {
+  if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
+    _map.move(_map.camera.center, _map.camera.zoom + delta);
+  } else {
+    // For Mapbox mode: Animate camera via controller and update state
+    final newZoom = (_currentCameraZoom ?? 11.0) + delta;
+    final center = _currentCameraCenter ?? _getCameraCenter();
+    
+    // Update state optimistically for immediate UI feedback (Issue #2 fix)
+    setState(() {
+      _currentCameraZoom = newZoom;
+    });
+    
+    // Use controller to actually animate the map (with null-aware access)
+    if (_mapboxController != null) {
+      _mapboxController!.animateCamera(center, newZoom);
+    } else {
+      Log.w('route_builder', '⚠️ Map controller not ready, zoom command skipped');
+    }
+    Log.i('route_builder', 'Zoom changed to $newZoom');
+  }
+}
+
+/// Calculate approximate bounds from center and zoom level
+/// This is a fallback when we don't have access to the actual visible bounds
+Map<String, double> _calculateBoundsFromCenterZoom(ll.LatLng center, double zoom) {
+  // Approximate degrees per pixel at given zoom level
+  // At zoom 0, the entire world (360 degrees) fits in 256 pixels
+  final scale = 256 * pow(2, zoom);
+  final degreesPerPixel = 360 / scale;
+  
+  // Assume viewport is roughly 600x600 pixels (can be refined based on actual viewport)
+  final halfWidth = 300 * degreesPerPixel;
+  final halfHeight = 300 * degreesPerPixel;
+  
+  return {
+    'south': center.latitude - halfHeight,
+    'north': center.latitude + halfHeight,
+    'west': center.longitude - halfWidth,
+    'east': center.longitude + halfWidth,
+  };
+}
+
+/// Move camera - works in both flutter_map and Mapbox modes
+void _moveCamera(ll.LatLng position, [double? zoom]) {
+  if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
+    _map.move(position, zoom ?? _getCameraZoom());
+  } else {
+    // For Mapbox mode: Animate camera via controller and update state (Issue #2 fix)
+    final targetZoom = zoom ?? _getCameraZoom();
+    
+    // Update state optimistically for immediate UI feedback
+    setState(() {
+      _currentCameraCenter = position;
+      if (zoom != null) _currentCameraZoom = zoom;
+    });
+    
+    // Use controller to actually animate the map (with null-aware access)
+    if (_mapboxController != null) {
+      _mapboxController!.animateCamera(position, targetZoom);
+    } else {
+      Log.w('route_builder', '⚠️ Map controller not ready, camera move skipped');
+    }
+  }
 }
 
 /// Returns the appropriate activity label based on activity category
@@ -186,11 +327,15 @@ context.pop();
 
 @override
 Widget build(BuildContext context) {
-// Use first waypoint position if available, otherwise first route point, otherwise default
-// Default to Norway coordinates if no points exist
-final center = _poiWaypoints.isNotEmpty
-? _poiWaypoints.first.position
-: (_points.isNotEmpty ? _points.first : const ll.LatLng(61.0, 8.5));
+// Use tracked camera center in Mapbox mode for consistency, otherwise fallback to data
+// This ensures the map initializes at the correct position even after refinement
+final center = (!MapFeatureFlags.useLegacyEditor && 
+            MapFeatureFlags.useMapboxEverywhere && 
+            _currentCameraCenter != null)
+? _currentCameraCenter!
+: (_poiWaypoints.isNotEmpty
+    ? _poiWaypoints.first.position
+    : (_points.isNotEmpty ? _points.first : widget.start ?? const ll.LatLng(61.0, 8.5)));
 return Scaffold(
 backgroundColor: context.colors.surface,
 appBar: AppBar(
@@ -267,149 +412,7 @@ activityCategory: widget.activityCategory,
 Expanded(
 child: Stack(children: [
 Positioned.fill(
-child: fm.FlutterMap(
-mapController: _map,
-options: fm.MapOptions(
-initialCenter: center,
-initialZoom: 11,
-onPositionChanged: _onMapPositionChanged,
-onTap: (tapPos, latLng) async {
-if (_searchResults.isNotEmpty) {
-setState(() => _searchResults = []);
-return;
-}
-Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
-await _showMapTapActionPicker(context, latLng);
-},
-),
-children: [
-fm.TileLayer(
-urlTemplate: defaultRasterTileUrl,
-userAgentPackageName: 'com.waypoint.app',
-),
-if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
-fm.PolylineLayer(
-polylines: [
-fm.Polyline(
-points: _coordsToLatLng(_previewGeometry!['coordinates']),
-color: const Color(0xFF4CAF50),
-strokeWidth: 5,
-borderColor: Colors.white,
-borderStrokeWidth: 2,
-)
-],
-),
-if (_points.isNotEmpty)
-fm.MarkerLayer(
-markers: [
-for (int i = 0; i < _points.length; i++)
-fm.Marker(
-point: _points[i],
-width: i == 0 || i == _points.length - 1 ? 48 : 32,
-height: i == 0 || i == _points.length - 1 ? 48 : 32,
-child: GestureDetector(
-onTap: () => _showRoutePointOptions(i),
-child: Container(
-decoration: BoxDecoration(
-color: i == 0
-? const Color(0xFF52B788)
-: (i == _points.length - 1 ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
-shape: BoxShape.circle,
-border: Border.all(color: Colors.white, width: i == 0 || i == _points.length - 1 ? 3.5 : 2.5),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: i == 0 || i == _points.length - 1 ? 0.35 : 0.25),
-blurRadius: i == 0 || i == _points.length - 1 ? 8 : 5,
-offset: Offset(0, i == 0 || i == _points.length - 1 ? 3 : 2),
-),
-],
-),
-child: Center(
-child: i == 0
-? const Text('A', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-: i == _points.length - 1
-? const Text('B', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-: const Icon(Icons.circle, color: Colors.white, size: 14),
-),
-),
-),
-),
-],
-),
-// OSM POI markers (subtle, background)
-if (_osmPOIs.isNotEmpty)
-fm.MarkerLayer(
-markers: _osmPOIs
-.map((poi) => fm.Marker(
-point: poi.coordinates,
-width: 24,
-height: 24,
-child: GestureDetector(
-onTap: () => _showOSMPOIDetails(poi),
-child: Container(
-width: 24,
-height: 24,
-decoration: BoxDecoration(
-color: poi.type.color.withValues(alpha: 0.7),
-shape: BoxShape.circle,
-border: Border.all(
-color: Colors.white.withValues(alpha: 0.8),
-width: 1.5,
-),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.15),
-blurRadius: 2,
-offset: const Offset(0, 1),
-),
-],
-),
-child: Icon(
-poi.type.icon,
-color: Colors.white,
-size: 14,
-),
-),
-),
-))
-.toList(),
-),
-// Custom POI waypoints (bold, prominent)
-if (_poiWaypoints.isNotEmpty)
-fm.MarkerLayer(
-markers: _poiWaypoints
-.map((wp) => fm.Marker(
-point: wp.position,
-width: 36,
-height: 36,
-child: GestureDetector(
-onTap: () => _editWaypoint(wp),
-child: Container(
-decoration: BoxDecoration(
-color: Colors.white,
-shape: BoxShape.circle,
-border: Border.all(color: getWaypointColor(wp.type), width: 3.5),
-boxShadow: [
-BoxShadow(
-color: getWaypointColor(wp.type).withValues(alpha: 0.3),
-blurRadius: 8,
-spreadRadius: 2,
-),
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.2),
-blurRadius: 4,
-offset: const Offset(0, 2),
-),
-],
-),
-child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 18)),
-),
-),
-))
-.toList(),
-),
-],
-),
+child: _buildMapWidget(center),
 ),
 // Floating Search Bar (top center of map area)
 _FloatingSearchBar(
@@ -430,8 +433,8 @@ alignment: Alignment.centerRight,
 child: Padding(
 padding: const EdgeInsets.only(right: 12),
 child: _ZoomControls(
-onZoomIn: () => _map.move(_map.camera.center, _map.camera.zoom + 1),
-onZoomOut: () => _map.move(_map.camera.center, _map.camera.zoom - 1),
+onZoomIn: () => _handleZoom(1),
+onZoomOut: () => _handleZoom(-1),
 ),
 ),
 ),
@@ -446,149 +449,7 @@ return Stack(
 children: [
 // Map layer
 Positioned.fill(
-child: fm.FlutterMap(
-mapController: _map,
-options: fm.MapOptions(
-initialCenter: center,
-initialZoom: 11,
-onPositionChanged: _onMapPositionChanged,
-onTap: (tapPos, latLng) async {
-if (_searchResults.isNotEmpty) {
-setState(() => _searchResults = []);
-return;
-}
-Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
-await _showMapTapActionPicker(context, latLng);
-},
-),
-children: [
-fm.TileLayer(
-urlTemplate: defaultRasterTileUrl,
-userAgentPackageName: 'com.waypoint.app',
-),
-if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
-fm.PolylineLayer(
-polylines: [
-fm.Polyline(
-points: _coordsToLatLng(_previewGeometry!['coordinates']),
-color: const Color(0xFF4CAF50),
-strokeWidth: 5,
-borderColor: Colors.white,
-borderStrokeWidth: 2,
-)
-],
-),
-if (_points.isNotEmpty)
-fm.MarkerLayer(
-markers: [
-for (int i = 0; i < _points.length; i++)
-fm.Marker(
-point: _points[i],
-width: i == 0 || i == _points.length - 1 ? 48 : 32,
-height: i == 0 || i == _points.length - 1 ? 48 : 32,
-child: GestureDetector(
-onTap: () => _showRoutePointOptions(i),
-child: Container(
-decoration: BoxDecoration(
-color: i == 0
-? const Color(0xFF52B788)
-: (i == _points.length - 1 ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
-shape: BoxShape.circle,
-border: Border.all(color: Colors.white, width: i == 0 || i == _points.length - 1 ? 3.5 : 2.5),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: i == 0 || i == _points.length - 1 ? 0.35 : 0.25),
-blurRadius: i == 0 || i == _points.length - 1 ? 8 : 5,
-offset: Offset(0, i == 0 || i == _points.length - 1 ? 3 : 2),
-),
-],
-),
-child: Center(
-child: i == 0
-? const Text('A', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-: i == _points.length - 1
-? const Text('B', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-: const Icon(Icons.circle, color: Colors.white, size: 14),
-),
-),
-),
-),
-],
-),
-// OSM POI markers (subtle, background)
-if (_osmPOIs.isNotEmpty)
-fm.MarkerLayer(
-markers: _osmPOIs
-.map((poi) => fm.Marker(
-point: poi.coordinates,
-width: 24,
-height: 24,
-child: GestureDetector(
-onTap: () => _showOSMPOIDetails(poi),
-child: Container(
-width: 24,
-height: 24,
-decoration: BoxDecoration(
-color: poi.type.color.withValues(alpha: 0.7),
-shape: BoxShape.circle,
-border: Border.all(
-color: Colors.white.withValues(alpha: 0.8),
-width: 1.5,
-),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.15),
-blurRadius: 2,
-offset: const Offset(0, 1),
-),
-],
-),
-child: Icon(
-poi.type.icon,
-color: Colors.white,
-size: 14,
-),
-),
-),
-))
-.toList(),
-),
-// Custom POI waypoints (bold, prominent)
-if (_poiWaypoints.isNotEmpty)
-fm.MarkerLayer(
-markers: _poiWaypoints
-.map((wp) => fm.Marker(
-point: wp.position,
-width: 36,
-height: 36,
-child: GestureDetector(
-onTap: () => _editWaypoint(wp),
-child: Container(
-decoration: BoxDecoration(
-color: Colors.white,
-shape: BoxShape.circle,
-border: Border.all(color: getWaypointColor(wp.type), width: 3.5),
-boxShadow: [
-BoxShadow(
-color: getWaypointColor(wp.type).withValues(alpha: 0.3),
-blurRadius: 8,
-spreadRadius: 2,
-),
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.2),
-blurRadius: 4,
-offset: const Offset(0, 2),
-),
-],
-),
-child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 18)),
-),
-),
-))
-.toList(),
-),
-],
-),
+child: _buildMapWidget(center),
 ),
 
 // Floating Search Bar (center top)
@@ -622,8 +483,8 @@ alignment: Alignment.centerRight,
 child: Padding(
 padding: const EdgeInsets.only(right: 12),
 child: _ZoomControls(
-onZoomIn: () => _map.move(_map.camera.center, _map.camera.zoom + 1),
-onZoomOut: () => _map.move(_map.camera.center, _map.camera.zoom - 1),
+onZoomIn: () => _handleZoom(1),
+onZoomOut: () => _handleZoom(-1),
 ),
 ),
 ),
@@ -707,6 +568,249 @@ _poiWaypoints[i].order = i;
 );
 }
 
+/// Build the map widget - either legacy flutter_map or new Mapbox editor
+/// This method handles the switching logic based on feature flags
+Widget _buildMapWidget(ll.LatLng center) {
+  // Use legacy flutter_map if flag is set OR if useMapboxEverywhere is false
+  if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
+    return _buildLegacyFlutterMap(center);
+  }
+  
+  // Otherwise use the new Mapbox editor
+  return _buildMapboxEditor(center);
+}
+
+/// NEW: Mapbox-powered editor using AdaptiveMapWidget
+Widget _buildMapboxEditor(ll.LatLng center) {
+  // Convert preview geometry to polyline
+  final polylines = <MapPolyline>[];
+  if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty) {
+    polylines.add(MapPolyline(
+      id: 'route',
+      points: _coordsToLatLng(_previewGeometry!['coordinates']),
+      color: const Color(0xFF4CAF50),
+      width: 5,
+      borderColor: Colors.white,
+      borderWidth: 2,
+    ));
+  }
+  
+  // Convert route points to annotations
+  final annotations = <MapAnnotation>[];
+  for (int i = 0; i < _points.length; i++) {
+    final isStart = i == 0;
+    final isEnd = i == _points.length - 1;
+    annotations.add(MapAnnotation(
+      id: 'route_point_$i',
+      position: _points[i],
+      icon: isStart ? Icons.circle : (isEnd ? Icons.circle : Icons.circle),
+      color: isStart ? const Color(0xFF52B788) : (isEnd ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
+      label: isStart ? 'A' : (isEnd ? 'B' : ''),
+      draggable: false, // TODO: Implement dragging in Phase 2
+      onTap: () => _showRoutePointOptions(i),
+    ));
+  }
+  
+  // Convert OSM POIs to annotations
+  for (final poi in _osmPOIs) {
+    annotations.add(MapAnnotation.fromPOI(
+      poi,
+      onTap: () => _showOSMPOIDetails(poi),
+    ));
+  }
+  
+  // Convert custom waypoints to annotations
+  for (final wp in _poiWaypoints) {
+    annotations.add(MapAnnotation.fromWaypoint(
+      wp,
+      draggable: false, // TODO: Implement dragging in Phase 2
+      onTap: () => _editWaypoint(wp),
+    ));
+  }
+  
+  return AdaptiveMapWidget(
+    initialCenter: center,
+    configuration: MapConfiguration.routeBuilder(),
+    onMapCreated: (controller) {
+      // Store controller reference for camera commands (Issue #2 fix)
+      _mapboxController = controller;
+      Log.i('route_builder', '🗺️ Mapbox controller stored for camera commands');
+    },
+    onTap: (latLng) async {
+      if (_searchResults.isNotEmpty) {
+        setState(() => _searchResults = []);
+        return;
+      }
+      Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
+      await _showMapTapActionPicker(context, latLng);
+    },
+    onCameraChanged: (cameraPos) {
+      // Store camera state for Mapbox mode
+      setState(() {
+        _currentCameraCenter = cameraPos.center;
+        _currentCameraZoom = cameraPos.zoom;
+      });
+      
+      // Debounce POI loading
+      _poiDebounce?.cancel();
+      _poiDebounce = Timer(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _loadPOIs();
+        }
+      });
+    },
+    annotations: annotations,
+    polylines: polylines,
+  );
+}
+
+/// LEGACY: Original flutter_map implementation (preserved for rollback)
+Widget _buildLegacyFlutterMap(ll.LatLng center) {
+  return fm.FlutterMap(
+    mapController: _map,
+    options: fm.MapOptions(
+      initialCenter: center,
+      initialZoom: 11,
+      onPositionChanged: _onMapPositionChanged,
+      onTap: (tapPos, latLng) async {
+        if (_searchResults.isNotEmpty) {
+          setState(() => _searchResults = []);
+          return;
+        }
+        Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
+        await _showMapTapActionPicker(context, latLng);
+      },
+    ),
+    children: [
+      fm.TileLayer(
+        urlTemplate: defaultRasterTileUrl,
+        userAgentPackageName: 'com.waypoint.app',
+      ),
+      if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
+        fm.PolylineLayer(
+          polylines: [
+            fm.Polyline(
+              points: _coordsToLatLng(_previewGeometry!['coordinates']),
+              color: const Color(0xFF4CAF50),
+              strokeWidth: 5,
+              borderColor: Colors.white,
+              borderStrokeWidth: 2,
+            )
+          ],
+        ),
+      if (_points.isNotEmpty)
+        fm.MarkerLayer(
+          markers: [
+            for (int i = 0; i < _points.length; i++)
+              fm.Marker(
+                point: _points[i],
+                width: i == 0 || i == _points.length - 1 ? 48 : 32,
+                height: i == 0 || i == _points.length - 1 ? 48 : 32,
+                child: GestureDetector(
+                  onTap: () => _showRoutePointOptions(i),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: i == 0
+                          ? const Color(0xFF52B788)
+                          : (i == _points.length - 1 ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: i == 0 || i == _points.length - 1 ? 3.5 : 2.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: i == 0 || i == _points.length - 1 ? 0.35 : 0.25),
+                          blurRadius: i == 0 || i == _points.length - 1 ? 8 : 5,
+                          offset: Offset(0, i == 0 || i == _points.length - 1 ? 3 : 2),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: i == 0
+                          ? const Text('A', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
+                          : i == _points.length - 1
+                              ? const Text('B', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
+                              : const Icon(Icons.circle, color: Colors.white, size: 14),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      // OSM POI markers (subtle, background)
+      if (_osmPOIs.isNotEmpty)
+        fm.MarkerLayer(
+          markers: _osmPOIs
+              .map((poi) => fm.Marker(
+                    point: poi.coordinates,
+                    width: 24,
+                    height: 24,
+                    child: GestureDetector(
+                      onTap: () => _showOSMPOIDetails(poi),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: poi.type.color.withValues(alpha: 0.7),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.8),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 2,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          poi.type.icon,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ))
+              .toList(),
+        ),
+      // Custom POI waypoints (bold, prominent)
+      if (_poiWaypoints.isNotEmpty)
+        fm.MarkerLayer(
+          markers: _poiWaypoints
+              .map((wp) => fm.Marker(
+                    point: wp.position,
+                    width: 36,
+                    height: 36,
+                    child: GestureDetector(
+                      onTap: () => _editWaypoint(wp),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: getWaypointColor(wp.type), width: 3.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: getWaypointColor(wp.type).withValues(alpha: 0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 18)),
+                      ),
+                    ),
+                  ))
+              .toList(),
+        ),
+    ],
+  );
+}
+
 Widget _controlButton({required IconData icon, String? label, required VoidCallback onTap}) {
 return Material(
 color: Colors.white,
@@ -753,7 +857,7 @@ return;
 }
 try {
 Log.i('route_builder', '🔍 Starting search for: "$query"');
-final center = _map.camera.center;
+final center = _getCameraCenter(); // Use helper method
 final results = await _svc.searchPlaces(
 query,
 proximityLat: center.latitude,
@@ -789,7 +893,7 @@ duration: const Duration(seconds: 3),
 void _selectPlace(PlaceSuggestion place) {
 Log.i('route_builder', 'Place selected: ${place.text} at ${place.latitude}, ${place.longitude}');
 final latLng = ll.LatLng(place.latitude, place.longitude);
-_map.move(latLng, 14);
+_moveCamera(latLng, 14); // Use helper method
 _searchFocusNode.unfocus();
 setState(() {
 _searchResults = [];
@@ -845,13 +949,31 @@ _searchController.clear();
     Log.i('route_builder', '🔍 Starting to load OSM POIs...');
 
 try {
-final bounds = _map.camera.visibleBounds;
-Log.i('route_builder', '📍 Map bounds: S=${bounds.south.toStringAsFixed(2)}, W=${bounds.west.toStringAsFixed(2)}, N=${bounds.north.toStringAsFixed(2)}, E=${bounds.east.toStringAsFixed(2)}');
+// Get bounds that work in both flutter_map and Mapbox modes
+Map<String, double> bounds;
+
+if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
+  // Use flutter_map bounds
+  final mapBounds = _map.camera.visibleBounds;
+  bounds = {
+    'south': mapBounds.south,
+    'north': mapBounds.north,
+    'west': mapBounds.west,
+    'east': mapBounds.east,
+  };
+} else {
+  // Calculate bounds from camera position for Mapbox mode
+  final center = _getCameraCenter();
+  final zoom = _getCameraZoom();
+  bounds = _calculateBoundsFromCenterZoom(center, zoom);
+}
+
+Log.i('route_builder', '📍 Map bounds: S=${bounds['south']!.toStringAsFixed(2)}, W=${bounds['west']!.toStringAsFixed(2)}, N=${bounds['north']!.toStringAsFixed(2)}, E=${bounds['east']!.toStringAsFixed(2)}');
 
 // Load main outdoor POI types
 final pois = await POIService.fetchPOIs(
-southWest: ll.LatLng(bounds.south, bounds.west),
-northEast: ll.LatLng(bounds.north, bounds.east),
+southWest: ll.LatLng(bounds['south']!, bounds['west']!),
+northEast: ll.LatLng(bounds['north']!, bounds['east']!),
 poiTypes: [
 POIType.campsite,
 POIType.hut,
@@ -869,10 +991,10 @@ if (mounted) {
 setState(() {
 _osmPOIs = pois;
 _loadingPOIs = false;
-_lastPOICenter = _map.camera.center; // Track last loaded center
-_lastPOIZoom = _map.camera.zoom; // Track last loaded zoom
+_lastPOICenter = _getCameraCenter(); // Use helper method
+_lastPOIZoom = _getCameraZoom(); // Use helper method
 });
-Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs at zoom ${_map.camera.zoom.toStringAsFixed(1)}');
+Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs at zoom ${_getCameraZoom().toStringAsFixed(1)}');
 }
 } catch (e, stack) {
 Log.e('route_builder', '❌ Failed to load POIs', e, stack);
@@ -1273,7 +1395,7 @@ _poiWaypoints.add(result.copyWith(timeSlotCategory: autoCategory));
 } else {
 _poiWaypoints.add(result);
 }
-_map.move(result.position, _map.camera.zoom);
+_moveCamera(result.position); // Use helper method
 });
 }
 }
@@ -1356,7 +1478,7 @@ _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
 
 Future<void> _showAddRoutePointDialog() async {
 // Show the waypoint dialog with routePoint preselected
-final center = _map.camera.center;
+final center = _getCameraCenter(); // Use helper method
 final result = await showDialog<RouteWaypoint>(
 context: context,
 builder: (context) => _AddWaypointDialog(
@@ -1708,7 +1830,7 @@ preselectedType = WaypointType.viewingPoint;
 break;
 }
 
-final center = _map.camera.center;
+final center = _getCameraCenter(); // Use helper method
 final result = await showDialog<RouteWaypoint>(
 context: context,
 builder: (context) => _AddWaypointDialog(
@@ -1729,7 +1851,7 @@ timeSlotCategory: autoCategory ?? category,
 } else {
 _poiWaypoints.add(result);
 }
-_map.move(result.position, _map.camera.zoom);
+_moveCamera(result.position); // Use helper method
 });
 }
 }
@@ -1737,7 +1859,7 @@ _map.move(result.position, _map.camera.zoom);
 Future<void> _showAddWaypointDialog() async {
 // Show the waypoint dialog directly (using user's current map center as proximity bias)
 // Exclude routePoint type since this is for POI waypoints only
-final center = _map.camera.center;
+final center = _getCameraCenter(); // Use helper method
 final result = await showDialog<RouteWaypoint>(
 context: context,
 builder: (context) => _AddWaypointDialog(
@@ -1755,7 +1877,7 @@ _poiWaypoints.add(result.copyWith(timeSlotCategory: autoCategory));
 } else {
 _poiWaypoints.add(result);
 }
-_map.move(result.position, _map.camera.zoom);
+_moveCamera(result.position); // Use helper method
 });
 }
 }
