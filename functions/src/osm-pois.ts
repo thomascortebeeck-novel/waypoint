@@ -254,10 +254,17 @@ function osmToGeoJSON(osmData: any): any {
     .filter((element: any) => element.lat && element.lon) // only include nodes with coords
     .map((element: any) => {
       const poiType = detectPOIType(element.tags || {});
+      // Try multiple name sources, with fallback to POI type display name
       const name = element.tags?.name || 
                    element.tags?.["name:en"] || 
                    element.tags?.["name:sv"] ||
-                   "Unnamed";
+                   element.tags?.["name:no"] ||
+                   element.tags?.["name:de"] ||
+                   element.tags?.ref ||
+                   element.tags?.operator ||
+                   element.tags?.tourism ||
+                   element.tags?.amenity ||
+                   getPOITypeDisplayName(poiType); // Fallback to type name instead of "Unnamed"
       
       return {
         type: "Feature",
@@ -303,4 +310,31 @@ function detectPOIType(tags: Record<string, string>): string {
   if (tags.emergency === "phone") return "emergencyPhone";
   if (tags.information === "guidepost") return "guidepost";
   return "other";
+}
+
+/**
+ * Get display name for POI type (used as fallback when OSM has no name)
+ */
+function getPOITypeDisplayName(poiType: string): string {
+  const typeNames: Record<string, string> = {
+    campsite: "Campsite",
+    hut: "Hut",
+    viewpoint: "Viewpoint",
+    water: "Water Source",
+    shelter: "Shelter",
+    parking: "Parking",
+    trailhead: "Trailhead",
+    picnicSite: "Picnic Site",
+    toilets: "Toilets",
+    informationBoard: "Info Board",
+    peakSummit: "Peak",
+    waterfall: "Waterfall",
+    cave: "Cave",
+    bench: "Bench",
+    rangerStation: "Ranger Station",
+    emergencyPhone: "Emergency Phone",
+    guidepost: "Guidepost",
+    other: "Point of Interest"
+  };
+  return typeNames[poiType] || "Point of Interest";
 }
