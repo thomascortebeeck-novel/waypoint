@@ -225,12 +225,43 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
 class _SignedOutState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return WaypointEmptyState(
-      icon: Icons.lock_outline,
-      title: 'Sign in to view your itineraries',
-      description: 'Create and manage your personalized trip plans',
-      actionLabel: 'Go to Profile',
-      onAction: () => context.go('/profile'),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.4),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.lock_outline,
+                size: 48,
+                color: context.colors.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Restricted Access',
+              style: context.textStyles.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This page is restricted to certain users. You need to apply to become a builder for now.',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

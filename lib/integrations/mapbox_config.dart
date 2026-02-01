@@ -16,7 +16,10 @@ const mapboxPublicToken = String.fromEnvironment(
 
 // ✅ UPDATED: Using your new Outdoors template style (created from Mapbox Gallery)
 // This style is based on Mapbox Standard and has no JSON syntax errors
-const _waypointStyleId = 'cmkzt3kvv003701r11e0w1rkl';
+// TEST: New basic map style - simpler, should work better
+const _waypointStyleId = 'cml2tc22e001701sd9yig4ilx'; // New basic map style (TESTING)
+// const _waypointStyleId = 'cmkwpnibk001201r4cwe2flf7'; // Working outdoors style
+// const _waypointStyleId = 'cmkzt3kvv003701r11e0w1rkl'; // Custom style (needs fixing)
 
 /// Platform-specific style URIs - Custom Waypoint Outdoors style
 String get _styleUri => 'mapbox://styles/thomascortebeeck93/$_waypointStyleId';
@@ -25,8 +28,9 @@ String get _styleUri => 'mapbox://styles/thomascortebeeck93/$_waypointStyleId';
 String get mapboxStyleUri => _styleUri;
 
 // Alternative style URIs (for testing/rollback)
+const newBasicStyle = 'mapbox://styles/thomascortebeeck93/cml2tc22e001701sd9yig4ilx'; // New basic style (TESTING)
+const outdoorsStyle = 'mapbox://styles/thomascortebeeck93/cmkwpnibk001201r4cwe2flf7'; // Working outdoors style
 const oldCustomStyle = 'mapbox://styles/thomascortebeeck93/cmkv0yv7a006401s9akepciwf'; // Had JSON errors
-const outdoorsStyle = 'mapbox://styles/thomascortebeeck93/cmkwpnibk001201r4cwe2flf7';
 const satelliteStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
 
 // Raster tile URLs

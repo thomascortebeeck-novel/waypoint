@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/presentation/marketplace/marketplace_screen.dart';
 import 'package:waypoint/presentation/mytrips/my_trips_screen.dart';
 import 'package:waypoint/presentation/mytrips/create_itinerary_screen.dart';
@@ -473,18 +474,26 @@ class ResponsiveScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= _desktopBreakpoint;
+    final auth = FirebaseAuthManager();
 
     if (isDesktop) {
-      return Scaffold(
-        body: Row(
-          children: [
-            DesktopSidebar(
-              currentIndex: navigationShell.currentIndex,
-              onDestinationSelected: _onDestinationSelected,
+      return StreamBuilder(
+        stream: auth.authStateChanges,
+        builder: (context, snapshot) {
+          final isLoggedIn = snapshot.data != null;
+          return Scaffold(
+            body: Row(
+              children: [
+                DesktopSidebar(
+                  currentIndex: navigationShell.currentIndex,
+                  onDestinationSelected: _onDestinationSelected,
+                  isLoggedIn: isLoggedIn,
+                ),
+                Expanded(child: navigationShell),
+              ],
             ),
-            Expanded(child: navigationShell),
-          ],
-        ),
+          );
+        },
       );
     }
 
@@ -510,11 +519,13 @@ class DesktopSidebar extends StatelessWidget {
   const DesktopSidebar({
     required this.currentIndex,
     required this.onDestinationSelected,
+    required this.isLoggedIn,
     super.key,
   });
 
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
+  final bool isLoggedIn;
 
   @override
   Widget build(BuildContext context) {
@@ -549,18 +560,20 @@ class DesktopSidebar extends StatelessWidget {
                       isSelected: currentIndex == 0,
                       onTap: () => onDestinationSelected(0),
                     ),
-                    _SidebarNavItem(
-                      icon: FontAwesomeIcons.map,
-                      label: 'My Trips',
-                      isSelected: currentIndex == 1,
-                      onTap: () => onDestinationSelected(1),
-                    ),
-                    _SidebarNavItem(
-                      icon: FontAwesomeIcons.penRuler,
-                      label: 'Builder',
-                      isSelected: currentIndex == 2,
-                      onTap: () => onDestinationSelected(2),
-                    ),
+                    if (isLoggedIn) ...[
+                      _SidebarNavItem(
+                        icon: FontAwesomeIcons.map,
+                        label: 'My Trips',
+                        isSelected: currentIndex == 1,
+                        onTap: () => onDestinationSelected(1),
+                      ),
+                      _SidebarNavItem(
+                        icon: FontAwesomeIcons.penRuler,
+                        label: 'Builder',
+                        isSelected: currentIndex == 2,
+                        onTap: () => onDestinationSelected(2),
+                      ),
+                    ],
                     _SidebarNavItem(
                       icon: FontAwesomeIcons.user,
                       label: 'Profile',

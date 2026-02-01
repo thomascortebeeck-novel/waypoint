@@ -452,6 +452,42 @@ Positioned.fill(
 child: _buildMapWidget(center),
 ),
 
+// POI Loading Indicator (subtle overlay)
+if (_loadingPOIs)
+Positioned(
+top: 16,
+right: 16,
+child: Container(
+padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+decoration: BoxDecoration(
+color: Colors.black.withOpacity(0.7),
+borderRadius: BorderRadius.circular(20),
+),
+child: Row(
+mainAxisSize: MainAxisSize.min,
+children: [
+SizedBox(
+width: 16,
+height: 16,
+child: CircularProgressIndicator(
+strokeWidth: 2,
+valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+),
+),
+const SizedBox(width: 8),
+Text(
+'Loading POIs...',
+style: TextStyle(
+color: Colors.white,
+fontSize: 12,
+fontWeight: FontWeight.w500,
+),
+),
+],
+),
+),
+),
+
 // Floating Search Bar (center top)
 _FloatingSearchBar(
 controller: _searchController,
@@ -646,18 +682,35 @@ Widget _buildMapboxEditor(ll.LatLng center) {
     },
     onCameraChanged: (cameraPos) {
       // Store camera state for Mapbox mode
+      final newCenter = cameraPos.center;
+      final newZoom = cameraPos.zoom;
+      
       setState(() {
-        _currentCameraCenter = cameraPos.center;
-        _currentCameraZoom = cameraPos.zoom;
+        _currentCameraCenter = newCenter;
+        _currentCameraZoom = newZoom;
       });
       
-      // Debounce POI loading
-      _poiDebounce?.cancel();
-      _poiDebounce = Timer(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          _loadPOIs();
-        }
-      });
+      // Smart POI reload: only reload if camera moved significantly or zoom changed
+      final positionChanged = _lastPOICenter != null && 
+          _calculateDistance(_lastPOICenter!, newCenter) > 2.0; // 2km threshold
+      final zoomChanged = _lastPOIZoom != null && 
+          (newZoom - _lastPOIZoom!).abs() > 0.5; // Reload if zoom changes by more than 0.5 levels
+      
+      // Reload if camera moved significantly, zoom changed, or no POIs loaded yet
+      final shouldReload = _lastPOICenter == null ||
+          positionChanged ||
+          zoomChanged ||
+          _osmPOIs.isEmpty;
+      
+      if (shouldReload) {
+        // Debounce to avoid too many API calls
+        _poiDebounce?.cancel();
+        _poiDebounce = Timer(const Duration(milliseconds: 800), () {
+          if (mounted) {
+            _loadPOIs();
+          }
+        });
+      }
     },
     annotations: annotations,
     polylines: polylines,

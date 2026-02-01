@@ -54,6 +54,26 @@
     .waypoint-marker:hover {
       transform: scale(1.1);
     }
+    
+    /* POI annotation markers */
+    .waypoint-annotation-marker {
+      z-index: 1000 !important;
+      position: relative;
+      pointer-events: auto;
+    }
+    
+    .waypoint-annotation-marker:hover {
+      transform: scale(1.2);
+      z-index: 1001 !important;
+    }
+    
+    /* Material Icons font for POI icons */
+    @font-face {
+      font-family: 'Material Icons';
+      font-style: normal;
+      font-weight: 400;
+      src: url(https://fonts.gstatic.com/s/materialicons/v142/flUhRq6tzZclQEJ-Vdg-IuiaDsNc.woff2) format('woff2');
+    }
   </style>
 </head>
 <body>

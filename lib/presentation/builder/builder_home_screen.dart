@@ -56,7 +56,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
                   vertical: 8,
                 ),
                 sliver: uid == null
-                    ? SliverToBoxAdapter(child: _SignedOutState(onAction: _showSignInRequired))
+                    ? SliverToBoxAdapter(child: _SignedOutState())
                     : _buildPlansContent(context, uid, isDesktop),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -146,7 +146,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
 
   Widget _buildFAB(BuildContext context, String? uid) {
     return FloatingActionButton.extended(
-      onPressed: uid == null ? _showSignInRequired : () => _createNewDraft(context),
+      onPressed: uid == null ? () => context.go('/profile') : () => _createNewDraft(context),
       elevation: 4,
       label: Text(
         'New Adventure',
@@ -208,63 +208,6 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
     );
   }
 
-  void _showSignInRequired() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: context.colors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
-      ),
-      builder: (context) => Padding(
-        padding: AppSpacing.paddingLg,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: context.colors.primaryContainer.withValues(alpha: 0.4),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.login,
-                size: 32,
-                color: context.colors.primary,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Sign In Required',
-              style: context.textStyles.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'You need to sign in to create and manage adventures.',
-              style: context.textStyles.bodyMedium?.copyWith(
-                color: context.colors.onSurface.withValues(alpha: 0.6),
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  context.push('/profile');
-                },
-                child: const Text('Go to Profile'),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
 
   Future<void> _createNewDraft(BuildContext context) async {
     final uid = _auth.currentUserId;
@@ -459,18 +402,55 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
 }
 
 class _SignedOutState extends StatelessWidget {
-  final VoidCallback onAction;
-
-  const _SignedOutState({required this.onAction});
+  const _SignedOutState();
 
   @override
   Widget build(BuildContext context) {
-    return EmptyStateWidget(
-      icon: Icons.edit_road,
-      title: 'Design your dream adventure',
-      subtitle: 'Create detailed itineraries with routes, accommodations, and packing lists. Sign in when you\'re ready to publish.',
-      actionLabel: 'Sign In to Start',
-      onAction: onAction,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.4),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.lock_outline,
+                size: 48,
+                color: context.colors.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Restricted Access',
+              style: context.textStyles.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This page is restricted to certain users. You need to apply to become a builder for now.',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => context.go('/profile'),
+                child: const Text('Sign In to Start'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

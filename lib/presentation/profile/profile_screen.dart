@@ -596,94 +596,35 @@ class _LogoutButton extends StatelessWidget {
   }
 }
 
-class _LoggedOutView extends StatelessWidget {
+class _LoggedOutView extends StatefulWidget {
   const _LoggedOutView({required this.auth, required this.onAuthSuccess});
   final FirebaseAuthManager auth;
   final VoidCallback onAuthSuccess;
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const SizedBox(height: 32),
-        Container(
-          padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            color: context.colors.surfaceContainerHighest.withValues(alpha: 0.3),
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(
-              color: context.colors.outline.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Column(
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: context.colors.primaryContainer,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.person_outline,
-                  size: 36,
-                  color: context.colors.primary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Welcome',
-                style: context.textStyles.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Sign in to sync your plans and trips',
-                style: context.textStyles.bodyMedium?.copyWith(
-                  color: context.colors.onSurface.withValues(alpha: 0.6),
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => _openAuthSheet(context, mode: _AuthMode.signIn),
-                  icon: const Icon(Icons.login, size: 18),
-                  label: const Text('Sign In'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _openAuthSheet(context, mode: _AuthMode.signUp),
-                  icon: const Icon(Icons.person_add, size: 18),
-                  label: const Text('Create Account'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
+  State<_LoggedOutView> createState() => _LoggedOutViewState();
+}
+
+class _LoggedOutViewState extends State<_LoggedOutView> {
+  late _AuthMode _mode;
+
+  @override
+  void initState() {
+    super.initState();
+    _mode = _AuthMode.signIn;
   }
 
-  void _openAuthSheet(BuildContext context, {required _AuthMode mode}) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      backgroundColor: context.colors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
-      ),
-      builder: (_) => _EmailAuthSheet(
-        initialMode: mode,
-        auth: auth,
-        onAuthSuccess: onAuthSuccess,
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: _EmailAuthForm(
+          initialMode: _mode,
+          auth: widget.auth,
+          onAuthSuccess: widget.onAuthSuccess,
+          onModeToggle: (mode) => setState(() => _mode = mode),
+        ),
       ),
     );
   }
@@ -716,6 +657,22 @@ class PasswordValidator {
   }
 }
 
+class _EmailAuthForm extends StatefulWidget {
+  const _EmailAuthForm({
+    required this.initialMode,
+    required this.auth,
+    required this.onAuthSuccess,
+    this.onModeToggle,
+  });
+  final _AuthMode initialMode;
+  final FirebaseAuthManager auth;
+  final VoidCallback onAuthSuccess;
+  final ValueChanged<_AuthMode>? onModeToggle;
+
+  @override
+  State<_EmailAuthForm> createState() => _EmailAuthFormState();
+}
+
 class _EmailAuthSheet extends StatefulWidget {
   const _EmailAuthSheet({
     required this.initialMode,
@@ -728,6 +685,323 @@ class _EmailAuthSheet extends StatefulWidget {
 
   @override
   State<_EmailAuthSheet> createState() => _EmailAuthSheetState();
+}
+
+class _EmailAuthFormState extends State<_EmailAuthForm> {
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _firstNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  late _AuthMode _mode;
+  bool _loading = false;
+  bool _agreedToTerms = false;
+  bool _marketingOptIn = false;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _mode = widget.initialMode;
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: context.colors.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: context.colors.outline.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _mode == _AuthMode.signIn ? 'Sign In' : 'Create Account',
+                  style: context.textStyles.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _toggleMode,
+                  child: Text(
+                    _mode == _AuthMode.signIn ? 'Create account' : 'Have an account?',
+                    style: context.textStyles.bodyMedium?.copyWith(
+                      color: context.colors.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            
+            // Name fields for sign up
+            if (_mode == _AuthMode.signUp) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _firstNameCtrl,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'First Name',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _lastNameCtrl,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Last Name',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+            
+            TextFormField(
+              controller: _emailCtrl,
+              autocorrect: false,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                prefixIcon: Icon(Icons.email_outlined),
+              ),
+              validator: (v) => (v == null || v.isEmpty || !v.contains('@')) ? 'Enter a valid email' : null,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _passwordCtrl,
+              obscureText: _obscurePassword,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.lock_outlined),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+              ),
+              validator: (v) {
+                if (_mode == _AuthMode.signIn) {
+                  return (v == null || v.length < 6) ? 'Min 6 characters' : null;
+                }
+                return PasswordValidator(v ?? '').errorMessage;
+              },
+            ),
+            
+            // Password requirements for sign up
+            if (_mode == _AuthMode.signUp) ...[
+              const SizedBox(height: 12),
+              _PasswordRequirementsIndicator(password: _passwordCtrl.text),
+              const SizedBox(height: 16),
+              
+              // Terms and conditions checkbox
+              _CheckboxTile(
+                value: _agreedToTerms,
+                onChanged: (v) => setState(() => _agreedToTerms = v ?? false),
+                child: Text.rich(
+                  TextSpan(
+                    text: 'I agree to the ',
+                    style: context.textStyles.bodySmall,
+                    children: [
+                      TextSpan(
+                        text: 'Terms and Conditions',
+                        style: context.textStyles.bodySmall?.copyWith(
+                          color: context.colors.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                      const TextSpan(text: ' and have read the '),
+                      TextSpan(
+                        text: 'Privacy Policy',
+                        style: context.textStyles.bodySmall?.copyWith(
+                          color: context.colors.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                      const TextSpan(text: '.'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              
+              // Marketing opt-in checkbox
+              _CheckboxTile(
+                value: _marketingOptIn,
+                onChanged: (v) => setState(() => _marketingOptIn = v ?? false),
+                child: Text(
+                  'Send me interesting commercial offers from Waypoints.',
+                  style: context.textStyles.bodySmall,
+                ),
+              ),
+            ],
+            
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _loading ? null : _submit,
+                child: _loading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(_mode == _AuthMode.signIn ? 'Sign In' : 'Create Account'),
+              ),
+            ),
+            if (_mode == _AuthMode.signIn)
+              Center(
+                child: TextButton(
+                  onPressed: _showForgotPasswordDialog,
+                  child: Text(
+                    'Forgot password?',
+                    style: context.textStyles.bodyMedium?.copyWith(
+                      color: context.colors.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _toggleMode() {
+    setState(() {
+      _mode = _mode == _AuthMode.signIn ? _AuthMode.signUp : _AuthMode.signIn;
+      _agreedToTerms = false;
+      _marketingOptIn = false;
+    });
+    widget.onModeToggle?.call(_mode);
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    
+    // Check terms agreement for sign up
+    if (_mode == _AuthMode.signUp && !_agreedToTerms) {
+      _showInlineError('Please agree to the Terms and Conditions');
+      return;
+    }
+    
+    setState(() => _loading = true);
+    String? errorMessage;
+    
+    try {
+      if (_mode == _AuthMode.signIn) {
+        final user = await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
+        
+        if (!mounted) return;
+        
+        // If sign in failed (user is null), show error and keep form open
+        if (user == null) {
+          errorMessage = 'Incorrect email or password. Please try again.';
+          return;
+        }
+        
+        // Check email verification status
+        if (!widget.auth.isEmailVerified) {
+          _showEmailVerificationDialog();
+          return;
+        }
+      } else {
+        final user = await widget.auth.createAccountWithEmail(
+          context,
+          _emailCtrl.text.trim(),
+          _passwordCtrl.text,
+          firstName: _firstNameCtrl.text.trim(),
+          lastName: _lastNameCtrl.text.trim(),
+          agreedToTerms: _agreedToTerms,
+          marketingOptIn: _marketingOptIn,
+        );
+        
+        if (!mounted) return;
+        
+        // If account creation failed, keep form open
+        if (user == null) {
+          errorMessage = 'Failed to create account. Please try again.';
+          return;
+        }
+        
+        // Show email verification dialog after signup
+        _showEmailVerificationDialog();
+        return;
+      }
+      
+      if (!mounted) return;
+      widget.onAuthSuccess();
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+        if (errorMessage != null) {
+          _showInlineError(errorMessage);
+        }
+      }
+    }
+  }
+  
+  void _showInlineError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: context.colors.error,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showForgotPasswordDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _ForgotPasswordDialog(auth: widget.auth, initialEmail: _emailCtrl.text),
+    );
+  }
+
+  void _showEmailVerificationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _EmailVerificationDialog(
+        auth: widget.auth,
+        onVerified: () {
+          Navigator.of(ctx).pop();
+          widget.onAuthSuccess();
+        },
+      ),
+    );
+  }
 }
 
 class _EmailAuthSheetState extends State<_EmailAuthSheet> {

@@ -319,6 +319,8 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
         initialZoom: config.initialZoom,
         initialTilt: config.initialTilt,
         initialBearing: config.initialBearing,
+        annotations: widget.annotations,
+        polylines: widget.polylines,
         onMapCreated: (controller) {
           widget.onMapCreated?.call(controller);
           Log.i('map', '✅ Mapbox GL JS map created successfully');

@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:waypoint/features/map/web/web_map_controller.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
 
 /// Mapbox GL JS widget for web platform
 /// Uses the same custom Mapbox style as mobile for visual consistency
@@ -17,6 +18,8 @@ class MapboxWebWidget extends StatefulWidget {
   final double initialTilt;
   final double initialBearing;
   final void Function(WaypointMapController)? onMapCreated;
+  final List<MapAnnotation> annotations;
+  final List<MapPolyline> polylines;
 
   const MapboxWebWidget({
     super.key,
@@ -25,6 +28,8 @@ class MapboxWebWidget extends StatefulWidget {
     this.initialTilt = 0.0,
     this.initialBearing = 0.0,
     this.onMapCreated,
+    this.annotations = const [],
+    this.polylines = const [],
   });
 
   @override
@@ -38,6 +43,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   String? _errorMessage;
   Timer? _loadTimeout;
   bool _usedFallbackStyle = false;
+  js.JsObject? _mapInstance;
   
   // Fallback to Mapbox standard outdoors style if custom style fails
   static const _fallbackStyleUri = 'mapbox://styles/mapbox/outdoors-v12';
@@ -149,6 +155,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
         // Store map reference for later use
         js.context['waypointMap_$_viewId'] = map;
+        _mapInstance = map;
         
         // Set up a timeout to detect style loading failures
         // Increased timeout to 15 seconds to account for slow connections
@@ -174,14 +181,16 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         });
 
         // Set up event listeners - both 'load' and 'style.load' for reliability
-        map.callMethod('on', ['load', js.allowInterop(() {
+        // Note: Even though 'load' and 'idle' don't typically pass parameters,
+        // we accept (e) to be safe - Mapbox may pass event objects in some contexts
+        map.callMethod('on', ['load', js.allowInterop((e) {
           debugPrint('✅ [MapboxWeb] Map "load" event fired');
           _loadTimeout?.cancel();
           _onMapLoaded(map);
         })]);
         
         // Also listen to 'style.load' as a backup
-        map.callMethod('on', ['style.load', js.allowInterop(() {
+        map.callMethod('on', ['style.load', js.allowInterop((e) {
           debugPrint('✅ [MapboxWeb] Style "style.load" event fired');
           if (!_isMapReady) {
             _loadTimeout?.cancel();
@@ -190,7 +199,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         })]);
         
         // Listen to 'idle' event as another confirmation
-        map.callMethod('once', ['idle', js.allowInterop(() {
+        map.callMethod('once', ['idle', js.allowInterop((e) {
           debugPrint('✅ [MapboxWeb] Map "idle" event fired');
           if (!_isMapReady) {
             _loadTimeout?.cancel();
@@ -200,15 +209,23 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
         // Handle style.error event for more specific error info
         map.callMethod('on', ['error', js.allowInterop((e) {
-          final errorMsg = e['error']?['message']?.toString() ?? e.toString();
-          debugPrint('Mapbox error: $errorMsg');
+          final errorObj = e['error'];
+          final errorMsg = errorObj?['message']?.toString() ?? e.toString();
+          final errorType = errorObj?['type']?.toString() ?? 'unknown';
+          
+          debugPrint('Mapbox error [$errorType]: $errorMsg');
           
           // Check if this is a style-related error and we haven't tried fallback yet
           if (!_isMapReady && !_usedFallbackStyle && 
-              (errorMsg.contains('style') || 
+              (errorType == 'style' || 
+               errorMsg.contains('style') || 
                errorMsg.contains('Bare objects') || 
-               errorMsg.contains('image variant'))) {
+               errorMsg.contains('image variant') ||
+               errorMsg.contains('literal'))) {
             debugPrint('🔄 [MapboxWeb] Style error detected, switching to fallback...');
+            debugPrint('   Custom style failed: $styleToUse');
+            debugPrint('   Error details: $errorMsg');
+            debugPrint('   💡 Fix your style in Mapbox Studio - see CUSTOM_STYLE_FIX_GUIDE.md');
             _loadTimeout?.cancel();
             _usedFallbackStyle = true;
             // Small delay to let current map cleanup
@@ -225,11 +242,11 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
           _controller?.onMapTapped(lngLat['lat'], lngLat['lng']);
         })]);
 
-        map.callMethod('on', ['move', js.allowInterop(() {
+        map.callMethod('on', ['move', js.allowInterop((e) {
           if (_isMapReady) _updateCameraState(map);
         })]);
 
-        map.callMethod('on', ['moveend', js.allowInterop(() {
+        map.callMethod('on', ['moveend', js.allowInterop((e) {
           if (_isMapReady) _updateCameraState(map);
         })]);
       } catch (e) {
@@ -306,9 +323,33 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     final loadedZoom = map.callMethod('getZoom', []);
     final styleInfo = _usedFallbackStyle ? '(using fallback style)' : '(using custom style)';
     debugPrint('✅ Map loaded successfully at zoom: $loadedZoom $styleInfo');
+    debugPrint('📍 [MapboxWeb] Map loaded with ${widget.annotations.length} annotations, ${widget.polylines.length} polylines');
 
     // Enable 3D terrain (Mapbox terrain is included in Standard style)
     _enable3DTerrain(map);
+    
+    // Add annotations and polylines after map is ready
+    // Note: If annotations are empty now, they'll be added via didUpdateWidget when they arrive
+    _updateAnnotations(map);
+    _updatePolylines(map);
+    
+    // Also set up a listener to check for annotations that arrive later
+    // This is a fallback in case didUpdateWidget doesn't fire
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isMapReady && _mapInstance != null) {
+        // Re-check annotations after a frame to catch any that were added
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted && _isMapReady && _mapInstance != null) {
+            final currentCount = _markers.length;
+            final expectedCount = widget.annotations.length;
+            if (expectedCount > currentCount) {
+              debugPrint('🔄 [MapboxWeb] Detected missing annotations: $currentCount markers vs $expectedCount expected');
+              _updateAnnotations(_mapInstance!);
+            }
+          }
+        });
+      }
+    });
 
     // Initialize controller with JS interop functions
     _controller = WebMapController();
@@ -508,16 +549,16 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       
       // Setup drag event listeners if draggable
       if (draggable) {
-        marker.callMethod('on', ['dragstart', js.allowInterop(() {
+        marker.callMethod('on', ['dragstart', js.allowInterop((e) {
           _controller?.onMarkerDragStart(id, lat, lng);
         })]);
         
-        marker.callMethod('on', ['drag', js.allowInterop(() {
+        marker.callMethod('on', ['drag', js.allowInterop((e) {
           final lngLat = marker.callMethod('getLngLat', []);
           _controller?.onMarkerDragging(id, lngLat['lat'], lngLat['lng']);
         })]);
         
-        marker.callMethod('on', ['dragend', js.allowInterop(() {
+        marker.callMethod('on', ['dragend', js.allowInterop((e) {
           final lngLat = marker.callMethod('getLngLat', []);
           _controller?.onMarkerDragEnd(id, lngLat['lat'], lngLat['lng']);
         })]);
@@ -561,6 +602,172 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       } catch (_) {}
       _markers.remove(id);
       _markerDraggableState.remove(id);
+    }
+  }
+  
+  /// Update annotations on the map (called when annotations change)
+  void _updateAnnotations(js.JsObject map) {
+    if (!_isMapReady || map == null) {
+      debugPrint('⚠️ [MapboxWeb] Cannot update annotations: map not ready or null');
+      return;
+    }
+    
+    debugPrint('📍 [MapboxWeb] Updating annotations: ${widget.annotations.length} total');
+    
+    // Remove all existing annotation markers (except user location)
+    final annotationIds = widget.annotations.map((a) => a.id).toSet();
+    final toRemove = _markers.keys.where((id) => !annotationIds.contains(id) && id != 'user_location').toList();
+    for (final id in toRemove) {
+      _removeMarkerFromMap(id);
+    }
+    
+    // Add or update annotations
+    int added = 0;
+    int updated = 0;
+    for (final annotation in widget.annotations) {
+      // Convert icon to a simple colored circle for now
+      // TODO: Support custom icons via icon images
+      final colorHex = '#${(annotation.color.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+      
+      // Check if marker already exists
+      if (_markers.containsKey(annotation.id)) {
+        _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
+        updated++;
+      } else {
+        _addAnnotationMarker(map, annotation, colorHex);
+        added++;
+      }
+    }
+    
+    debugPrint('✅ [MapboxWeb] Annotations updated: $added added, $updated updated');
+  }
+  
+  /// Add an annotation as a marker on the map
+  void _addAnnotationMarker(js.JsObject map, MapAnnotation annotation, String colorHex) {
+    try {
+      final mapboxgl = js.context['mapboxgl'];
+      if (mapboxgl == null) {
+        debugPrint('❌ [MapboxWeb] mapboxgl not available');
+        return;
+      }
+      
+      // Create custom marker element with icon support
+      final el = html.DivElement()
+        ..className = 'waypoint-annotation-marker'
+        ..style.width = '28px'
+        ..style.height = '28px'
+        ..style.borderRadius = '50%'
+        ..style.backgroundColor = colorHex
+        ..style.border = '2px solid white'
+        ..style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)'
+        ..style.cursor = 'pointer'
+        ..style.display = 'flex'
+        ..style.alignItems = 'center'
+        ..style.justifyContent = 'center'
+        ..style.position = 'relative';
+      
+      // Add Material Icons font to display icon
+      el.style.fontFamily = 'Material Icons';
+      el.style.fontSize = '16px';
+      el.style.color = 'white';
+      el.style.fontWeight = 'normal';
+      
+      // Get icon codepoint from IconData
+      final iconCodePoint = annotation.icon.codePoint;
+      el.innerText = String.fromCharCode(iconCodePoint);
+      
+      // Add label text below icon if available (for waypoints, not POIs)
+      if (annotation.label != null && annotation.label!.isNotEmpty && annotation.label != 'Unnamed') {
+        // For waypoints with labels, show both icon and label
+        // For POIs, we'll show just the icon (name appears on hover/tap)
+        final labelEl = html.SpanElement()
+          ..style.position = 'absolute'
+          ..style.bottom = '-18px'
+          ..style.left = '50%'
+          ..style.transform = 'translateX(-50%)'
+          ..style.fontSize = '10px'
+          ..style.color = 'white'
+          ..style.fontWeight = 'bold'
+          ..style.textShadow = '0 1px 2px rgba(0,0,0,0.8)'
+          ..style.whiteSpace = 'nowrap'
+          ..style.fontFamily = 'sans-serif'
+          ..innerText = annotation.label!;
+        el.append(labelEl);
+      }
+      
+      final marker = js.JsObject(mapboxgl['Marker'], [js.JsObject.jsify({
+        'element': el,
+        'anchor': 'center',
+      })])
+        ..callMethod('setLngLat', [js.JsObject.jsify([annotation.position.longitude, annotation.position.latitude])])
+        ..callMethod('addTo', [map]);
+      
+      // Add click handler
+      el.onClick.listen((e) {
+        e.stopPropagation();
+        annotation.onTap?.call();
+      });
+      
+      _markers[annotation.id] = marker;
+      _markerDraggableState[annotation.id] = false;
+      debugPrint('✅ [MapboxWeb] Added marker: ${annotation.id} at ${annotation.position.latitude},${annotation.position.longitude}');
+    } catch (e, stack) {
+      debugPrint('❌ [MapboxWeb] Failed to add annotation marker ${annotation.id}: $e');
+      debugPrint('Stack: $stack');
+    }
+  }
+  
+  /// Update polylines on the map
+  void _updatePolylines(js.JsObject map) {
+    if (!_isMapReady || map == null) return;
+    
+    // Remove existing route first (if any)
+    _removeRouteFromMap(map);
+    
+    // Add new polylines (for now, only add the first one - can be extended for multiple)
+    if (widget.polylines.isNotEmpty) {
+      final polyline = widget.polylines.first;
+      if (polyline.points.length >= 2) {
+        // Convert LatLng points to [lng, lat] coordinates
+        final coordinates = polyline.points.map((p) => [p.longitude, p.latitude]).toList();
+        _addRouteToMap(map, coordinates, polyline.color.value, polyline.width);
+      }
+    }
+  }
+  
+  @override
+  void didUpdateWidget(MapboxWebWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    
+    debugPrint('🔄 [MapboxWeb] didUpdateWidget called: annotations ${oldWidget.annotations.length} → ${widget.annotations.length}, polylines ${oldWidget.polylines.length} → ${widget.polylines.length}');
+    
+    // Update annotations if they changed (check by length and IDs to catch content changes)
+    final annotationsChanged = widget.annotations.length != oldWidget.annotations.length ||
+        widget.annotations.any((a) => !oldWidget.annotations.any((old) => old.id == a.id)) ||
+        oldWidget.annotations.any((a) {
+          final old = oldWidget.annotations.firstWhere((o) => o.id == a.id, orElse: () => a);
+          return old.id != a.id || old.position != a.position;
+        });
+    
+    if (annotationsChanged && _isMapReady && _mapInstance != null) {
+      debugPrint('🔄 [MapboxWeb] Annotations changed: ${oldWidget.annotations.length} → ${widget.annotations.length}');
+      _updateAnnotations(_mapInstance!);
+    } else if (widget.annotations.length > 0 && _isMapReady && _mapInstance != null) {
+      // Even if comparison says unchanged, if we have annotations and map is ready, ensure they're displayed
+      final currentMarkerCount = _markers.length - (_markers.containsKey('user_location') ? 1 : 0);
+      if (currentMarkerCount != widget.annotations.length) {
+        debugPrint('🔄 [MapboxWeb] Marker count mismatch: $currentMarkerCount markers vs ${widget.annotations.length} annotations - syncing');
+        _updateAnnotations(_mapInstance!);
+      }
+    }
+    
+    // Update polylines if they changed
+    final polylinesChanged = widget.polylines.length != oldWidget.polylines.length ||
+        widget.polylines.any((p) => !oldWidget.polylines.any((old) => old.id == p.id));
+    
+    if (polylinesChanged && _isMapReady && _mapInstance != null) {
+      debugPrint('🔄 [MapboxWeb] Polylines changed: ${oldWidget.polylines.length} → ${widget.polylines.length}');
+      _updatePolylines(_mapInstance!);
     }
   }
 
