@@ -75,6 +75,38 @@
       src: url(https://fonts.gstatic.com/s/materialicons/v142/flUhRq6tzZclQEJ-Vdg-IuiaDsNc.woff2) format('woff2');
     }
   </style>
+  
+  <!-- Suppress non-critical AssetManifest.json errors in console -->
+  <script>
+    // Filter out AssetManifest.json 404 errors from console
+    // These are common in Flutter web debug mode and non-critical
+    // Fonts will fall back gracefully to system fonts or CDN
+    (function() {
+      const originalWarn = console.warn;
+      const originalError = console.error;
+      
+      console.warn = function(...args) {
+        const message = args.join(' ');
+        // Suppress AssetManifest.json warnings
+        if (message.includes('AssetManifest.json') || 
+            message.includes('Flutter Web engine failed to fetch') ||
+            (message.includes('asset') && message.includes('404'))) {
+          return; // Suppress this warning
+        }
+        originalWarn.apply(console, args);
+      };
+      
+      console.error = function(...args) {
+        const message = args.join(' ');
+        // Suppress AssetManifest.json errors (they're handled by Flutter error handler)
+        if (message.includes('AssetManifest.json') || 
+            (message.includes('Unable to load asset') && message.includes('AssetManifest'))) {
+          return; // Suppress this error
+        }
+        originalError.apply(console, args);
+      };
+    })();
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

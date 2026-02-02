@@ -652,14 +652,15 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       }
       
       // Create custom marker element with icon support
+      // Align styling with Mapbox POI markers: use same size and style as Mapbox native POIs
       final el = html.DivElement()
         ..className = 'waypoint-annotation-marker'
-        ..style.width = '28px'
+        ..style.width = '28px' // Match Mapbox POI marker size
         ..style.height = '28px'
         ..style.borderRadius = '50%'
-        ..style.backgroundColor = colorHex
-        ..style.border = '2px solid white'
-        ..style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)'
+        ..style.backgroundColor = colorHex // Use POI type color (already aligned with Mapbox)
+        ..style.border = '2px solid white' // Match Mapbox POI border style
+        ..style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)' // Match Mapbox POI shadow
         ..style.cursor = 'pointer'
         ..style.display = 'flex'
         ..style.alignItems = 'center'

@@ -508,10 +508,53 @@ class ResponsiveScaffold extends StatelessWidget {
 
   void _onDestinationSelected(int index) {
     Log.i('router', 'Switching branch to index=$index');
-    navigationShell.goBranch(
-      index,
-      initialLocation: index == navigationShell.currentIndex,
-    );
+    
+    // Use a microtask to ensure navigation happens even if errors are occurring
+    // This prevents mouse tracker errors from blocking navigation
+    Future.microtask(() {
+      try {
+        // Always call goBranch, even if already on the same index
+        // This ensures navigation state is properly updated
+        navigationShell.goBranch(
+          index,
+          initialLocation: index == navigationShell.currentIndex,
+        );
+        Log.i('router', 'Navigation to index=$index completed successfully');
+      } catch (e, stack) {
+        Log.e('router', 'Failed to switch branch to index=$index', e, stack);
+        // Fallback: try using GoRouter directly
+        try {
+          final route = _getRouteForIndex(index);
+          AppRouter.router.go(route);
+          Log.i('router', 'Fallback navigation to $route succeeded');
+        } catch (e2, stack2) {
+          Log.e('router', 'Fallback navigation also failed', e2, stack2);
+          // Last resort: try push instead of go
+          try {
+            final route = _getRouteForIndex(index);
+            AppRouter.router.push(route);
+            Log.i('router', 'Push navigation to $route succeeded');
+          } catch (e3) {
+            Log.e('router', 'All navigation methods failed for index=$index', e3);
+          }
+        }
+      }
+    });
+  }
+  
+  String _getRouteForIndex(int index) {
+    switch (index) {
+      case 0:
+        return AppRoutes.marketplace;
+      case 1:
+        return AppRoutes.myTrips;
+      case 2:
+        return AppRoutes.builder;
+      case 3:
+        return AppRoutes.profile;
+      default:
+        return AppRoutes.marketplace;
+    }
   }
 }
 
@@ -656,55 +699,71 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
       child: MouseRegion(
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          child: Material(
-            // Remove green tint for the selected state on desktop sidebar.
-            // Keep a very subtle hover background only.
-            color: _isHovered
-                ? context.colors.surfaceContainerHighest.withValues(alpha: 0.5)
-                : Colors.transparent,
+        child: Material(
+          // Remove green tint for the selected state on desktop sidebar.
+          // Keep a very subtle hover background only.
+          color: _isHovered
+              ? context.colors.surfaceContainerHighest.withValues(alpha: 0.5)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          child: InkWell(
+            onTap: () {
+              Log.i('nav', 'Navigation item tapped: ${widget.label}');
+              // Use microtask to defer execution and avoid blocking from mouse tracker errors
+              Future.microtask(() {
+                try {
+                  widget.onTap();
+                  Log.i('nav', 'Navigation callback executed successfully for: ${widget.label}');
+                } catch (e, stack) {
+                  Log.e('nav', 'Error in navigation tap handler for ${widget.label}', e, stack);
+                  // Retry after a short delay
+                  Future.delayed(const Duration(milliseconds: 100), () {
+                    try {
+                      widget.onTap();
+                      Log.i('nav', 'Navigation retry succeeded for: ${widget.label}');
+                    } catch (e2) {
+                      Log.e('nav', 'Navigation retry also failed for ${widget.label}', e2);
+                    }
+                  });
+                }
+              });
+            },
             borderRadius: BorderRadius.circular(AppRadius.md),
-            child: InkWell(
-              onTap: widget.onTap,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              splashColor: Colors.transparent,
-              highlightColor: Colors.transparent,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  // Remove the left selection border to match mobile/tablet behavior
-                  // where only the label/icon color changes when active.
-                  border: null,
-                ),
-                child: Row(
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      child: Icon(
-                        widget.icon,
-                        size: 18,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                // Remove the left selection border to match mobile/tablet behavior
+                // where only the label/icon color changes when active.
+                border: null,
+              ),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      widget.icon,
+                      size: 18,
+                      color: isActive
+                          ? context.colors.primary
+                          : context.colors.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: context.textStyles.bodyLarge?.copyWith(
+                        fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
                         color: isActive
                             ? context.colors.primary
-                            : context.colors.onSurface.withValues(alpha: 0.6),
+                            : context.colors.onSurface.withValues(alpha: 0.8),
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        widget.label,
-                        style: context.textStyles.bodyLarge?.copyWith(
-                          fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w500,
-                          color: isActive
-                              ? context.colors.primary
-                              : context.colors.onSurface.withValues(alpha: 0.8),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

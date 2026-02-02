@@ -647,12 +647,39 @@ Widget _buildMapboxEditor(ll.LatLng center) {
     ));
   }
   
-  // Convert OSM POIs to annotations
+  // Convert OSM POIs to annotations (with deduplication)
+  // Skip OSM POIs that are very close to custom waypoints (within ~50m)
+  // This prevents duplicate markers when Mapbox style shows POIs and we also have OSM POIs
   for (final poi in _osmPOIs) {
-    annotations.add(MapAnnotation.fromPOI(
-      poi,
-      onTap: () => _showOSMPOIDetails(poi),
-    ));
+    // Check if this OSM POI is too close to any custom waypoint
+    bool isDuplicate = false;
+    for (final wp in _poiWaypoints) {
+      final distance = _calculateDistance(poi.coordinates, wp.position);
+      if (distance < 0.05) { // 50 meters threshold
+        isDuplicate = true;
+        Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to waypoint ${wp.name} (${distance.toStringAsFixed(2)}km)');
+        break;
+      }
+    }
+    
+    // Also check against route points
+    if (!isDuplicate) {
+      for (final point in _points) {
+        final distance = _calculateDistance(poi.coordinates, point);
+        if (distance < 0.05) { // 50 meters threshold
+          isDuplicate = true;
+          Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to route point (${distance.toStringAsFixed(2)}km)');
+          break;
+        }
+      }
+    }
+    
+    if (!isDuplicate) {
+      annotations.add(MapAnnotation.fromPOI(
+        poi,
+        onTap: () => _showOSMPOIDetails(poi),
+      ));
+    }
   }
   
   // Convert custom waypoints to annotations
@@ -690,11 +717,12 @@ Widget _buildMapboxEditor(ll.LatLng center) {
         _currentCameraZoom = newZoom;
       });
       
-      // Smart POI reload: only reload if camera moved significantly or zoom changed
+      // Always refresh POIs on zoom changes (best practice: refresh on any zoom change)
+      // Also refresh if camera moved significantly (>2km)
       final positionChanged = _lastPOICenter != null && 
           _calculateDistance(_lastPOICenter!, newCenter) > 2.0; // 2km threshold
       final zoomChanged = _lastPOIZoom != null && 
-          (newZoom - _lastPOIZoom!).abs() > 0.5; // Reload if zoom changes by more than 0.5 levels
+          (newZoom - _lastPOIZoom!).abs() > 0.01; // Reload on ANY zoom change (was 0.5)
       
       // Reload if camera moved significantly, zoom changed, or no POIs loaded yet
       final shouldReload = _lastPOICenter == null ||
@@ -703,9 +731,16 @@ Widget _buildMapboxEditor(ll.LatLng center) {
           _osmPOIs.isEmpty;
       
       if (shouldReload) {
+        // Clear old POIs immediately when zoom changes to prevent clustering artifacts
+        if (zoomChanged && _lastPOIZoom != null) {
+          setState(() {
+            _osmPOIs = []; // Clear old POIs immediately
+          });
+        }
+        
         // Debounce to avoid too many API calls
         _poiDebounce?.cancel();
-        _poiDebounce = Timer(const Duration(milliseconds: 800), () {
+        _poiDebounce = Timer(const Duration(milliseconds: 600), () {
           if (mounted) {
             _loadPOIs();
           }
@@ -952,9 +987,25 @@ setState(() {
 _searchResults = [];
 _searchController.clear();
 });
+
+// Trigger POI refresh after camera moves to new location
+// Clear old POIs immediately and reload for new location
+setState(() {
+_osmPOIs = []; // Clear old POIs
+_lastPOICenter = null; // Force reload
+_lastPOIZoom = null; // Force reload
+});
+
+// Debounce POI reload after camera animation completes
+_poiDebounce?.cancel();
+_poiDebounce = Timer(const Duration(milliseconds: 1000), () {
+  if (mounted) {
+    _loadPOIs();
+  }
+});
 }
 
-/// Called when map position changes - debounce POI reload
+  /// Called when map position changes - debounce POI reload
   void _onMapPositionChanged(fm.MapCamera camera, bool hasGesture) {
     // Cancel any pending debounce
     _poiDebounce?.cancel();
@@ -963,7 +1014,7 @@ _searchController.clear();
     final positionChanged = _lastPOICenter != null && 
         _calculateDistance(_lastPOICenter!, camera.center) > 2.0; // 2km threshold
     final zoomChanged = _lastPOIZoom != null && 
-        (camera.zoom - _lastPOIZoom!).abs() > 0.5; // Reload if zoom changes by more than 0.5 levels
+        (camera.zoom - _lastPOIZoom!).abs() > 0.01; // Reload on ANY zoom change (was 0.5)
     
     // Reload if camera moved significantly, zoom changed, or no POIs loaded yet
     final shouldReload = _lastPOICenter == null ||
@@ -972,8 +1023,15 @@ _searchController.clear();
         _osmPOIs.isEmpty;
     
     if (shouldReload) {
+      // Clear old POIs immediately when zoom changes to prevent clustering artifacts
+      if (zoomChanged && _lastPOIZoom != null) {
+        setState(() {
+          _osmPOIs = []; // Clear old POIs immediately
+        });
+      }
+      
       // Debounce to avoid too many API calls
-      _poiDebounce = Timer(const Duration(milliseconds: 800), () {
+      _poiDebounce = Timer(const Duration(milliseconds: 600), () {
         if (mounted) {
           _loadPOIs();
         }
@@ -998,8 +1056,30 @@ _searchController.clear();
   Future<void> _loadPOIs() async {
     if (_loadingPOIs) return;
 
+    // Get current zoom level
+    final currentZoom = _getCameraZoom();
+    
+    // Best practice: Don't show POIs when zoomed out too far (zoom < 12)
+    // This prevents performance issues and the "all POIs in one line" problem
+    // Common practice: AllTrails, Komoot, and other platforms hide POIs below zoom 12-13
+    const double minZoomForPOIs = 12.0;
+    
+    if (currentZoom < minZoomForPOIs) {
+      // Clear POIs when zoomed out too far
+      if (mounted && _osmPOIs.isNotEmpty) {
+        setState(() {
+          _osmPOIs = [];
+          _loadingPOIs = false;
+          _lastPOICenter = _getCameraCenter();
+          _lastPOIZoom = currentZoom;
+        });
+        Log.i('route_builder', '📍 Zoomed out too far (${currentZoom.toStringAsFixed(1)} < $minZoomForPOIs), hiding POIs');
+      }
+      return;
+    }
+
     setState(() => _loadingPOIs = true);
-    Log.i('route_builder', '🔍 Starting to load OSM POIs...');
+    Log.i('route_builder', '🔍 Starting to load OSM POIs at zoom ${currentZoom.toStringAsFixed(1)}...');
 
 try {
 // Get bounds that work in both flutter_map and Mapbox modes
@@ -1017,11 +1097,21 @@ if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
 } else {
   // Calculate bounds from camera position for Mapbox mode
   final center = _getCameraCenter();
-  final zoom = _getCameraZoom();
-  bounds = _calculateBoundsFromCenterZoom(center, zoom);
+  bounds = _calculateBoundsFromCenterZoom(center, currentZoom);
 }
 
 Log.i('route_builder', '📍 Map bounds: S=${bounds['south']!.toStringAsFixed(2)}, W=${bounds['west']!.toStringAsFixed(2)}, N=${bounds['north']!.toStringAsFixed(2)}, E=${bounds['east']!.toStringAsFixed(2)}');
+
+// Adjust maxResults based on zoom level for better performance
+// Higher zoom = more detail = more POIs, lower zoom = fewer POIs
+int maxResults;
+if (currentZoom >= 15) {
+  maxResults = 200; // Very zoomed in: show more POIs
+} else if (currentZoom >= 13) {
+  maxResults = 150; // Medium zoom: moderate POIs
+} else {
+  maxResults = 100; // Zoom 12-13: fewer POIs
+}
 
 // Load main outdoor POI types
 final pois = await POIService.fetchPOIs(
@@ -1037,7 +1127,7 @@ POIType.parking,
 POIType.toilets,
 POIType.picnicSite,
 ],
-maxResults: 100,
+maxResults: maxResults,
 );
 
 if (mounted) {
@@ -1045,9 +1135,9 @@ setState(() {
 _osmPOIs = pois;
 _loadingPOIs = false;
 _lastPOICenter = _getCameraCenter(); // Use helper method
-_lastPOIZoom = _getCameraZoom(); // Use helper method
+_lastPOIZoom = currentZoom; // Use helper method
 });
-Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs at zoom ${_getCameraZoom().toStringAsFixed(1)}');
+Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs at zoom ${currentZoom.toStringAsFixed(1)} (maxResults: $maxResults)');
 }
 } catch (e, stack) {
 Log.e('route_builder', '❌ Failed to load POIs', e, stack);

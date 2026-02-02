@@ -601,6 +601,7 @@ class TestimonialCard extends StatelessWidget {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Rating stars
@@ -616,7 +617,8 @@ class TestimonialCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           // Quote
-          Expanded(
+          Flexible(
+            fit: FlexFit.loose,
             child: Text(
               testimonial.quote,
               style: context.textStyles.bodyMedium?.copyWith(
