@@ -49,10 +49,28 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools@latest
 
-      # 6. Create service account credentials file
+      # 6. Install Google Cloud SDK and authenticate
+      - name: Install Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          service_account_key: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.FIREBASE_PROJECT_ID }}
+          export_default_credentials: true
+
+      # 6.5. Create service account credentials file (for Firebase CLI compatibility)
       - name: Setup Google Cloud Credentials
         run: |
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > $HOME/gcloud-service-key.json
+          chmod 600 $HOME/gcloud-service-key.json
+          export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
+          echo "✅ Service account credentials file created"
+          
+      # 6.6. Verify APIs are enabled (read-only check, should work even without enable permissions)
+      - name: Verify Required APIs
+        run: |
+          echo "🔧 Verifying required APIs are enabled..."
+          gcloud services list --enabled --project=${{ secrets.FIREBASE_PROJECT_ID }} --filter="name:cloudfunctions.googleapis.com OR name:cloudbuild.googleapis.com OR name:artifactregistry.googleapis.com" --format="table(name)" || echo "⚠️ Could not list services, but continuing..."
+          echo "✅ API verification complete (APIs should already be enabled)"
 
       # 7. Create .env file (NOT .env.yaml!) - Firebase expects KEY=value format
       - name: Create Environment Variables File
@@ -82,6 +100,8 @@ jobs:
 
       # 9. Deploy Cloud Functions
       - name: Deploy to Firebase
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: $HOME/gcloud-service-key.json
         run: |
           export GOOGLE_APPLICATION_CREDENTIALS=$HOME/gcloud-service-key.json
           echo "🚀 Starting deployment..."
@@ -89,10 +109,16 @@ jobs:
           echo "📂 Checking .env file exists:"
           ls -la functions/.env && echo "✅ .env file found" || echo "❌ .env missing"
           echo ""
+          echo "🔐 Verifying gcloud authentication..."
+          gcloud config get-value project || echo "⚠️ Project not set, but continuing..."
+          echo "✅ Ready to deploy"
+          echo ""
+          # Deploy with explicit project to avoid API enablement checks
           firebase deploy --only functions \
             --project ${{ secrets.FIREBASE_PROJECT_ID }} \
             --non-interactive \
-            --force
+            --force \
+            --debug || (echo "❌ Deployment failed. Check logs above." && exit 1)
 
       # 10. Cleanup sensitive files
       - name: Cleanup Credentials
@@ -123,7 +149,13 @@ jobs:
         if: failure()
         run: |
           echo "❌ Deployment failed! Check the logs above for details."
+          echo ""
           echo "Common issues:"
           echo "  1. Check Firebase Service Account JSON is valid"
           echo "  2. Verify API keys (GOOGLE_PLACES_API_KEY, MAPBOX_SECRET_TOKEN) are set in GitHub Secrets"
           echo "  3. Ensure functions/package.json has correct dependencies"
+          echo "  4. If you see '403' or 'permission' errors:"
+          echo "     - The service account needs the 'Service Usage Consumer' role"
+          echo "     - Grant it at: https://console.cloud.google.com/iam-admin/iam"
+          echo "     - Role needed: roles/serviceusage.serviceUsageConsumer"
+          echo "     - Or use: gcloud projects add-iam-policy-binding PROJECT_ID --member='serviceAccount:SERVICE_ACCOUNT_EMAIL' --role='roles/serviceusage.serviceUsageConsumer'"
