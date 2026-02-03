@@ -397,10 +397,15 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
         if (widget.annotations.isNotEmpty)
           fm.MarkerLayer(
             markers: widget.annotations.map((annotation) {
+              // Check if this is a start/end marker (single character label like "A" or "B")
+              final isStartEndMarker = annotation.label != null && 
+                  annotation.label!.length == 1 && 
+                  (annotation.label == 'A' || annotation.label == 'B');
+              
               return fm.Marker(
                 point: annotation.position,
-                width: 40,
-                height: 40,
+                width: isStartEndMarker ? 40 : 22,
+                height: isStartEndMarker ? 40 : 22,
                 child: GestureDetector(
                   onTap: annotation.onTap,
                   onPanUpdate: annotation.draggable && annotation.onDrag != null
@@ -411,24 +416,50 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                           annotation.onDrag!(annotation.position);
                         }
                       : null,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: annotation.color,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
+                  child: isStartEndMarker
+                      ? Container(
+                          decoration: BoxDecoration(
+                            color: annotation.color,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Text(
+                              annotation.label!,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: annotation.color, width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.2),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            annotation.icon,
+                            color: annotation.color,
+                            size: 12,
+                          ),
                         ),
-                      ],
-                    ),
-                    child: Icon(
-                      annotation.icon,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
                 ),
               );
             }).toList(),

@@ -3,7 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -2205,13 +2207,28 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
     final selection = _daySelections[dayNumber - 1];
     final hasSelections = _dayHasSelections(dayNumber);
 
-    // Build waypoint markers from POI waypoints
-    final waypointMarkers = _buildWaypointMarkers(day, selection, hasSelections);
-
-    // Calculate bounds including all points and markers
+    // Calculate bounds including all points and waypoints
     final allPoints = <LatLng>[...coordinates];
-    for (final marker in waypointMarkers) {
-      allPoints.add(marker.point);
+    
+    // Add waypoint positions to allPoints for bounds calculation
+    if (day.route?.poiWaypoints.isNotEmpty ?? false) {
+      final showAll = _isOwner || !hasSelections;
+      for (final poiJson in day.route!.poiWaypoints) {
+        try {
+          final poi = RouteWaypoint.fromJson(poiJson);
+          
+          // Check if this waypoint should be shown
+          if (!showAll) {
+            // Check if this waypoint is selected
+            final isSelected = _isWaypointSelected(poi, selection);
+            if (!isSelected) continue;
+          }
+          
+          allPoints.add(poi.position);
+        } catch (e) {
+          debugPrint('Failed to parse waypoint for map: $e');
+        }
+      }
     }
     
     // Safety check: if no points at all, return empty state
@@ -2226,10 +2243,9 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       );
     }
     
-    // Calculate bounds for fit-to-bounds
+    // Calculate center and zoom
     LatLng center = allPoints.first;
     double zoom = 13.0;
-    LatLngBounds? bounds;
     
     if (allPoints.length > 1) {
       double minLat = allPoints.first.latitude;
@@ -2246,35 +2262,30 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       
       center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
       
-      // Only create bounds if there's actual area (not all points are the same)
+      // Calculate zoom based on bounds
       final latDiff = maxLat - minLat;
       final lngDiff = maxLng - minLng;
       final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
       
       if (maxDiff > 0.0001) {
-        // Points are not all the same, create bounds
-        bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
-        
-        // Calculate zoom based on bounds
         if (maxDiff > 0.5) zoom = 9.0;
         else if (maxDiff > 0.2) zoom = 10.0;
         else if (maxDiff > 0.1) zoom = 11.0;
         else if (maxDiff > 0.05) zoom = 12.0;
         else zoom = 13.0;
       } else {
-        // All points are essentially the same, don't use bounds
-        bounds = null;
+        // All points are essentially the same
         zoom = 14.0;
       }
     }
 
     return _TripDayMapWidget(
       coordinates: coordinates,
-      waypointMarkers: waypointMarkers,
       initialCenter: center,
       initialZoom: zoom,
-      bounds: bounds,
       day: day,
+      selection: selection,
+      hasSelections: hasSelections,
       primary: _primary,
       onExpandTap: () {
         // Navigate to fullscreen map
@@ -2297,56 +2308,6 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
         selection.selectedActivities.isNotEmpty;
   }
 
-  List<Marker> _buildWaypointMarkers(DayItinerary day, TripDaySelection? selection, bool hasSelections) {
-    final markers = <Marker>[];
-    
-    // Show all waypoints if: owner OR no selections made yet
-    // Only show selected if: participant AND selections have been made
-    final showAll = _isOwner || !hasSelections;
-    
-    // Add POI waypoint markers from route
-    if (day.route?.poiWaypoints.isNotEmpty ?? false) {
-      for (final poiJson in day.route!.poiWaypoints) {
-        try {
-          final poi = RouteWaypoint.fromJson(poiJson);
-          
-          // Check if this waypoint should be shown
-          if (!showAll) {
-            // Check if this waypoint is selected
-            final isSelected = _isWaypointSelected(poi, selection);
-            if (!isSelected) continue;
-          }
-          
-          markers.add(
-            Marker(
-              point: poi.position,
-              width: 36,
-              height: 36,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: getWaypointColor(poi.type),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Icon(getWaypointIcon(poi.type), color: Colors.white, size: 18),
-              ),
-            ),
-          );
-        } catch (e) {
-          debugPrint('Failed to parse waypoint for map: $e');
-        }
-      }
-    }
-    
-    return markers;
-  }
 
   /// Check if a waypoint is selected in the current day selection
   bool _isWaypointSelected(RouteWaypoint waypoint, TripDaySelection? selection) {
@@ -3078,21 +3039,21 @@ class _FAQItemState extends State<_FAQItem> {
 /// Stateful map widget for trip day view with fit-bounds and zoom controls
 class _TripDayMapWidget extends StatefulWidget {
   final List<LatLng> coordinates;
-  final List<Marker> waypointMarkers;
   final LatLng initialCenter;
   final double initialZoom;
-  final LatLngBounds? bounds;
   final DayItinerary day;
+  final TripDaySelection? selection;
+  final bool hasSelections;
   final Color primary;
   final VoidCallback? onExpandTap;
 
   const _TripDayMapWidget({
     required this.coordinates,
-    required this.waypointMarkers,
     required this.initialCenter,
     required this.initialZoom,
-    this.bounds,
     required this.day,
+    this.selection,
+    required this.hasSelections,
     required this.primary,
     this.onExpandTap,
   });
@@ -3102,7 +3063,7 @@ class _TripDayMapWidget extends StatefulWidget {
 }
 
 class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeepAliveClientMixin {
-  late final MapController _mapController;
+  WaypointMapController? _mapController;
   bool _mapReady = false;
   
   @override
@@ -3111,53 +3072,215 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
   @override
   void initState() {
     super.initState();
-    _mapController = MapController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _fitBounds();
     });
   }
   
-  void _fitBounds() {
-    if (!_mapReady) return;
+  Future<void> _fitBounds() async {
+    if (!_mapReady || _mapController == null) return;
     
-    // Only fit bounds if we have actual bounds (not a single point)
-    if (widget.bounds != null) {
-      try {
-        _mapController.fitCamera(
-          CameraFit.bounds(
-            bounds: widget.bounds!,
-            padding: const EdgeInsets.all(50),
-          ),
-        );
-      } catch (e) {
-        debugPrint('Error fitting bounds: $e');
-        // Fallback to just centering
-        _mapController.move(widget.initialCenter, widget.initialZoom);
+    // Calculate bounds from coordinates and waypoints
+    final allPoints = <LatLng>[];
+    if (widget.coordinates.isNotEmpty) {
+      allPoints.addAll(widget.coordinates);
+    }
+    // Add waypoint positions from route
+    if (widget.day.route?.poiWaypoints.isNotEmpty ?? false) {
+      final showAll = !widget.hasSelections;
+      for (final wpJson in widget.day.route!.poiWaypoints) {
+        try {
+          final wp = RouteWaypoint.fromJson(wpJson);
+          
+          // Check if this waypoint should be shown
+          if (!showAll && widget.selection != null) {
+            final isSelected = _isWaypointSelectedForMap(wp, widget.selection!);
+            if (!isSelected) continue;
+          }
+          
+          allPoints.add(wp.position);
+        } catch (_) {}
       }
+    }
+    
+    if (allPoints.isEmpty) {
+      // Fallback to initial center/zoom
+      await _mapController!.animateCamera(widget.initialCenter, widget.initialZoom);
+      return;
+    }
+    
+    // Calculate bounds
+    double minLat = allPoints.first.latitude;
+    double maxLat = allPoints.first.latitude;
+    double minLng = allPoints.first.longitude;
+    double maxLng = allPoints.first.longitude;
+    
+    for (final point in allPoints) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+    
+    // Add padding
+    final latPadding = (maxLat - minLat) * 0.15;
+    final lngPadding = (maxLng - minLng) * 0.15;
+    minLat -= latPadding;
+    maxLat += latPadding;
+    minLng -= lngPadding;
+    maxLng += lngPadding;
+    
+    final center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+    final latDiff = maxLat - minLat;
+    final lngDiff = maxLng - minLng;
+    final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+    
+    // Calculate zoom
+    double zoom = widget.initialZoom;
+    if (maxDiff > 0.5) zoom = 9.0;
+    else if (maxDiff > 0.2) zoom = 10.0;
+    else if (maxDiff > 0.1) zoom = 11.0;
+    else if (maxDiff > 0.05) zoom = 12.0;
+    else zoom = 13.0;
+    
+    try {
+      await _mapController!.animateCamera(center, zoom);
+    } catch (e) {
+      debugPrint('Error fitting bounds: $e');
     }
   }
   
-  void _zoomIn() {
-    if (!_mapReady) return;
-    final currentZoom = _mapController.camera.zoom;
-    _mapController.move(_mapController.camera.center, currentZoom + 1);
+  Future<void> _zoomIn() async {
+    if (!_mapReady || _mapController == null) return;
+    final currentPos = _mapController!.currentPosition;
+    if (currentPos == null) return;
+    await _mapController!.animateCamera(currentPos.center, currentPos.zoom + 1);
   }
   
-  void _zoomOut() {
-    if (!_mapReady) return;
-    final currentZoom = _mapController.camera.zoom;
-    _mapController.move(_mapController.camera.center, currentZoom - 1);
+  Future<void> _zoomOut() async {
+    if (!_mapReady || _mapController == null) return;
+    final currentPos = _mapController!.currentPosition;
+    if (currentPos == null) return;
+    await _mapController!.animateCamera(currentPos.center, currentPos.zoom - 1);
+  }
+  
+  void _onMapReady() {
+    if (_mapReady) return;
+    setState(() => _mapReady = true);
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) _fitBounds();
+    });
   }
   
   @override
   void dispose() {
-    _mapController.dispose();
     super.dispose();
+  }
+  
+  /// Convert waypoint markers to MapAnnotations
+  List<MapAnnotation> _buildAnnotations() {
+    final annotations = <MapAnnotation>[];
+    
+    // Start marker (A) - using text-only marker
+    if (widget.coordinates.isNotEmpty) {
+      annotations.add(
+        MapAnnotation(
+          id: 'start',
+          position: widget.coordinates.first,
+          icon: Icons.text_fields, // Placeholder for text-only marker
+          color: const Color(0xFF52B788),
+          label: 'A',
+          onTap: () {},
+        ),
+      );
+    }
+    
+    // End marker (B) - using text-only marker
+    if (widget.coordinates.isNotEmpty) {
+      annotations.add(
+        MapAnnotation(
+          id: 'end',
+          position: widget.coordinates.last,
+          icon: Icons.text_fields, // Placeholder for text-only marker
+          color: const Color(0xFFD62828),
+          label: 'B',
+          onTap: () {},
+        ),
+      );
+    }
+    
+    // Waypoint markers - filter based on selection if needed
+    final showAll = widget.hasSelections == false; // Show all if no selections made
+    if (widget.day.route?.poiWaypoints.isNotEmpty ?? false) {
+      for (final wpJson in widget.day.route!.poiWaypoints) {
+        try {
+          if (wpJson is Map<String, dynamic> && 
+              wpJson['position'] != null &&
+              wpJson['position']['lat'] != null && 
+              wpJson['position']['lng'] != null) {
+            final wp = RouteWaypoint.fromJson(wpJson);
+            
+            // Check if this waypoint should be shown
+            if (!showAll && widget.selection != null) {
+              // Check if this waypoint is selected
+              final isSelected = _isWaypointSelectedForMap(wp, widget.selection!);
+              if (!isSelected) continue;
+            }
+            
+            annotations.add(
+              MapAnnotation.fromWaypoint(wp, onTap: () {}),
+            );
+          }
+        } catch (_) {}
+      }
+    }
+    
+    return annotations;
+  }
+  
+  /// Check if a waypoint is selected in the current day selection (for map filtering)
+  bool _isWaypointSelectedForMap(RouteWaypoint waypoint, TripDaySelection selection) {
+    // Check by waypoint ID (unique identification)
+    if (selection.selectedAccommodation?.id == waypoint.id) return true;
+    
+    for (final restaurant in selection.selectedRestaurants.values) {
+      if (restaurant.id == waypoint.id) return true;
+    }
+    
+    for (final activity in selection.selectedActivities) {
+      if (activity.id == waypoint.id) return true;
+    }
+    
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
+    // Build annotations
+    final annotations = _buildAnnotations();
+    
+    // Build polylines
+    final polylines = widget.coordinates.isNotEmpty
+        ? [
+            MapPolyline(
+              id: 'route_${widget.day.title}',
+              points: widget.coordinates,
+              color: widget.primary,
+              width: 4.0,
+            )
+          ]
+        : <MapPolyline>[];
+
+    // Map configuration
+    final mapConfig = MapConfiguration.mainMap(
+      styleUri: mapboxStyleUri,
+      rasterTileUrl: defaultRasterTileUrl,
+      enable3DTerrain: false, // Flat for preview
+      initialZoom: widget.initialZoom,
+    );
+    
     return Column(
       children: [
         SizedBox(
@@ -3166,75 +3289,16 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
             borderRadius: BorderRadius.circular(16),
             child: Stack(
               children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: widget.initialCenter,
-                    initialZoom: widget.initialZoom,
-                    onMapReady: () {
-                      setState(() => _mapReady = true);
-                      _fitBounds();
-                    },
-                    interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.drag | InteractiveFlag.pinchZoom | InteractiveFlag.doubleTapZoom,
-                    ),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: defaultRasterTileUrl,
-                      userAgentPackageName: 'com.waypoint.app',
-                    ),
-                    if (widget.coordinates.isNotEmpty)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: widget.coordinates,
-                            strokeWidth: 4.0,
-                            color: widget.primary,
-                          ),
-                        ],
-                      ),
-                    MarkerLayer(
-                      markers: [
-                        // Start marker (A)
-                        if (widget.coordinates.isNotEmpty)
-                          Marker(
-                            point: widget.coordinates.first,
-                            width: 30,
-                            height: 30,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.green,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: const Center(
-                                child: Text('A', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ),
-                        // End marker (B)
-                        if (widget.coordinates.isNotEmpty)
-                          Marker(
-                            point: widget.coordinates.last,
-                            width: 30,
-                            height: 30,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade400,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: const Center(
-                                child: Text('B', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                              ),
-                            ),
-                          ),
-                        // Waypoint markers
-                        ...widget.waypointMarkers,
-                      ],
-                    ),
-                  ],
+                // Map using AdaptiveMapWidget (Mapbox WebGL on web, Native on mobile)
+                AdaptiveMapWidget(
+                  initialCenter: widget.initialCenter,
+                  configuration: mapConfig,
+                  annotations: annotations,
+                  polylines: polylines,
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                    _onMapReady();
+                  },
                 ),
                 // Map controls (top-right) - zoom, fit bounds, and fullscreen
                 Positioned(
@@ -3253,19 +3317,19 @@ class _TripDayMapWidgetState extends State<_TripDayMapWidget> with AutomaticKeep
                       // Fit to bounds button
                       _buildMapButton(
                         icon: Icons.fit_screen,
-                        onTap: _fitBounds,
+                        onTap: () => _fitBounds(),
                       ),
                       const SizedBox(height: 8),
                       // Zoom in button
                       _buildMapButton(
                         icon: Icons.add,
-                        onTap: _zoomIn,
+                        onTap: () => _zoomIn(),
                       ),
                       const SizedBox(height: 8),
                       // Zoom out button
                       _buildMapButton(
                         icon: Icons.remove,
-                        onTap: _zoomOut,
+                        onTap: () => _zoomOut(),
                       ),
                     ],
                   ),

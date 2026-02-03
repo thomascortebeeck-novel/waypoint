@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/poi_model.dart';
@@ -52,7 +54,7 @@ class WaypointMapCard extends StatefulWidget {
 }
 
 class _WaypointMapCardState extends State<WaypointMapCard> {
-  final fm.MapController _mapController = fm.MapController();
+  WaypointMapController? _mapController;
   bool _mapReady = false;
   List<POI> _osmPOIs = [];
   bool _loadingPOIs = false;
@@ -81,19 +83,28 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
   }
 
   Future<void> _loadPOIs() async {
-    if (_loadingPOIs || !_mapReady) return;
+    if (_loadingPOIs || !_mapReady || _mapController == null) return;
     
     setState(() => _loadingPOIs = true);
     Log.i('map', '🔍 Starting to load OSM POIs...');
     
     try {
-      final bounds = _mapController.camera.visibleBounds;
-      Log.i('map', '📍 Map bounds: S=${bounds.south.toStringAsFixed(2)}, W=${bounds.west.toStringAsFixed(2)}, N=${bounds.north.toStringAsFixed(2)}, E=${bounds.east.toStringAsFixed(2)}');
+      final currentPos = _mapController!.currentPosition;
+      if (currentPos == null) {
+        setState(() => _loadingPOIs = false);
+        return;
+      }
+
+      // Calculate approximate bounds based on zoom level
+      final center = currentPos.center;
+      final zoom = currentPos.zoom;
+      final latOffset = 0.1 / zoom;
+      final lngOffset = 0.1 / zoom;
       
       // Load main outdoor POI types
       final pois = await POIService.fetchPOIs(
-        southWest: ll.LatLng(bounds.south, bounds.west),
-        northEast: ll.LatLng(bounds.north, bounds.east),
+        southWest: ll.LatLng(center.latitude - latOffset, center.longitude - lngOffset),
+        northEast: ll.LatLng(center.latitude + latOffset, center.longitude + lngOffset),
         poiTypes: [
           POIType.campsite,
           POIType.hut,
@@ -121,8 +132,8 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
     }
   }
 
-  void _fitBounds() {
-    if (!_mapReady || !mounted) return;
+  Future<void> _fitBounds() async {
+    if (!_mapReady || !mounted || _mapController == null) return;
     
     final bounds = <ll.LatLng>[];
 
@@ -194,7 +205,7 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
     }
 
     try {
-      _mapController.move(center, zoom);
+      await _mapController!.animateCamera(center, zoom);
     } catch (_) {}
   }
 
@@ -297,6 +308,32 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
       }
     }
 
+    // Build annotations for markers
+    final annotations = _buildAnnotations();
+    
+    // Build polylines for route
+    final routePoints = _parseRouteCoordinates();
+    final polylines = routePoints.isNotEmpty
+        ? [
+            MapPolyline(
+              id: 'route_${widget.day.title}',
+              points: routePoints,
+              color: const Color(0xFF4CAF50),
+              width: 4.0,
+              borderColor: Colors.white,
+              borderWidth: 2.0,
+            )
+          ]
+        : <MapPolyline>[];
+
+    // Map configuration for preview cards
+    final mapConfig = MapConfiguration.mainMap(
+      styleUri: mapboxStyleUri,
+      rasterTileUrl: defaultRasterTileUrl,
+      enable3DTerrain: false, // Flat for preview cards
+      initialZoom: 12.0,
+    );
+
     return GestureDetector(
       onTap: widget.onFullScreen,
       child: Container(
@@ -308,29 +345,24 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
         clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
-            // Map
-            fm.FlutterMap(
-              mapController: _mapController,
-              options: fm.MapOptions(
-                initialCenter: initialCenter,
-                initialZoom: 12,
-                interactionOptions: fm.InteractionOptions(
-                  flags: widget.onFullScreen != null 
-                      ? fm.InteractiveFlag.none 
-                      : fm.InteractiveFlag.all,
-                ),
-              ),
-              children: [
-                // Map tiles - using custom Mapbox style
-                fm.TileLayer(
-                  urlTemplate: defaultRasterTileUrl,
-                  userAgentPackageName: 'com.waypoint.app',
-                ),
-                // Route line
-                if (widget.day.route?.geometry != null) _buildRoutePolyline(),
-                // Markers (OSM POIs + Custom Waypoints)
-                fm.MarkerLayer(markers: _buildMarkers()),
-              ],
+            // Map using AdaptiveMapWidget (Mapbox WebGL on web, Native on mobile)
+            AdaptiveMapWidget(
+              initialCenter: initialCenter,
+              configuration: mapConfig,
+              annotations: annotations,
+              polylines: polylines,
+              onMapCreated: (controller) {
+                _mapController = controller;
+                _onMapReady();
+              },
+              onCameraChanged: widget.fetchOSMPOIs ? (camera) {
+                // Debounce POI loading on camera change
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  if (mounted && _mapReady) {
+                    _loadPOIs();
+                  }
+                });
+              } : null,
             ),
 
             // Edit Route button
@@ -384,114 +416,49 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
     );
   }
 
-  Widget _buildRoutePolyline() {
-    final points = _parseRouteCoordinates();
-    
-    if (points.isEmpty) return const SizedBox.shrink();
-
-    return fm.PolylineLayer(
-      polylines: [
-        fm.Polyline(
-          points: points,
-          strokeWidth: 4,
-          color: const Color(0xFF4CAF50),
-          borderStrokeWidth: 2,
-          borderColor: Colors.white,
-        ),
-      ],
-    );
-  }
-
-  List<fm.Marker> _buildMarkers() {
-    final markers = <fm.Marker>[];
+  List<MapAnnotation> _buildAnnotations() {
+    final annotations = <MapAnnotation>[];
     final day = widget.day;
 
-    // Start marker (A)
+    // Start marker (A) - using custom annotation
     if (day.startLat != null && day.startLng != null) {
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(day.startLat!, day.startLng!),
-          width: 40,
-          height: 40,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF52B788),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'A',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-          ),
+      annotations.add(
+        MapAnnotation(
+          id: 'start',
+          position: ll.LatLng(day.startLat!, day.startLng!),
+          icon: Icons.flag,
+          color: const Color(0xFF52B788),
+          label: 'A',
+          onTap: () {},
         ),
       );
     }
 
-    // End marker (B)
+    // End marker (B) - using custom annotation
     if (day.endLat != null && day.endLng != null) {
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(day.endLat!, day.endLng!),
-          width: 40,
-          height: 40,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFD62828),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'B',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-          ),
+      annotations.add(
+        MapAnnotation(
+          id: 'end',
+          position: ll.LatLng(day.endLat!, day.endLng!),
+          icon: Icons.flag,
+          color: const Color(0xFFD62828),
+          label: 'B',
+          onTap: () {},
         ),
       );
     }
 
     // OSM POI markers (subtle, background context)
     for (final poi in _osmPOIs) {
-      markers.add(
-        fm.Marker(
-          point: poi.coordinates,
-          width: 24,
-          height: 24,
-          child: GestureDetector(
-            onTap: () => _showOSMPOIDetails(poi),
-            child: _buildOSMPOIMarker(poi),
-          ),
+      annotations.add(
+        MapAnnotation.fromPOI(
+          poi,
+          onTap: () => _showOSMPOIDetails(poi),
         ),
       );
     }
 
-    // Custom waypoint markers (bold, prominent - USER'S PLAN)
+    // Custom waypoint markers (match Mapbox native style)
     final waypoints = _getFilteredWaypoints();
     for (final wpJson in waypoints) {
       try {
@@ -500,85 +467,17 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
             wpJson['position']['lat'] != null && 
             wpJson['position']['lng'] != null) {
           final wp = RouteWaypoint.fromJson(wpJson);
-          markers.add(
-            fm.Marker(
-              point: wp.position,
-              width: 36,
-              height: 36,
-              child: GestureDetector(
-                onTap: () => _showWaypointDetails(wp),
-                child: _buildCustomWaypointMarker(wp),
-              ),
+          annotations.add(
+            MapAnnotation.fromWaypoint(
+              wp,
+              onTap: () => _showWaypointDetails(wp),
             ),
           );
         }
       } catch (_) {}
     }
 
-    return markers;
-  }
-
-  /// Build minimalistic OSM POI marker (subtle, background context)
-  Widget _buildOSMPOIMarker(POI poi) {
-    return Container(
-      width: 24,
-      height: 24,
-      decoration: BoxDecoration(
-        color: poi.type.color.withValues(alpha: 0.7),
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.8),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Icon(
-        poi.type.icon,
-        color: Colors.white,
-        size: 14,
-      ),
-    );
-  }
-
-  /// Build bold Custom Waypoint marker (prominent, core feature)
-  Widget _buildCustomWaypointMarker(RouteWaypoint waypoint) {
-    final waypointColor = getWaypointColor(waypoint.type);
-    
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: waypointColor,
-          width: 3.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-          BoxShadow(
-            color: waypointColor.withValues(alpha: 0.4),
-            blurRadius: 8,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Icon(
-        getWaypointIcon(waypoint.type),
-        color: waypointColor,
-        size: 20,
-      ),
-    );
+    return annotations;
   }
 
   void _showOSMPOIDetails(POI poi) {

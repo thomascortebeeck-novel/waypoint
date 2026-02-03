@@ -109,6 +109,99 @@ function haversineMeters(a: [number, number], b: [number, number]) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// Mapbox Geocoding API - Search for addresses and get coordinates
+export const geocodeAddressMapbox = onCall({region: "europe-west1", cors: true}, async (request) => {
+  try {
+    const data = (request.data || {}) as any;
+    const query = (data.query || "") as string;
+    const proximity = data.proximity as {lng: number; lat: number} | undefined;
+    
+    if (!query || query.trim().length === 0) {
+      return {error: "query required", results: []};
+    }
+
+    const token = MAPBOX_TOKEN_PARAM.value() || (process.env.MAPBOX_SECRET_TOKEN as string) || (process.env.MAPBOX_TOKEN as string) || "";
+    if (!token) {
+      return {error: "mapbox_token_missing", results: []};
+    }
+
+    // Build Mapbox Geocoding API URL
+    const baseUrl = "https://api.mapbox.com/geocoding/v5/mapbox.places";
+    const encodedQuery = encodeURIComponent(query.trim());
+    let url = `${baseUrl}/${encodedQuery}.json`;
+    
+    const params: Record<string, any> = {
+      access_token: token,
+      limit: 5, // Limit to 5 results for autocomplete
+      types: "poi,address,place", // Focus on places and addresses
+    };
+
+    // Add proximity bias if provided (helps prioritize results near a location)
+    if (proximity && proximity.lng && proximity.lat) {
+      params.proximity = `${proximity.lng},${proximity.lat}`;
+    }
+
+    const resp = await axios.get(url, {params});
+    
+    if (!resp.data || !resp.data.features) {
+      return {error: "invalid_response", results: []};
+    }
+
+    // Transform Mapbox response to our format
+    const results = resp.data.features.map((feature: any) => {
+      const [lng, lat] = feature.geometry.coordinates;
+      const context = feature.context || [];
+      
+      // Extract address components from context
+      let street: string | undefined;
+      let locality: string | undefined;
+      let region: string | undefined;
+      let postalCode: string | undefined;
+      let country: string | undefined;
+      
+      for (const ctx of context) {
+        const id = ctx.id?.split(".")[0] || "";
+        if (id === "address" && !street) street = ctx.text;
+        else if (id === "place" && !locality) locality = ctx.text;
+        else if (id === "region" && !region) region = ctx.text;
+        else if (id === "postcode" && !postalCode) postalCode = ctx.text;
+        else if (id === "country" && !country) country = ctx.text;
+      }
+
+      // Build formatted address
+      const parts: string[] = [];
+      if (feature.properties.address) parts.push(feature.properties.address);
+      if (locality) parts.push(locality);
+      if (region) parts.push(region);
+      if (postalCode) parts.push(postalCode);
+      if (country) parts.push(country);
+      const formatted = parts.length > 0 ? parts.join(", ") : feature.place_name;
+
+      return {
+        name: feature.text || feature.place_name,
+        formattedAddress: formatted,
+        latitude: lat,
+        longitude: lng,
+        address: {
+          street: street || feature.properties.address,
+          locality,
+          region,
+          postalCode,
+          country,
+          formatted,
+        },
+        placeName: feature.place_name,
+        category: feature.properties.category,
+      };
+    });
+
+    return {results, error: null};
+  } catch (e: any) {
+    logger.error("geocodeAddressMapbox failed", e);
+    return {error: "request_failed", results: []};
+  }
+});
+
 // Callable function version (for Flutter SDK)
 export const getElevationProfile = onCall({region: "europe-west1", timeoutSeconds: 120, cors: true}, async (request) => {
   try {

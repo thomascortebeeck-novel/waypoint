@@ -4,7 +4,7 @@ import {initializeApp} from "firebase-admin/app";
 initializeApp();
 
 import {onCall} from "firebase-functions/v2/https";
-export {getDirections, matchRoute, getElevationProfile} from "./mapbox";
+export {getDirections, matchRoute, getElevationProfile, geocodeAddressMapbox} from "./mapbox";
 export {placesSearch, placeDetails, geocodeAddress, placePhoto} from "./google-places";
 export {getOutdoorPOIs} from "./osm-pois";
 
@@ -16,7 +16,7 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
   const url = String(urlRaw).trim();
   if (!url) {
     console.log("[fetchMeta] No URL provided");
-    return {title: null, description: null, image: null, siteName: null};
+    return {title: null, description: null, image: null, siteName: null, latitude: null, longitude: null, address: null};
   }
 
   // URL validation & sanitization
@@ -25,17 +25,32 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     // Only allow http/https protocols
     if (!["http:", "https:"].includes(urlObj.protocol)) {
       console.log("[fetchMeta] Invalid protocol:", urlObj.protocol);
-      return {title: null, description: null, image: null, siteName: null};
+      return {title: null, description: null, image: null, siteName: null, latitude: null, longitude: null, address: null};
     }
   } catch {
     console.log("[fetchMeta] Invalid URL format:", url);
-    return {title: null, description: null, image: null, siteName: null};
+    return {title: null, description: null, image: null, siteName: null, latitude: null, longitude: null, address: null};
   }
 
   console.log("[fetchMeta] Processing URL:", url);
 
   // Strategy 0: URL Parsing - Extract data from URL structure (safety fallback)
-  const parseUrlForMetadata = (urlString: string): {title: string | null, description: string | null, image: string | null, siteName: string | null} => {
+  const parseUrlForMetadata = (urlString: string): {
+    title: string | null, 
+    description: string | null, 
+    image: string | null, 
+    siteName: string | null,
+    latitude: number | null,
+    longitude: number | null,
+    address: {
+      street?: string;
+      locality?: string;
+      region?: string;
+      postalCode?: string;
+      country?: string;
+      formatted?: string;
+    } | null
+  } => {
     try {
       const urlObj = new URL(urlString);
       const hostname = urlObj.hostname.toLowerCase();
@@ -77,10 +92,10 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
         }
       }
 
-      return {title, description: null, image: null, siteName};
+      return {title, description: null, image: null, siteName, latitude: null, longitude: null, address: null};
     } catch (e) {
       console.log("[fetchMeta] Strategy 0: URL parsing failed:", e);
-      return {title: null, description: null, image: null, siteName: null};
+      return {title: null, description: null, image: null, siteName: null, latitude: null, longitude: null, address: null};
     }
   };
 
@@ -132,8 +147,23 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       .trim();
   };
 
-  // Parse HTML for Open Graph meta tags
-  const parseHtml = (html: string, sourceUrl: string): {title: string | null, description: string | null, image: string | null, siteName: string | null} => {
+  // Parse HTML for Open Graph meta tags and location data
+  const parseHtml = (html: string, sourceUrl: string): {
+    title: string | null, 
+    description: string | null, 
+    image: string | null, 
+    siteName: string | null,
+    latitude: number | null,
+    longitude: number | null,
+    address: {
+      street?: string;
+      locality?: string;
+      region?: string;
+      postalCode?: string;
+      country?: string;
+      formatted?: string;
+    } | null
+  } => {
     // Multiple regex patterns to handle different meta tag formats
     const metaTags: Map<string, string> = new Map();
     
@@ -283,17 +313,163 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
 
     const filteredDescription = filterDescription(description);
 
-    return {title: cleanedTitle, description: filteredDescription, image, siteName};
+    // Extract location data from JSON-LD and meta tags
+    let latitude: number | null = null;
+    let longitude: number | null = null;
+    let address: {
+      street?: string;
+      locality?: string;
+      region?: string;
+      postalCode?: string;
+      country?: string;
+      formatted?: string;
+    } | null = null;
+
+    // Priority 1: Extract from JSON-LD structured data (schema.org)
+    if (jsonLdData) {
+      // Check for geo coordinates (schema.org/GeoCoordinates)
+      if (jsonLdData.geo) {
+        if (typeof jsonLdData.geo.latitude === "number") latitude = jsonLdData.geo.latitude;
+        if (typeof jsonLdData.geo.longitude === "number") longitude = jsonLdData.geo.longitude;
+        // Also check for string format
+        if (!latitude && typeof jsonLdData.geo.latitude === "string") {
+          const lat = parseFloat(jsonLdData.geo.latitude);
+          if (!isNaN(lat)) latitude = lat;
+        }
+        if (!longitude && typeof jsonLdData.geo.longitude === "string") {
+          const lng = parseFloat(jsonLdData.geo.longitude);
+          if (!isNaN(lng)) longitude = lng;
+        }
+      }
+
+      // Check for PostalAddress (schema.org/PostalAddress)
+      if (jsonLdData.address) {
+        const addr: any = typeof jsonLdData.address === "string" ? {streetAddress: jsonLdData.address} : jsonLdData.address;
+        address = {
+          street: addr.streetAddress || addr.addressLocality || undefined,
+          locality: addr.addressLocality || undefined,
+          region: addr.addressRegion || addr.addressState || undefined,
+          postalCode: addr.postalCode || undefined,
+          country: addr.addressCountry || (typeof addr.addressCountry === "object" ? addr.addressCountry?.name : undefined) || undefined,
+          formatted: addr.streetAddress || addr.addressLocality || (typeof jsonLdData.address === "string" ? jsonLdData.address : undefined),
+        };
+        // Build formatted address if not provided
+        if (!address.formatted && (address.street || address.locality)) {
+          const parts: string[] = [];
+          if (address.street) parts.push(address.street);
+          if (address.locality) parts.push(address.locality);
+          if (address.region) parts.push(address.region);
+          if (address.postalCode) parts.push(address.postalCode);
+          if (address.country) parts.push(address.country);
+          address.formatted = parts.join(", ");
+        }
+      }
+    }
+
+    // Priority 2: Extract from meta tags (place:location, geo.position, ICBM)
+    if (!latitude || !longitude) {
+      // place:location:latitude / place:location:longitude (Facebook/Open Graph)
+      const placeLat = metaTags.get("place:location:latitude");
+      const placeLng = metaTags.get("place:location:longitude");
+      if (placeLat && placeLng) {
+        const lat = parseFloat(placeLat);
+        const lng = parseFloat(placeLng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          latitude = lat;
+          longitude = lng;
+        }
+      }
+
+      // geo.position (format: "lat;lng")
+      if (!latitude || !longitude) {
+        const geoPos = metaTags.get("geo.position");
+        if (geoPos) {
+          const parts = geoPos.split(";");
+          if (parts.length === 2) {
+            const lat = parseFloat(parts[0].trim());
+            const lng = parseFloat(parts[1].trim());
+            if (!isNaN(lat) && !isNaN(lng)) {
+              latitude = lat;
+              longitude = lng;
+            }
+          }
+        }
+      }
+
+      // ICBM (older format: "lat, lng")
+      if (!latitude || !longitude) {
+        const icbm = metaTags.get("icbm");
+        if (icbm) {
+          const parts = icbm.split(",");
+          if (parts.length === 2) {
+            const lat = parseFloat(parts[0].trim());
+            const lng = parseFloat(parts[1].trim());
+            if (!isNaN(lat) && !isNaN(lng)) {
+              latitude = lat;
+              longitude = lng;
+            }
+          }
+        }
+      }
+    }
+
+    // Log location extraction results
+    if (latitude && longitude) {
+      console.log("[fetchMeta] Extracted coordinates:", latitude, longitude);
+    }
+    if (address && address.formatted) {
+      console.log("[fetchMeta] Extracted address:", address.formatted);
+    }
+
+    return {title: cleanedTitle, description: filteredDescription, image, siteName, latitude, longitude, address};
   };
 
   // Track best result so far (accumulate across strategies)
-  let bestResult: {title: string | null, description: string | null, image: string | null, siteName: string | null, _strategy: number} = {
+  let bestResult: {
+    title: string | null, 
+    description: string | null, 
+    image: string | null, 
+    siteName: string | null,
+    latitude: number | null,
+    longitude: number | null,
+    address: {
+      street?: string;
+      locality?: string;
+      region?: string;
+      postalCode?: string;
+      country?: string;
+      formatted?: string;
+    } | null,
+    _strategy: number
+  } = {
     ...strategy0Data,
+    latitude: null,
+    longitude: null,
+    address: null,
     _strategy: 0
   };
 
   // Helper to merge results (prefer non-null values, keep best)
-  const mergeResults = (current: typeof bestResult, newData: {title: string | null, description: string | null, image: string | null, siteName: string | null}, strategy: number) => {
+  const mergeResults = (
+    current: typeof bestResult, 
+    newData: {
+      title: string | null, 
+      description: string | null, 
+      image: string | null, 
+      siteName: string | null,
+      latitude: number | null,
+      longitude: number | null,
+      address: {
+        street?: string;
+        locality?: string;
+        region?: string;
+        postalCode?: string;
+        country?: string;
+        formatted?: string;
+      } | null
+    }, 
+    strategy: number
+  ) => {
     const merged = {...current};
     // Prefer fetched title over URL-parsed title (usually more accurate)
     if (newData.title && newData.title.length > 3) {
@@ -310,6 +486,15 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     }
     if (newData.siteName && !merged.siteName) {
       merged.siteName = newData.siteName;
+    }
+    // Always prefer coordinates if we find them (more reliable than address alone)
+    if (newData.latitude != null && newData.longitude != null) {
+      merged.latitude = newData.latitude;
+      merged.longitude = newData.longitude;
+    }
+    // Prefer address if we don't have one yet, or if new one is more complete
+    if (newData.address && (!merged.address || (!merged.address.formatted && newData.address.formatted))) {
+      merged.address = newData.address;
     }
     return merged;
   };
@@ -543,6 +728,9 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
         description: `Link from ${hostname}`,
         image: bestResult.image,
         siteName: hostname,
+        latitude: bestResult.latitude,
+        longitude: bestResult.longitude,
+        address: bestResult.address,
         _strategy: 6,
       };
     } catch (e) {

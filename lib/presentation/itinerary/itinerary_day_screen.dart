@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart' as fm;
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -570,145 +571,93 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
   }
 
   Widget _buildStaticMapPreview(DayItinerary day, ll.LatLng center, double zoom) {
-    return fm.FlutterMap(
-      options: fm.MapOptions(
-        initialCenter: center,
-        initialZoom: zoom,
-        // Disable all interactions for preview
-        interactionOptions: const fm.InteractionOptions(
-          flags: fm.InteractiveFlag.none,
+    // Build annotations (start/end markers)
+    final annotations = <MapAnnotation>[];
+    
+    // Start marker (A)
+    if (day.startLat != null && day.startLng != null) {
+      annotations.add(
+        MapAnnotation(
+          id: 'start',
+          position: ll.LatLng(day.startLat!, day.startLng!),
+          icon: Icons.text_fields, // Placeholder for text-only marker
+          color: const Color(0xFF4CAF50),
+          label: 'A',
+          onTap: () {},
         ),
-      ),
-      children: [
-        // Map tiles
-        fm.TileLayer(
-          urlTemplate: defaultRasterTileUrl,
-          userAgentPackageName: 'com.waypoint.app',
+      );
+    }
+    
+    // End marker (B)
+    if (day.endLat != null && day.endLng != null) {
+      annotations.add(
+        MapAnnotation(
+          id: 'end',
+          position: ll.LatLng(day.endLat!, day.endLng!),
+          icon: Icons.text_fields, // Placeholder for text-only marker
+          color: const Color(0xFFF44336),
+          label: 'B',
+          onTap: () {},
         ),
-        // Route line
-        if (day.route?.geometry != null) _buildPreviewRoutePolyline(day),
-        // Start/End markers
-        fm.MarkerLayer(markers: _buildPreviewMarkers(day)),
-      ],
-    );
-  }
-
-  fm.PolylineLayer _buildPreviewRoutePolyline(DayItinerary day) {
-    final geometry = day.route?.geometry;
-    if (geometry == null) return const fm.PolylineLayer(polylines: []);
-
-    final coords = geometry['coordinates'] as List?;
-    if (coords == null || coords.isEmpty) return const fm.PolylineLayer(polylines: []);
-
-    // Support both array format [lng, lat] and Map format {lat, lng}
-    final points = <ll.LatLng>[];
-    for (final c in coords) {
-      try {
-        if (c is List && c.length >= 2) {
-          // Array format: [lng, lat]
-          points.add(ll.LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()));
-        } else if (c is Map) {
-          // Firestore-safe Map format: {lat, lng}
-          final lat = (c['lat'] as num?)?.toDouble();
-          final lng = (c['lng'] as num?)?.toDouble();
-          if (lat != null && lng != null) {
-            points.add(ll.LatLng(lat, lng));
+      );
+    }
+    
+    // Build polylines (route)
+    final polylines = <MapPolyline>[];
+    if (day.route?.geometry != null) {
+      final geometry = day.route!.geometry;
+      final coords = geometry['coordinates'] as List?;
+      
+      if (coords != null && coords.isNotEmpty) {
+        // Support both array format [lng, lat] and Map format {lat, lng}
+        final points = <ll.LatLng>[];
+        for (final c in coords) {
+          try {
+            if (c is List && c.length >= 2) {
+              // Array format: [lng, lat]
+              points.add(ll.LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()));
+            } else if (c is Map) {
+              // Firestore-safe Map format: {lat, lng}
+              final lat = (c['lat'] as num?)?.toDouble();
+              final lng = (c['lng'] as num?)?.toDouble();
+              if (lat != null && lng != null) {
+                points.add(ll.LatLng(lat, lng));
+              }
+            }
+          } catch (e) {
+            // Skip invalid coordinates
           }
         }
-      } catch (e) {
-        // Skip invalid coordinates
+        
+        if (points.isNotEmpty) {
+          polylines.add(
+            MapPolyline(
+              id: 'route',
+              points: points,
+              color: const Color(0xFF4CAF50),
+              width: 4.0,
+            ),
+          );
+        }
       }
     }
     
-    if (points.isEmpty) return const fm.PolylineLayer(polylines: []);
-
-    return fm.PolylineLayer(
-      polylines: [
-        fm.Polyline(
-          points: points,
-          strokeWidth: 4,
-          color: const Color(0xFF4CAF50),
-          borderStrokeWidth: 2,
-          borderColor: Colors.white,
-        ),
-      ],
+    // Map configuration for preview (non-interactive)
+    final mapConfig = MapConfiguration.preview(
+      rasterTileUrl: defaultRasterTileUrl,
+      initialZoom: zoom,
     );
-  }
-
-  List<fm.Marker> _buildPreviewMarkers(DayItinerary day) {
-    final markers = <fm.Marker>[];
-
-    // Start marker (A)
-    if (day.startLat != null && day.startLng != null) {
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(day.startLat!, day.startLng!),
-          width: 28,
-          height: 28,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'A',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // End marker (B)
-    if (day.endLat != null && day.endLng != null) {
-      markers.add(
-        fm.Marker(
-          point: ll.LatLng(day.endLat!, day.endLng!),
-          width: 28,
-          height: 28,
-          child: Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFF44336),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Center(
-              child: Text(
-                'B',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return markers;
+    
+    // Use AdaptiveMapWidget with AbsorbPointer to disable interactions
+    return AbsorbPointer(
+      child: AdaptiveMapWidget(
+        initialCenter: center,
+        configuration: mapConfig,
+        annotations: annotations,
+        polylines: polylines,
+        onMapCreated: (_) {}, // No controller needed for static preview
+      ),
+    );
   }
 
   Widget _buildMapStat(

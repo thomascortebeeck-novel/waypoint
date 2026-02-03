@@ -11,7 +11,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:waypoint/integrations/mapbox_service.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
-import 'package:waypoint/integrations/google_places_service.dart';
+// Google Places import removed - using Mapbox search instead
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/poi_model.dart';
@@ -1046,65 +1046,27 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
               ),
           ],
         ),
-      // OSM POI markers (subtle, background)
+      // OSM POI markers (match Mapbox native style: white background, colored icon)
       if (_osmPOIs.isNotEmpty)
         fm.MarkerLayer(
           markers: _osmPOIs
               .map((poi) => fm.Marker(
                     point: poi.coordinates,
-                    width: 24,
-                    height: 24,
+                    width: 22,
+                    height: 22,
                     child: GestureDetector(
                       onTap: () => _showOSMPOIDetails(poi),
                       child: Container(
-                        width: 24,
-                        height: 24,
+                        width: 22,
+                        height: 22,
                         decoration: BoxDecoration(
-                          color: poi.type.color.withValues(alpha: 0.7),
+                          color: Colors.white,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            width: 1.5,
+                            color: poi.type.color,
+                            width: 2,
                           ),
                           boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.15),
-                              blurRadius: 2,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          poi.type.icon,
-                          color: Colors.white,
-                          size: 14,
-                        ),
-                      ),
-                    ),
-                  ))
-              .toList(),
-        ),
-      // Custom POI waypoints (bold, prominent)
-      if (_poiWaypoints.isNotEmpty)
-        fm.MarkerLayer(
-          markers: _poiWaypoints
-              .map((wp) => fm.Marker(
-                    point: wp.position,
-                    width: 36,
-                    height: 36,
-                    child: GestureDetector(
-                      onTap: () => _editWaypoint(wp),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: getWaypointColor(wp.type), width: 3.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: getWaypointColor(wp.type).withValues(alpha: 0.3),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
                             BoxShadow(
                               color: Colors.black.withValues(alpha: 0.2),
                               blurRadius: 4,
@@ -1112,7 +1074,40 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
                             ),
                           ],
                         ),
-                        child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 18)),
+                        child: Icon(
+                          poi.type.icon,
+                          color: poi.type.color,
+                          size: 12,
+                        ),
+                      ),
+                    ),
+                  ))
+              .toList(),
+        ),
+      // Custom POI waypoints (match Mapbox native style: white background, colored icon, same size)
+      if (_poiWaypoints.isNotEmpty)
+        fm.MarkerLayer(
+          markers: _poiWaypoints
+              .map((wp) => fm.Marker(
+                    point: wp.position,
+                    width: 22,
+                    height: 22,
+                    child: GestureDetector(
+                      onTap: () => _editWaypoint(wp),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: getWaypointColor(wp.type), width: 2), // Match Mapbox native (2px)
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Center(child: Icon(getWaypointIcon(wp.type), color: getWaypointColor(wp.type), size: 12)), // Match Mapbox native (12px)
                       ),
                     ),
                   ))
@@ -3402,62 +3397,86 @@ tooltip: 'Delete point',
 }
 
 /// Dialog for adding route points via search
-/// Add waypoint dialog with Google Places search
+/// Add waypoint dialog with Mapbox search and URL extraction
 class _AddWaypointDialog extends StatefulWidget {
 final WaypointType? preselectedType;
 final ll.LatLng? proximityBias;
 final bool excludeRoutePoint;
 
 const _AddWaypointDialog({
-this.preselectedType,
-this.proximityBias,
-this.excludeRoutePoint = false,
+  this.preselectedType,
+  this.proximityBias,
+  this.excludeRoutePoint = false,
 });
 
 @override
 State<_AddWaypointDialog> createState() => _AddWaypointDialogState();
 }
 
+/// Simple class to represent a Mapbox search result
+class MapboxPlace {
+  final String name;
+  final String formattedAddress;
+  final double latitude;
+  final double longitude;
+  ll.LatLng get location => ll.LatLng(latitude, longitude);
+
+  MapboxPlace({
+    required this.name,
+    required this.formattedAddress,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory MapboxPlace.fromJson(Map<String, dynamic> json) {
+    return MapboxPlace(
+      name: json['name'] as String? ?? '',
+      formattedAddress: json['formattedAddress'] as String? ?? '',
+      latitude: (json['latitude'] as num).toDouble(),
+      longitude: (json['longitude'] as num).toDouble(),
+    );
+  }
+}
+
 class _AddWaypointDialogState extends State<_AddWaypointDialog> {
-final _searchController = TextEditingController();
-final _nameController = TextEditingController();
-final _descController = TextEditingController();
-final _airbnbAddressController = TextEditingController();
-final _urlController = TextEditingController();
-final _placesService = GooglePlacesService();
-late WaypointType _selectedType;
-POIAccommodationType? _accommodationType;
-MealTime? _mealTime;
-ActivityTime? _activityTime;
-List<PlacePrediction> _searchResults = [];
-PlaceDetails? _selectedPlace;
-bool _searching = false;
-bool _geocoding = false;
-bool _extractingMetadata = false;
-ll.LatLng? _airbnbLocation;
-bool _airbnbAddressConfirmed = false;
-Timer? _searchDebounce;
-String _lastSearchedQuery = ''; // Track last successful search to prevent duplicates
-Map<String, dynamic>? _extractedMetadata; // Stores extracted URL metadata
-bool _hasSearchedOrExtracted = false; // Track if user has searched or extracted
+  final _nameController = TextEditingController();
+  final _descController = TextEditingController();
+  final _airbnbAddressController = TextEditingController();
+  final _urlController = TextEditingController();
+  late WaypointType _selectedType;
+  POIAccommodationType? _accommodationType;
+  MealTime? _mealTime;
+  ActivityTime? _activityTime;
+  bool _geocoding = false;
+  bool _extractingMetadata = false;
+  ll.LatLng? _airbnbLocation;
+  bool _airbnbAddressConfirmed = false;
+  Map<String, dynamic>? _extractedMetadata; // Stores extracted URL metadata
+  bool _hasSearchedOrExtracted = false; // Track if user has searched or extracted
+  ll.LatLng? _extractedLocation; // Location from URL extraction
+  Map<String, dynamic>? _extractedAddress; // Address from URL extraction
+  List<Map<String, dynamic>> _mapboxSearchResults = []; // Mapbox geocoding results
+  bool _mapboxSearching = false; // Mapbox search in progress
+  final _addressSearchController = TextEditingController(); // Controller for manual address search
+  Timer? _addressSearchDebounce; // Debounce for address search
+  MapboxPlace? _selectedMapboxPlace; // Selected Mapbox search result
 
-@override
-void initState() {
-super.initState();
-_selectedType = widget.preselectedType ?? WaypointType.restaurant;
-_searchController.addListener(_onSearchChanged);
-}
+  @override
+  void initState() {
+    super.initState();
+    _selectedType = widget.preselectedType ?? WaypointType.restaurant;
+  }
 
-@override
-void dispose() {
-_searchController.dispose();
-_nameController.dispose();
-_descController.dispose();
-_airbnbAddressController.dispose();
-_urlController.dispose();
-_searchDebounce?.cancel();
-super.dispose();
-}
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _airbnbAddressController.dispose();
+    _urlController.dispose();
+    _addressSearchController.dispose();
+    _addressSearchDebounce?.cancel();
+    super.dispose();
+  }
 
 Future<void> _extractUrlMetadata() async {
 final url = _urlController.text.trim();
@@ -3490,11 +3509,24 @@ final description = data['description']?.toString() ?? '';
 final image = data['image']?.toString() ?? '';
 final siteName = data['siteName']?.toString() ?? '';
 
+// Extract location data
+final latitude = data['latitude'] != null ? (data['latitude'] as num).toDouble() : null;
+final longitude = data['longitude'] != null ? (data['longitude'] as num).toDouble() : null;
+final address = data['address'] as Map<String, dynamic>?;
+
 Log.i('waypoint_dialog', 'Extracted - title: "$title", description: "$description", image: "$image", siteName: "$siteName"');
+if (latitude != null && longitude != null) {
+  Log.i('waypoint_dialog', 'Extracted location: $latitude, $longitude');
+}
+if (address != null) {
+  Log.i('waypoint_dialog', 'Extracted address: ${address['formatted'] ?? address}');
+}
 
 // Always set _hasSearchedOrExtracted to true and store metadata
 setState(() {
 _extractedMetadata = metadataWithUrl;
+_extractedLocation = (latitude != null && longitude != null) ? ll.LatLng(latitude, longitude) : null;
+_extractedAddress = address;
 _hasSearchedOrExtracted = true;
 });
 
@@ -3557,243 +3589,217 @@ if (mounted) setState(() => _extractingMetadata = false);
 }
 }
 
-void _onSearchChanged() {
-final query = _searchController.text.trim();
+// Google Places search methods removed - using Mapbox search and URL extraction instead
 
-// Check if user pasted a Google Maps link
-if (GoogleLinkParser.isGoogleMapsUrl(query)) {
-// ✅ ADD DEBOUNCE: Wait 500ms before processing
-_searchDebounce?.cancel();
-_searchDebounce = Timer(const Duration(milliseconds: 500), () {
-if (mounted && _searchController.text.trim() == query) {
-_handleGoogleLink(query);
-}
-});
-return;
-}
+/// Unified Mapbox geocoding method - used by all address geocoding operations
+/// Returns the first result's coordinates and formatted address, or null if not found
+Future<MapboxPlace?> _geocodeAddressWithMapbox(String address) async {
+  if (address.trim().isEmpty) {
+    return null;
+  }
 
-// Don't search if query is same as last successful search
-if (query == _lastSearchedQuery) {
-return;
-}
+  try {
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+    final callable = functions.httpsCallable('geocodeAddressMapbox');
+    final result = await callable.call<Map<String, dynamic>>({
+      'query': address.trim(), // Use 'query' parameter (not 'address')
+      'proximity': widget.proximityBias != null
+          ? {'lng': widget.proximityBias!.longitude, 'lat': widget.proximityBias!.latitude}
+          : null,
+    });
+    final data = result.data as Map<String, dynamic>?;
 
-if (query.length < 3) {
-setState(() {
-_searchResults = [];
-_searching = false;
-});
-_lastSearchedQuery = ''; // Reset last searched query
-return;
-}
+    if (data != null && data['results'] is List && (data['results'] as List).isNotEmpty) {
+      final firstResult = (data['results'] as List).first as Map<String, dynamic>;
+      final lat = firstResult['latitude'] as num?;
+      final lng = firstResult['longitude'] as num?;
+      final name = firstResult['name'] as String? ?? '';
+      final formattedAddress = firstResult['formattedAddress'] as String? ?? '';
 
-_searchDebounce?.cancel();
-// Optimized: 600ms debounce reduces API calls by 90% while maintaining responsiveness
-_searchDebounce = Timer(const Duration(milliseconds: 600), () {
-_performSearch(query);
-});
-}
-
-/// Handle Google Maps link paste
-Future<void> _handleGoogleLink(String url) async {
-// Show immediate feedback
-if (mounted) {
-ScaffoldMessenger.of(context).clearSnackBars();
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Row(
-children: [
-SizedBox(
-width: 20,
-height: 20,
-child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-),
-SizedBox(width: 12),
-Text('Processing Google Maps link...'),
-],
-),
-duration: Duration(seconds: 30), // Long duration
-),
-);
+      if (lat != null && lng != null) {
+        return MapboxPlace(
+          name: name,
+          formattedAddress: formattedAddress,
+          latitude: lat.toDouble(),
+          longitude: lng.toDouble(),
+        );
+      }
+    }
+    return null;
+  } catch (e) {
+    Log.e('waypoint_dialog', 'Failed to geocode address with Mapbox', e);
+    return null;
+  }
 }
 
-setState(() => _searching = true);
-
-try {
-// Try to extract place ID from URL
-String? placeId = GoogleLinkParser.extractPlaceId(url);
-
-// If not found, try expanding short URL
-if (placeId == null && (url.contains('goo.gl') || url.contains('share.google'))) {
-Log.i('waypoint_dialog', 'Expanding short URL...');
-placeId = await GoogleLinkParser.expandShortUrl(url);
-}
-
-if (placeId != null) {
-Log.i('waypoint_dialog', 'Place ID extracted: $placeId');
-
-// Fetch place details directly
-final details = await _placesService.getPlaceDetails(placeId);
-
-if (details != null && mounted) {
-ScaffoldMessenger.of(context).clearSnackBars(); // Clear loading message
-_nameController.text = details.name;
-_descController.text = details.address ?? '';
-_searchController.text = details.name;
-setState(() {
-_selectedPlace = details;
-_searching = false;
-_hasSearchedOrExtracted = true;
-});
-
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Text('✓ Place loaded from Google link!'),
-backgroundColor: Colors.green,
-duration: Duration(seconds: 2),
-),
-);
-return;
-}
-}
-
-// Failed to extract place - CRITICAL FIX: Clear the search field!
-if (mounted) {
-ScaffoldMessenger.of(context).clearSnackBars(); // Clear loading message
-setState(() {
-_searchController.clear(); // ✅ CLEAR TO STOP INFINITE LOOP
-_searching = false;
-});
-
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Text('Could not extract place from this link. Try searching instead.'),
-backgroundColor: Colors.orange,
-duration: Duration(seconds: 3),
-),
-);
-}
-} catch (e) {
-Log.e('waypoint_dialog', 'Failed to process Google link', e);
-
-// CRITICAL FIX: Clear the search field on any error!
-if (mounted) {
-ScaffoldMessenger.of(context).clearSnackBars(); // Clear loading message
-setState(() {
-_searchController.clear(); // ✅ CLEAR TO STOP INFINITE LOOP
-_searching = false;
-});
-
-ScaffoldMessenger.of(context).showSnackBar(
-SnackBar(
-content: Text('Error processing link: ${e.toString()}'),
-backgroundColor: Colors.red,
-duration: const Duration(seconds: 3),
-),
-);
-}
-}
-}
-
-Future<void> _performSearch(String query) async {
-setState(() => _searching = true);
-
-try {
-List<String>? typeFilters;
-switch (_selectedType) {
-case WaypointType.restaurant:
-typeFilters = ['restaurant', 'cafe', 'bar'];
-break;
-case WaypointType.accommodation:
-typeFilters = ['lodging', 'hotel'];
-break;
-case WaypointType.activity:
-typeFilters = ['tourist_attraction'];
-break;
-case WaypointType.viewingPoint:
-typeFilters = ['tourist_attraction'];
-break;
-case WaypointType.servicePoint:
-case WaypointType.routePoint:
-// Don't filter by type for service points and route points to avoid API errors
-// Let the search query determine the results
-typeFilters = null;
-break;
-}
-
-final results = await _placesService.searchPlaces(
-query: query,
-proximity: widget.proximityBias,
-types: typeFilters,
-);
-
-if (mounted) {
-setState(() {
-_searchResults = results;
-_searching = false;
-_lastSearchedQuery = query; // Remember successful search to prevent duplicates
-});
-}
-} catch (e) {
-Log.e('waypoint_dialog', 'Search failed', e);
-if (mounted) {
-setState(() => _searching = false);
-ScaffoldMessenger.of(context).showSnackBar(
-SnackBar(content: Text('Search failed: $e'), backgroundColor: Colors.red),
-);
-}
-}
-}
-
-Future<void> _selectPlace(PlacePrediction prediction) async {
-final details = await _placesService.getPlaceDetails(prediction.placeId);
-
-if (details != null && mounted) {
-_nameController.text = details.name;
-_descController.text = details.address ?? '';
-_searchController.text = details.name;
-setState(() {
-_selectedPlace = details;
-_searchResults = [];
-_hasSearchedOrExtracted = true;
-});
-}
-}
-
+/// Geocode Airbnb address using unified Mapbox geocoding
 Future<void> _geocodeAirbnbAddress() async {
-final address = _airbnbAddressController.text.trim();
-if (address.isEmpty) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Please enter an address first')),
-);
-return;
+  final address = _airbnbAddressController.text.trim();
+  if (address.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter an address first')),
+    );
+    return;
+  }
+
+  setState(() => _geocoding = true);
+
+  try {
+    final place = await _geocodeAddressWithMapbox(address);
+    if (place != null) {
+      setState(() {
+        _airbnbLocation = place.location;
+        _airbnbAddressConfirmed = true;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location found! ✓'), backgroundColor: Colors.green),
+        );
+      }
+    } else {
+      throw 'No coordinates found for address';
+    }
+  } catch (e) {
+    Log.e('waypoint_dialog', 'Failed to geocode Airbnb address', e);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not find location: $e'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _geocoding = false);
+  }
 }
 
-setState(() => _geocoding = true);
+/// Geocode the extracted address from URL metadata using unified Mapbox geocoding
+Future<void> _geocodeExtractedAddress() async {
+  if (_extractedAddress == null || _extractedAddress!['formatted'] == null) {
+    return;
+  }
 
-final location = await _placesService.geocodeAddress(address);
+  setState(() => _geocoding = true);
 
-setState(() => _geocoding = false);
+  try {
+    final address = _extractedAddress!['formatted'] as String;
+    final place = await _geocodeAddressWithMapbox(address);
+    
+    if (place != null) {
+      setState(() {
+        _extractedLocation = place.location;
+        _extractedAddress = {'formatted': place.formattedAddress};
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location found! ✓'), backgroundColor: Colors.green),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not find coordinates for this address.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  } catch (e) {
+    Log.e('waypoint_dialog', 'Failed to geocode extracted address', e);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Geocoding failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _geocoding = false);
+  }
+}
 
-if (location != null) {
-setState(() {
-_airbnbLocation = location;
-_airbnbAddressConfirmed = true;
-});
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Location found! ✓'), backgroundColor: Colors.green),
-);
+/// Perform Mapbox address search (unified method for all waypoint types)
+Future<void> _performMapboxSearch(String query) async {
+  final trimmedQuery = query.trim();
+  if (trimmedQuery.isEmpty || trimmedQuery.length < 3) {
+    if (mounted) {
+      setState(() {
+        _mapboxSearchResults = [];
+        _mapboxSearching = false;
+      });
+    }
+    return;
+  }
+
+  if (mounted) setState(() => _mapboxSearching = true);
+
+  try {
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+    final callable = functions.httpsCallable('geocodeAddressMapbox');
+    final result = await callable.call<Map<String, dynamic>>({
+      'query': trimmedQuery,
+      'proximity': widget.proximityBias != null
+          ? {'lng': widget.proximityBias!.longitude, 'lat': widget.proximityBias!.latitude}
+          : null,
+    });
+
+    final data = result.data as Map<String, dynamic>?;
+    if (mounted) {
+      if (data != null && data['results'] != null && (data['results'] as List).isNotEmpty) {
+        setState(() {
+          _mapboxSearchResults = (data['results'] as List).cast<Map<String, dynamic>>();
+        });
+      } else {
+        setState(() => _mapboxSearchResults = []);
+      }
+    }
+  } catch (e) {
+    Log.e('waypoint_dialog', 'Failed to search Mapbox', e);
+    if (mounted) {
+      setState(() => _mapboxSearchResults = []);
+    }
+  } finally {
+    if (mounted) setState(() => _mapboxSearching = false);
+  }
 }
-} else {
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Text('Could not find location. Please check the address.'),
-backgroundColor: Colors.orange,
-),
-);
-}
-}
+
+/// Handle selection of a Mapbox search result
+void _selectMapboxResult(Map<String, dynamic> result) {
+  final lat = result['latitude'] as num?;
+  final lng = result['longitude'] as num?;
+  final name = result['name'] as String? ?? '';
+  final formattedAddress = result['formattedAddress'] as String? ?? '';
+
+  if (lat != null && lng != null) {
+    final place = MapboxPlace(
+      name: name,
+      formattedAddress: formattedAddress,
+      latitude: lat.toDouble(),
+      longitude: lng.toDouble(),
+    );
+    
+    setState(() {
+      _selectedMapboxPlace = place;
+      _extractedLocation = place.location;
+      _extractedAddress = {'formatted': formattedAddress};
+      _mapboxSearchResults = [];
+      _addressSearchController.clear();
+      _hasSearchedOrExtracted = true;
+      
+      // Auto-fill name if empty
+      if (_nameController.text.trim().isEmpty && name.isNotEmpty) {
+        _nameController.text = name;
+      }
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location selected! ✓'), backgroundColor: Colors.green),
+      );
+    }
+  }
 }
 
 @override
@@ -3930,212 +3936,17 @@ padding: const EdgeInsets.all(20),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.stretch,
 children: [
-// Modern search section
-Container(
-decoration: BoxDecoration(
-color: Colors.white,
-borderRadius: BorderRadius.circular(14),
-border: Border.all(color: Colors.grey.shade200),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.04),
-blurRadius: 8,
-offset: const Offset(0, 2),
-),
-],
-),
-child: TextField(
-controller: _searchController,
-decoration: InputDecoration(
-hintText: 'Search for a place or paste Google Maps link',
-hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
-prefixIcon: Container(
-padding: const EdgeInsets.all(12),
-child: Icon(Icons.search_rounded, color: Colors.grey.shade400, size: 22),
-),
-suffixIcon: _searchController.text.isNotEmpty
-? IconButton(
-icon: const Icon(Icons.clear_rounded, size: 20),
-color: Colors.grey.shade400,
-onPressed: () {
-_searchController.clear();
-setState(() => _searchResults = []);
-},
-)
-: (_searching
-? const Padding(
-padding: EdgeInsets.all(12),
-child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-)
-: null),
-border: InputBorder.none,
-contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-),
-),
-),
-const SizedBox(height: 8),
-Row(
-children: [
-Icon(Icons.lightbulb_outline_rounded, size: 14, color: Colors.grey.shade400),
-const SizedBox(width: 6),
-Text('Tip: Paste Google Maps share links directly', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
-const SizedBox(width: 4),
-Container(
-padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(4)),
-child: const Text('NEW', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF2E7D32), letterSpacing: 0.5)),
-),
-],
-),
-const SizedBox(height: 12),
-if (_searchResults.isNotEmpty) ...[
-Container(
-constraints: const BoxConstraints(maxHeight: 200),
-decoration: BoxDecoration(
-color: Colors.white,
-borderRadius: BorderRadius.circular(14),
-border: Border.all(color: Colors.grey.shade200),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.08),
-blurRadius: 12,
-offset: const Offset(0, 4),
-),
-],
-),
-child: ClipRRect(
-borderRadius: BorderRadius.circular(14),
-child: ListView.separated(
-shrinkWrap: true,
-padding: const EdgeInsets.symmetric(vertical: 8),
-itemCount: _searchResults.length,
-separatorBuilder: (_, __) => Divider(height: 1, indent: 56, endIndent: 16, color: Colors.grey.shade200),
-itemBuilder: (_, i) {
-final result = _searchResults[i];
-return Material(
-color: Colors.transparent,
-child: InkWell(
-onTap: () => _selectPlace(result),
-child: Padding(
-padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-child: Row(
-children: [
-Container(
-width: 40,
-height: 40,
-decoration: BoxDecoration(
-color: const Color(0xFFF5F5F5),
-borderRadius: BorderRadius.circular(10),
-),
-child: const Icon(Icons.place_rounded, size: 20, color: Color(0xFF428A13)),
-),
-const SizedBox(width: 14),
-Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text(
-result.text,
-style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey.shade900),
-maxLines: 1,
-overflow: TextOverflow.ellipsis,
-),
-const SizedBox(height: 2),
-Text(
-result.placeId,
-style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-maxLines: 1,
-overflow: TextOverflow.ellipsis,
-),
-],
-),
-),
-Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey.shade300),
-],
-),
-),
-),
-);
-},
-),
-),
-),
-const SizedBox(height: 8),
-Row(
-mainAxisAlignment: MainAxisAlignment.center,
-children: [
-Image.network(
-'https://developers.google.com/static/maps/images/powered-by-google-on-white.png',
-height: 16,
-errorBuilder: (_, __, ___) => Text('Powered by Google', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-),
-],
-),
-],
-if (_selectedPlace != null) ...[
-const SizedBox(height: 12),
-Container(
-padding: const EdgeInsets.all(12),
-decoration: BoxDecoration(
-color: Colors.green.shade50,
-borderRadius: BorderRadius.circular(8),
-border: Border.all(color: Colors.green.shade200),
-),
-child: Row(
-children: [
-Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
-const SizedBox(width: 8),
-Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text(
-_selectedPlace!.name,
-style: const TextStyle(fontWeight: FontWeight.w600),
-),
-if (_selectedPlace!.rating != null)
-Text(
-'⭐ ${_selectedPlace!.rating!.toStringAsFixed(1)}',
-style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-),
-],
-),
-),
-IconButton(
-icon: const Icon(Icons.close, size: 18),
-onPressed: () {
-_searchController.clear();
-_nameController.clear();
-_descController.clear();
-setState(() {
-_selectedPlace = null;
-// Only reset if no metadata is extracted either
-if (_extractedMetadata == null) {
-_hasSearchedOrExtracted = false;
-}
-});
-},
-),
-],
-),
-),
-const SizedBox(height: 4),
-// ✅ "Powered by Google" Attribution
-Text(
-'Powered by Google Places',
-style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-),
-],
+// Google Maps search section removed - using Mapbox search and URL extraction instead
 // URL/Link metadata extraction section
 if (_extractedMetadata == null) ...[
-const SizedBox(height: 20),
-Row(
-children: [
-Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-const SizedBox(width: 8),
-Text('Or extract from URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-],
-),
+  const SizedBox(height: 20),
+  Row(
+    children: [
+      Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+      const SizedBox(width: 8),
+      Text('Add URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+    ],
+  ),
 const SizedBox(height: 12),
 Container(
 decoration: BoxDecoration(
@@ -4234,17 +4045,139 @@ _urlController.clear();
 _nameController.clear();
 _descController.clear();
 setState(() {
-_extractedMetadata = null;
-// Only reset if no place is selected either
-if (_selectedPlace == null) {
-_hasSearchedOrExtracted = false;
-}
+  _extractedMetadata = null;
+  // Only reset if no place is selected either
+  if (_selectedMapboxPlace == null) {
+    _hasSearchedOrExtracted = false;
+  }
 });
 },
 ),
 ],
 ),
 ),
+],
+// Mapbox search section - available for all waypoint types
+if (!_hasSearchedOrExtracted || _selectedMapboxPlace == null) ...[
+  const SizedBox(height: 20),
+  Row(
+    children: [
+      Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+      const SizedBox(width: 8),
+      Text('Search location', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+    ],
+  ),
+  const SizedBox(height: 12),
+  Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.grey.shade200),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.04),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: TextField(
+      controller: _addressSearchController,
+      decoration: InputDecoration(
+        hintText: 'Search address or place...',
+        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+        prefixIcon: Container(
+          padding: const EdgeInsets.all(12),
+          child: Icon(Icons.search_rounded, color: Colors.grey.shade400, size: 22),
+        ),
+        suffixIcon: _addressSearchController.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear_rounded, size: 20),
+                color: Colors.grey.shade400,
+                onPressed: () {
+                  _addressSearchController.clear();
+                  setState(() {
+                    _mapboxSearchResults = [];
+                  });
+                },
+              )
+            : (_mapboxSearching
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                : null),
+        border: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      ),
+      onChanged: (value) {
+        _addressSearchDebounce?.cancel();
+        _addressSearchDebounce = Timer(const Duration(milliseconds: 600), () {
+          if (mounted) _performMapboxSearch(value);
+        });
+        setState(() {}); // Update UI to show/hide clear button
+      },
+    ),
+  ),
+  if (_mapboxSearchResults.isNotEmpty)
+    Container(
+      constraints: const BoxConstraints(maxHeight: 200),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      margin: const EdgeInsets.only(top: 8),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: _mapboxSearchResults.length,
+        itemBuilder: (context, index) {
+          final result = _mapboxSearchResults[index];
+          final name = result['name'] as String? ?? '';
+          final formattedAddress = result['formattedAddress'] as String? ?? '';
+          return ListTile(
+            leading: Icon(Icons.location_on_rounded, color: Colors.blue.shade600, size: 20),
+            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w500)),
+            subtitle: Text(formattedAddress, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+            onTap: () => _selectMapboxResult(result),
+          );
+        },
+      ),
+    ),
+  if (_selectedMapboxPlace != null)
+    Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.green.shade700, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Location selected', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.green.shade700)),
+                  Text(_selectedMapboxPlace!.formattedAddress, style: TextStyle(fontSize: 12, color: Colors.green.shade700.withOpacity(0.8))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
 ],
 const SizedBox(height: 20),
 Text('Type', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700, letterSpacing: 0.3)),
@@ -4258,13 +4191,9 @@ children: WaypointType.values
 type: type,
 isSelected: _selectedType == type,
 onTap: () {
-setState(() {
-_selectedType = type;
-_searchResults = [];
-if (_searchController.text.isNotEmpty) {
-_performSearch(_searchController.text);
-}
-});
+  setState(() {
+    _selectedType = type;
+  });
 },
 )).toList(),
 ),
@@ -4496,34 +4425,34 @@ borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(24), bottomRig
 border: Border(top: BorderSide(color: Colors.grey.shade100)),
 ),
 child: Row(
-children: [
-if (_selectedPlace != null)
-Expanded(
-child: Row(
-children: [
-Container(
-width: 36,
-height: 36,
-decoration: BoxDecoration(
-color: const Color(0xFFE8F5E9),
-borderRadius: BorderRadius.circular(10),
-),
-child: const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF428A13)),
-),
-const SizedBox(width: 10),
-const Flexible(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text('Place selected', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
-Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
-],
-),
-),
-],
-),
-)
-else if (_extractedMetadata != null && widget.proximityBias != null)
+  children: [
+    if (_selectedMapboxPlace != null)
+      Expanded(
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF428A13)),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Location selected', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
+                  Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      )
+    else if (_extractedLocation != null || (_extractedMetadata != null && widget.proximityBias != null))
 Expanded(
 child: Row(
 children: [
@@ -4650,85 +4579,80 @@ if (_selectedType == WaypointType.accommodation && _accommodationType == null) r
 if (_accommodationType == POIAccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
 
 // Allow saving if:
-// 1. Place is selected from Google (has location)
-// 2. Metadata is extracted AND we have a proximity bias (map location)
-// 3. Airbnb with confirmed address
-final hasPlace = _selectedPlace != null;
+// 1. Mapbox place is selected (has location)
+// 2. Location extracted from URL metadata
+// 3. Metadata is extracted AND we have a proximity bias (map location)
+// 4. Airbnb with confirmed address
+final hasMapboxPlace = _selectedMapboxPlace != null;
+final hasExtractedLocation = _extractedLocation != null;
 final hasMetadataWithLocation = _extractedMetadata != null && widget.proximityBias != null;
 final hasAirbnbLocation = _accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed;
 
-if (!hasPlace && !hasMetadataWithLocation && !hasAirbnbLocation) return false;
+if (!hasMapboxPlace && !hasExtractedLocation && !hasMetadataWithLocation && !hasAirbnbLocation) return false;
 
 return true;
 }
 
 void _save() async {
-if (!_canSave()) return;
+  if (!_canSave()) return;
 
-String? photoUrl;
-if (_selectedPlace?.photoReference != null) {
-final waypointId = const Uuid().v4();
+  String? photoUrl;
+  // Photo URL from extracted metadata if available
+  if (_extractedMetadata != null && _extractedMetadata!['image'] != null) {
+    photoUrl = _extractedMetadata!['image'] as String?;
+  }
 
-// Show loading indicator
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Row(
-children: [
-SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-SizedBox(width: 12),
-Text('Caching photo...'),
-],
-),
-duration: Duration(seconds: 2),
-),
-);
-}
+  ll.LatLng position;
+  String? address;
+  
+  // Priority order for position:
+  // 1. Selected Mapbox place (from search)
+  // 2. Extracted location from URL metadata
+  // 3. Airbnb geocoded location
+  // 4. Route point proximity bias
+  // 5. Proximity bias (map tap location) as fallback
+  if (_selectedMapboxPlace != null) {
+    position = _selectedMapboxPlace!.location;
+    address = _selectedMapboxPlace!.formattedAddress;
+  } else if (_extractedLocation != null) {
+    // Use location extracted from URL metadata
+    position = _extractedLocation!;
+    address = _extractedAddress?['formatted'] as String?;
+  } else if (_selectedType == WaypointType.routePoint && widget.proximityBias != null) {
+    // Route points use the proximity bias (map tap location)
+    position = widget.proximityBias!;
+    address = null;
+  } else if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
+    position = _airbnbLocation!;
+    address = _airbnbAddressController.text.trim().isEmpty ? null : _airbnbAddressController.text.trim();
+  } else if (widget.proximityBias != null) {
+    // Use proximity bias (map tap location) for extracted metadata waypoints
+    position = widget.proximityBias!;
+    address = _extractedAddress?['formatted'] as String?;
+  } else {
+    return;
+  }
 
-// Use cached photo method
-photoUrl = await _placesService.getCachedPhotoUrl(
-_selectedPlace!.photoReference!,
-waypointId,
-);
-}
+  final waypoint = RouteWaypoint(
+    type: _selectedType,
+    position: position,
+    name: _nameController.text.trim(),
+    description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+    order: 0,
+    googlePlaceId: null, // No longer using Google Places
+    address: address,
+    rating: null, // No longer using Google Places rating
+    website: null, // No longer using Google Places website
+    phoneNumber: null, // No longer using Google Places phone
+    photoUrl: photoUrl,
+    accommodationType: _selectedType == WaypointType.accommodation ? _accommodationType : null,
+    mealTime: _selectedType == WaypointType.restaurant ? _mealTime : null,
+    activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
+    linkUrl: _extractedMetadata != null ? _urlController.text.trim() : null,
+    linkImageUrl: _extractedMetadata != null ? (_extractedMetadata!['image'] as String?) : null,
+  );
 
-ll.LatLng position;
-if (_selectedType == WaypointType.routePoint && widget.proximityBias != null) {
-// Route points use the proximity bias (map tap location) or selected place if searched
-position = _selectedPlace?.location ?? widget.proximityBias!;
-} else if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
-position = _airbnbLocation!;
-} else if (_selectedPlace != null) {
-position = _selectedPlace!.location;
-} else if (widget.proximityBias != null) {
-// Use proximity bias (map tap location) for extracted metadata waypoints
-position = widget.proximityBias!;
-} else {
-return;
-}
-
-final waypoint = RouteWaypoint(
-type: _selectedType,
-position: position,
-name: _nameController.text.trim(),
-description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
-order: 0,
-googlePlaceId: _selectedPlace?.placeId,
-address: _accommodationType == POIAccommodationType.airbnb
-? _airbnbAddressController.text.trim()
-: _selectedPlace?.address,
-rating: _selectedPlace?.rating,
-website: _selectedPlace?.website,
-phoneNumber: _selectedPlace?.phoneNumber,
-photoUrl: photoUrl,
-accommodationType: _selectedType == WaypointType.accommodation ? _accommodationType : null,
-mealTime: _selectedType == WaypointType.restaurant ? _mealTime : null,
-activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
-linkUrl: _extractedMetadata != null ? _urlController.text.trim() : null,
-linkImageUrl: _extractedMetadata != null ? (_extractedMetadata!['image'] as String?) : null,
-);
-
-Navigator.of(context).pop(waypoint);
+  Navigator.of(context).pop(waypoint);
 }
 }
 

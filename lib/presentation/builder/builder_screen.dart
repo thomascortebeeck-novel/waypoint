@@ -24,6 +24,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:waypoint/integrations/mapbox_config.dart';
+import 'package:waypoint/components/map/waypoint_map_card.dart';
+import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/map_configuration.dart';
+import 'package:waypoint/features/map/waypoint_map_controller.dart';
 
 class BuilderScreen extends StatefulWidget {
 final String? editPlanId;
@@ -2013,12 +2017,13 @@ return existingRoute.poiWaypoints.isNotEmpty;
 }
 
 /// Build a map widget showing the day's route and waypoints
+/// Uses AdaptiveMapWidget with Mapbox WebGL for proper tile loading on web
 Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
-  // Parse geometry coordinates to LatLng
+  // Parse route coordinates
   List<ll.LatLng> routeCoordinates = [];
-  if (route != null) {
+  if (route?.geometry != null) {
     try {
-      final coords = route.geometry['coordinates'];
+      final coords = route!.geometry['coordinates'];
       if (coords is List && coords.isNotEmpty) {
         if (coords.first is List) {
           // Format: [[lng, lat], ...]
@@ -2033,176 +2038,106 @@ Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
         }
       }
     } catch (e) {
-      Log.e('builder', 'Failed to parse route geometry', e);
+      Log.e('builder', 'Failed to parse route coordinates: $e');
     }
   }
 
-  // Parse POI waypoints
-  final existingRoute = vf.routeByDay[dayNum];
-  final poiWaypoints = existingRoute != null
-      ? existingRoute.poiWaypoints
-          .map((json) => RouteWaypoint.fromJson(json))
-          .toList()
-      : <RouteWaypoint>[];
-
-  // Calculate map center from route or waypoints
+  // Extract and convert waypoints from Map<String, dynamic> to RouteWaypoint
+  final waypointMaps = route?.poiWaypoints ?? [];
+  final waypoints = waypointMaps
+      .map((w) {
+        try {
+          return RouteWaypoint.fromJson(w);
+        } catch (e) {
+          Log.e('builder', 'Failed to parse waypoint: $e');
+          return null;
+        }
+      })
+      .whereType<RouteWaypoint>()
+      .toList();
+  
+  // Calculate center point (from waypoints or route)
   ll.LatLng center;
-  if (routeCoordinates.isNotEmpty) {
-    final midIndex = routeCoordinates.length ~/ 2;
-    center = routeCoordinates[midIndex];
-  } else if (poiWaypoints.isNotEmpty) {
-    center = poiWaypoints.first.position;
+  if (waypoints.isNotEmpty) {
+    final avgLat = waypoints.map((w) => w.position.latitude).reduce((a, b) => a + b) / waypoints.length;
+    final avgLng = waypoints.map((w) => w.position.longitude).reduce((a, b) => a + b) / waypoints.length;
+    center = ll.LatLng(avgLat, avgLng);
+  } else if (routeCoordinates.isNotEmpty) {
+    final avgLat = routeCoordinates.map((p) => p.latitude).reduce((a, b) => a + b) / routeCoordinates.length;
+    final avgLng = routeCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / routeCoordinates.length;
+    center = ll.LatLng(avgLat, avgLng);
   } else {
-    center = const ll.LatLng(61.0, 8.5); // Default fallback
+    // Fallback to start location or default
+    final startLocation = vf.startForDay[dayNum];
+    center = startLocation ?? const ll.LatLng(61.0, 8.5); // Norway default
   }
 
-  return Container(
+  // Create annotations for waypoints
+  final annotations = waypoints.map((wp) => MapAnnotation.fromWaypoint(wp)).toList();
+
+  // Create polyline for route
+  final polylines = routeCoordinates.isNotEmpty
+      ? [MapPolyline(
+          id: 'route_$dayNum',
+          points: routeCoordinates,
+          color: const Color(0xFF4CAF50),
+          width: 4.0,
+        )]
+      : <MapPolyline>[];
+
+  // Use Mapbox configuration for preview (works on web)
+  final mapConfig = MapConfiguration.mainMap(
+    styleUri: mapboxStyleUri,
+    rasterTileUrl: defaultRasterTileUrl,
+    enable3DTerrain: false, // Flat for preview
+    initialZoom: 12.0,
+  );
+
+  return SizedBox(
     height: 300,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: context.colors.outlineVariant),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: fm.FlutterMap(
-      options: fm.MapOptions(
-        initialCenter: center,
-        initialZoom: 11,
-        interactionOptions: const fm.InteractionOptions(
-          flags: fm.InteractiveFlag.all & ~fm.InteractiveFlag.rotate,
-        ),
-      ),
-      children: [
-        fm.TileLayer(
-          urlTemplate: defaultRasterTileUrl,
-          userAgentPackageName: 'com.waypoint.app',
-        ),
-        // Route polyline
-        if (routeCoordinates.isNotEmpty)
-          fm.PolylineLayer(
-            polylines: [
-              fm.Polyline(
-                points: routeCoordinates,
-                color: const Color(0xFF4CAF50),
-                strokeWidth: 5,
-                borderColor: Colors.white,
-                borderStrokeWidth: 2,
-              ),
-            ],
-          ),
-        // Start/End markers from route points
-        if (route != null && route.routePoints.isNotEmpty)
-          fm.MarkerLayer(
-            markers: [
-              // Start marker (A) - Largest for route endpoints
-              fm.Marker(
-                point: ll.LatLng(
-                  route.routePoints.first['lat']!,
-                  route.routePoints.first['lng']!,
-                ),
-                width: 48,
-                height: 48,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF52B788), // Success green
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'A',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // End marker (B) - Largest for route endpoints
-              if (route.routePoints.length > 1)
-                fm.Marker(
-                  point: ll.LatLng(
-                    route.routePoints.last['lat']!,
-                    route.routePoints.last['lng']!,
-                  ),
-                  width: 48,
-                  height: 48,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD62828), // Error red
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'B',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        // Custom POI waypoint markers - Prominent but smaller than Start/End
-        if (poiWaypoints.isNotEmpty)
-          fm.MarkerLayer(
-            markers: poiWaypoints
-                .map((wp) => fm.Marker(
-                      point: wp.position,
-                      width: 36,
-                      height: 36,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: getWaypointColor(wp.type),
-                            width: 3.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: getWaypointColor(wp.type).withValues(alpha: 0.3),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Icon(
-                            getWaypointIcon(wp.type),
-                            color: getWaypointColor(wp.type),
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ))
-                .toList(),
-          ),
-      ],
+    child: AdaptiveMapWidget(
+      initialCenter: center,
+      configuration: mapConfig,
+      annotations: annotations,
+      polylines: polylines,
+      onMapCreated: (controller) {
+        // Fit bounds to show all waypoints and route
+        final allPoints = <ll.LatLng>[];
+        allPoints.addAll(waypoints.map((w) => w.position));
+        allPoints.addAll(routeCoordinates);
+        
+        if (allPoints.isNotEmpty) {
+          // Calculate bounds
+          final lats = allPoints.map((p) => p.latitude).toList();
+          final lngs = allPoints.map((p) => p.longitude).toList();
+          final minLat = lats.reduce((a, b) => a < b ? a : b);
+          final maxLat = lats.reduce((a, b) => a > b ? a : b);
+          final minLng = lngs.reduce((a, b) => a < b ? a : b);
+          final maxLng = lngs.reduce((a, b) => a > b ? a : b);
+          
+          // Calculate center and zoom
+          final boundsCenter = ll.LatLng(
+            (minLat + maxLat) / 2,
+            (minLng + maxLng) / 2,
+          );
+          
+          // Estimate zoom level based on bounds
+          final latDiff = maxLat - minLat;
+          final lngDiff = maxLng - minLng;
+          final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+          double zoom = 12.0;
+          if (maxDiff > 0) {
+            if (maxDiff > 0.5) zoom = 8.0;
+            else if (maxDiff > 0.2) zoom = 10.0;
+            else if (maxDiff > 0.1) zoom = 11.0;
+            else if (maxDiff > 0.05) zoom = 12.0;
+            else zoom = 13.0;
+          }
+          
+          // Animate to fit bounds
+          controller.animateCamera(boundsCenter, zoom);
+        }
+      },
     ),
   );
 }
