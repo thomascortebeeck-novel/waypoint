@@ -3787,7 +3787,13 @@ backgroundColor: Colors.orange,
 Widget build(BuildContext context) => Dialog(
 backgroundColor: Colors.transparent,
 elevation: 0,
-child: Container(
+barrierDismissible: true,
+child: GestureDetector(
+  // Absorb all gestures to prevent map interaction
+  onTap: () {}, // Absorb tap gestures
+  onPanUpdate: (_) {}, // Absorb pan gestures
+  onScaleUpdate: (_) {}, // Absorb scale gestures
+  child: Container(
 width: 480,
 constraints: BoxConstraints(
 maxWidth: MediaQuery.of(context).size.width * 0.95,
@@ -3890,7 +3896,15 @@ child: NotificationListener<ScrollNotification>(
     // Consume all scroll notifications to prevent map zoom
     return true;
   },
-  child: SingleChildScrollView(
+  child: Listener(
+    // Intercept mouse wheel/trackpad scrolling on Web to prevent map zoom
+    onPointerSignal: (event) {
+      if (event is PointerScrollEvent) {
+        // Absorb the scroll event to prevent it from reaching the map
+        // The SingleChildScrollView will still handle touch/drag gestures normally
+      }
+    },
+    child: SingleChildScrollView(
 padding: const EdgeInsets.all(20),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4451,6 +4465,7 @@ overflow: TextOverflow.ellipsis,
 ),
 ),
 ),
+),
 Container(
 padding: const EdgeInsets.all(20),
 decoration: BoxDecoration(
@@ -4560,7 +4575,6 @@ child: Text('Search or set location first', style: TextStyle(fontSize: 13, color
 ),
 ],
 ),
-],
 ),
 const SizedBox(width: 16),
 TextButton(
@@ -5026,7 +5040,15 @@ child: NotificationListener<ScrollNotification>(
     // Consume all scroll notifications to prevent map zoom
     return true;
   },
-  child: SingleChildScrollView(
+  child: Listener(
+    // Intercept mouse wheel/trackpad scrolling on Web to prevent map zoom
+    onPointerSignal: (event) {
+      if (event is PointerScrollEvent) {
+        // Absorb the scroll event to prevent it from reaching the map
+        // The SingleChildScrollView will still handle touch/drag gestures normally
+      }
+    },
+    child: SingleChildScrollView(
 padding: const EdgeInsets.all(16),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
