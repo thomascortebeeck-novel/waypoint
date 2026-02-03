@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:go_router/go_router.dart';
@@ -3787,12 +3788,10 @@ backgroundColor: Colors.orange,
 Widget build(BuildContext context) => Dialog(
 backgroundColor: Colors.transparent,
 elevation: 0,
-barrierDismissible: true,
 child: GestureDetector(
   // Absorb all gestures to prevent map interaction
   onTap: () {}, // Absorb tap gestures
-  onPanUpdate: (_) {}, // Absorb pan gestures
-  onScaleUpdate: (_) {}, // Absorb scale gestures
+  onScaleUpdate: (_) {}, // Absorb scale/pan gestures (scale is a superset of pan)
   child: Container(
 width: 480,
 constraints: BoxConstraints(
@@ -4466,6 +4465,7 @@ overflow: TextOverflow.ellipsis,
 ),
 ),
 ),
+),
 Container(
 padding: const EdgeInsets.all(20),
 decoration: BoxDecoration(
@@ -4609,6 +4609,7 @@ Text('Add Waypoint', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
 ),
 ),
 ],
+),
 ),
 ),
 );
@@ -5058,6 +5059,7 @@ const SizedBox(height: 16),
 if (_selectedType != WaypointType.accommodation) _buildPoiFields(),
 if (_selectedType == WaypointType.accommodation) _buildAccommodationFields(),
 ],
+),
 ),
 ),
 ),

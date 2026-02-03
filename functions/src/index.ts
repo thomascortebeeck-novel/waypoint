@@ -44,27 +44,33 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
 
       // Booking.com hotel URL parsing
       // Example: https://www.booking.com/hotel/se/stf-abisko.nl.html
+      // Path: /hotel/se/stf-abisko.nl.html
+      // pathParts: ["hotel", "se", "stf-abisko.nl.html"]
       if (hostname.includes("booking.com")) {
         siteName = "Booking.com";
         const pathParts = urlObj.pathname.split("/").filter(p => p && p.length > 0);
         
-        // Look for hotel identifier in path (usually after /hotel/)
-        const hotelIndex = pathParts.findIndex(p => p === "hotel");
-        if (hotelIndex >= 0 && hotelIndex < pathParts.length - 1) {
-          // Get the hotel identifier (e.g., "stf-abisko")
-          const hotelId = pathParts[hotelIndex + 1];
-          if (hotelId) {
-            // Convert hotel ID to readable name
-            // "stf-abisko" -> "STF Abisko"
+        // Find the segment that ends with .html (this is the hotel identifier)
+        // NOT the segment after "hotel" (that's the country code!)
+        const htmlSegment = pathParts.find(p => p.endsWith(".html"));
+        if (htmlSegment) {
+          // Remove language code and .html suffix
+          // "stf-abisko.nl.html" → "stf-abisko"
+          // "hotel-name.en-gb.html" → "hotel-name"
+          const hotelId = htmlSegment
+            .replace(/\.[a-z]{2}(-[a-z]{2})?\.html$/i, "")  // Remove .nl.html, .en-gb.html, etc.
+            .replace(/\.html$/i, "");  // Fallback: just remove .html
+          
+          if (hotelId && hotelId.length > 2) {
+            // Convert to readable name: "stf-abisko" → "STF Abisko"
             title = hotelId
               .split("-")
               .map(word => word.charAt(0).toUpperCase() + word.slice(1))
               .join(" ");
             
             // Handle common abbreviations
-            title = title.replace(/\bStf\b/gi, "STF");
+            title = title.replace(/\bStf\b/g, "STF");
             title = title.replace(/\bHtl\b/gi, "Hotel");
-            title = title.replace(/\bHtl\b/gi, "Hostel");
             
             console.log("[fetchMeta] Strategy 0: Extracted title from Booking.com URL:", title);
           }
@@ -280,6 +286,34 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     return {title: cleanedTitle, description: filteredDescription, image, siteName};
   };
 
+  // Track best result so far (accumulate across strategies)
+  let bestResult: {title: string | null, description: string | null, image: string | null, siteName: string | null, _strategy: number} = {
+    ...strategy0Data,
+    _strategy: 0
+  };
+
+  // Helper to merge results (prefer non-null values, keep best)
+  const mergeResults = (current: typeof bestResult, newData: {title: string | null, description: string | null, image: string | null, siteName: string | null}, strategy: number) => {
+    const merged = {...current};
+    // Prefer fetched title over URL-parsed title (usually more accurate)
+    if (newData.title && newData.title.length > 3) {
+      merged.title = newData.title;
+      merged._strategy = strategy;
+    }
+    if (newData.description && !merged.description) {
+      merged.description = newData.description;
+    }
+    // Always prefer an image if we find one
+    if (newData.image && !merged.image) {
+      merged.image = newData.image;
+      if (!merged.title) merged._strategy = strategy;
+    }
+    if (newData.siteName && !merged.siteName) {
+      merged.siteName = newData.siteName;
+    }
+    return merged;
+  };
+
   // Strategy 1: Direct fetch with browser-like headers (attempt to get og:image)
   try {
     console.log("[fetchMeta] Strategy 1: Direct fetch with browser headers");
@@ -305,91 +339,41 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
 
     console.log("[fetchMeta] Response status:", res.status);
     
-    // Check for bot detection / blocking responses
-    const isBlocked = res.status === 202 || res.status === 403;
     const html = await res.text();
     const htmlLength = html.length;
     console.log("[fetchMeta] HTML length:", htmlLength);
     
-    // If blocked or HTML is very short (JS challenge/bot block), fall back to Strategy 0
-    if (isBlocked || htmlLength < 5000) {
-      console.log("[fetchMeta] Strategy 1: Blocked or insufficient content (status:", res.status, ", length:", htmlLength, "), falling back to Strategy 0");
-      // Return Strategy 0 data, but try to preserve any image we might have found
+    // Check for bot detection / blocking responses
+    const isBlocked = res.status === 202 || res.status === 403 || htmlLength < 5000;
+    
+    if (isBlocked) {
+      console.log("[fetchMeta] Strategy 1: Blocked or insufficient content (status:", res.status, ", length:", htmlLength, "), will try other strategies");
+      // Still try to extract any image from the blocked response
       if (htmlLength > 100) {
-        // Quick attempt to extract image even from short HTML
         const imageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
                            html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
         if (imageMatch && imageMatch[1]) {
           const image = decodeEntities(imageMatch[1]);
-          console.log("[fetchMeta] Found image in blocked response, using Strategy 0 with image");
-          return {
-            title: strategy0Data.title,
-            description: strategy0Data.description,
-            image: image,
-            siteName: strategy0Data.siteName,
-            _strategy: 0
-          };
+          console.log("[fetchMeta] Found og:image in blocked response:", image);
+          bestResult.image = image;
         }
       }
-      // No image found, return Strategy 0 data
-      console.log("[fetchMeta] Using Strategy 0 fallback data");
-      return {...strategy0Data, _strategy: 0};
-    }
-    
-    // Handle successful responses (200-299) with substantial content
-    if (res.ok) {
+      // DON'T return early - continue to try other strategies!
+    } else if (res.ok) {
       const result = parseHtml(html, url);
       
-      // If we found meaningful data, return it
       if (result.title || result.description || result.image) {
-        console.log("[fetchMeta] ✓ Strategy 1 (Desktop browser) succeeded - title:", result.title, "desc:", result.description?.substring(0, 50), "image:", result.image);
-        return {...result, _strategy: 1};
-      }
-      console.log("[fetchMeta] Strategy 1: No meaningful metadata found in HTML, falling back to Strategy 0");
-      // Fall back to Strategy 0 if no metadata found
-      return {...strategy0Data, _strategy: 0};
-    }
-    
-    // Handle 3xx redirects that weren't followed
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location");
-      if (location) {
-        console.log("[fetchMeta] Redirect response, following:", location);
-        try {
-          const redirectUrl = location.startsWith("http") ? location : new URL(location, url).toString();
-          const redirectRes = await fetch(redirectUrl, {
-            redirect: "follow",
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-              "Accept-Language": "en-US,en;q=0.9",
-            },
-          });
-          if (redirectRes.ok) {
-            const redirectHtml = await redirectRes.text();
-            if (redirectHtml.length > 5000) {
-              const result = parseHtml(redirectHtml, redirectUrl);
-              if (result.title || result.description || result.image) {
-                console.log("[fetchMeta] ✓ Strategy 1 (redirect follow) succeeded");
-                return {...result, _strategy: 1};
-              }
-            }
-          }
-        } catch (e) {
-          console.log("[fetchMeta] Failed to follow redirect:", e);
+        console.log("[fetchMeta] ✓ Strategy 1 (Desktop browser) succeeded - title:", result.title, "image:", result.image ? "yes" : "no");
+        bestResult = mergeResults(bestResult, result, 1);
+        
+        // If we have complete data (title + image), we're done
+        if (bestResult.title && bestResult.image) {
+          return bestResult;
         }
       }
-      // Redirect failed, fall back to Strategy 0
-      return {...strategy0Data, _strategy: 0};
     }
-    
-    // Any other status, fall back to Strategy 0
-    console.log("[fetchMeta] Strategy 1: Unexpected status", res.status, ", falling back to Strategy 0");
-    return {...strategy0Data, _strategy: 0};
   } catch (e) {
-    console.log("[fetchMeta] ✗ Strategy 1 failed:", e, ", falling back to Strategy 0");
-    // On error, return Strategy 0 data
-    return {...strategy0Data, _strategy: 0};
+    console.log("[fetchMeta] ✗ Strategy 1 failed:", e);
   }
 
   // Strategy 2: Try with a mobile User-Agent (some sites serve different content)
@@ -408,13 +392,17 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       const html = await res.text();
       console.log("[fetchMeta] Strategy 2 HTML length:", html.length);
       
-      // Only parse if we got substantial content (202 might return empty/minimal response)
-      if (html.length > 5000 || res.ok) {
+      if (html.length > 3000) {
         const result = parseHtml(html, url);
         
         if (result.title || result.description || result.image) {
-          console.log("[fetchMeta] ✓ Strategy 2 (Mobile User-Agent) succeeded - title:", result.title);
-          return {...result, _strategy: 2};
+          console.log("[fetchMeta] ✓ Strategy 2 (Mobile User-Agent) found data - title:", result.title, "image:", result.image ? "yes" : "no");
+          bestResult = mergeResults(bestResult, result, 2);
+          
+          // If we have complete data, we're done
+          if (bestResult.title && bestResult.image) {
+            return bestResult;
+          }
         }
       }
     }
@@ -422,9 +410,10 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     console.log("[fetchMeta] ✗ Strategy 2 failed:", e);
   }
 
-  // Strategy 3: Try as a bot/crawler (some sites specifically serve OG tags to bots)
+  // Strategy 3: Try as Facebook bot/crawler (sites often serve OG tags to social crawlers)
+  // This is KEY for sites like Booking.com that block regular requests but serve OG to Facebook!
   try {
-    console.log("[fetchMeta] Strategy 3: Bot/crawler User-Agent");
+    console.log("[fetchMeta] Strategy 3: Facebook bot User-Agent (social crawler)");
     const res = await fetch(url, {
       redirect: "follow",
       headers: {
@@ -433,57 +422,135 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
       },
     });
 
-    if (res.ok) {
+    console.log("[fetchMeta] Strategy 3 response status:", res.status);
+    
+    if (res.ok || res.status === 202) {
       const html = await res.text();
       console.log("[fetchMeta] Strategy 3 HTML length:", html.length);
       
-      const result = parseHtml(html, url);
-      
-      if (result.title || result.description || result.image) {
-        console.log("[fetchMeta] ✓ Strategy 3 (Facebook bot) succeeded - title:", result.title);
-        return {...result, _strategy: 3};
+      // Even small responses might contain OG tags for social crawlers
+      if (html.length > 500) {
+        const result = parseHtml(html, url);
+        
+        if (result.title || result.description || result.image) {
+          console.log("[fetchMeta] ✓ Strategy 3 (Facebook bot) found data - title:", result.title, "image:", result.image ? "yes" : "no");
+          bestResult = mergeResults(bestResult, result, 3);
+          
+          // If we have complete data, we're done
+          if (bestResult.title && bestResult.image) {
+            return bestResult;
+          }
+        }
       }
     }
   } catch (e) {
     console.log("[fetchMeta] ✗ Strategy 3 failed:", e);
   }
 
-  // Strategy 4: Construct title from URL as last resort
+  // Strategy 4: Try as Twitter bot (another social crawler that might get different treatment)
   try {
-    console.log("[fetchMeta] Strategy 4: Extract from URL");
-    const urlObj = new URL(url);
-    const hostname = urlObj.hostname.replace("www.", "");
-    const pathParts = urlObj.pathname.split("/").filter((p) => p && p.length > 2);
+    console.log("[fetchMeta] Strategy 4: Twitter bot User-Agent");
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Twitterbot/1.0",
+        "Accept": "text/html",
+      },
+    });
+
+    console.log("[fetchMeta] Strategy 4 response status:", res.status);
     
-    // Try to build a readable title from path
-    let title = hostname;
-    if (pathParts.length > 0) {
-      // Use the last meaningful path segment
-      const lastSegment = pathParts[pathParts.length - 1]
-        .replace(/[-_]/g, " ")
-        .replace(/\.(html?|php|aspx?)$/i, "")
-        .replace(/\b\w/g, (l) => l.toUpperCase());
-      if (lastSegment.length > 3) {
-        title = lastSegment;
+    if (res.ok || res.status === 202) {
+      const html = await res.text();
+      console.log("[fetchMeta] Strategy 4 HTML length:", html.length);
+      
+      if (html.length > 500) {
+        const result = parseHtml(html, url);
+        
+        if (result.title || result.description || result.image) {
+          console.log("[fetchMeta] ✓ Strategy 4 (Twitter bot) found data - title:", result.title, "image:", result.image ? "yes" : "no");
+          bestResult = mergeResults(bestResult, result, 4);
+          
+          // If we have complete data, we're done
+          if (bestResult.title && bestResult.image) {
+            return bestResult;
+          }
+        }
       }
     }
-    
-    console.log("[fetchMeta] ✓ Strategy 4 (URL parsing fallback) used - title:", title);
-    return {
-      title: title,
-      description: `Link from ${hostname}`,
-      image: null,
-      siteName: hostname,
-      _strategy: 4,
-    };
   } catch (e) {
     console.log("[fetchMeta] ✗ Strategy 4 failed:", e);
   }
 
-  console.log("[fetchMeta] All strategies failed, using Strategy 0 fallback");
-  // Final fallback: return Strategy 0 data if available, otherwise return nulls
-  if (strategy0Data.title || strategy0Data.siteName) {
-    return {...strategy0Data, _strategy: 0};
+  // Strategy 5: Try as Google bot
+  try {
+    console.log("[fetchMeta] Strategy 5: Google bot User-Agent");
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "Accept": "text/html",
+      },
+    });
+
+    console.log("[fetchMeta] Strategy 5 response status:", res.status);
+    
+    if (res.ok) {
+      const html = await res.text();
+      console.log("[fetchMeta] Strategy 5 HTML length:", html.length);
+      
+      if (html.length > 500) {
+        const result = parseHtml(html, url);
+        
+        if (result.title || result.description || result.image) {
+          console.log("[fetchMeta] ✓ Strategy 5 (Google bot) found data - title:", result.title, "image:", result.image ? "yes" : "no");
+          bestResult = mergeResults(bestResult, result, 5);
+        }
+      }
+    }
+  } catch (e) {
+    console.log("[fetchMeta] ✗ Strategy 5 failed:", e);
   }
-  return {title: null, description: null, image: null, siteName: null};
+
+  // Return best result we have
+  if (bestResult.title || bestResult.image) {
+    console.log("[fetchMeta] Returning best result - title:", bestResult.title, "image:", bestResult.image ? "yes" : "no", "strategy:", bestResult._strategy);
+    return bestResult;
+  }
+
+  // Strategy 6: Construct title from URL as absolute last resort (if Strategy 0 failed)
+  if (!bestResult.title) {
+    try {
+      console.log("[fetchMeta] Strategy 6: Generic URL parsing fallback");
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname.replace("www.", "");
+      const pathParts = urlObj.pathname.split("/").filter((p) => p && p.length > 2);
+      
+      let title = hostname;
+      if (pathParts.length > 0) {
+        const lastSegment = pathParts[pathParts.length - 1]
+          .replace(/[-_]/g, " ")
+          .replace(/\.(html?|php|aspx?)$/i, "")
+          .replace(/\b\w/g, (l) => l.toUpperCase());
+        if (lastSegment.length > 3) {
+          title = lastSegment;
+        }
+      }
+      
+      console.log("[fetchMeta] ✓ Strategy 6 (URL parsing fallback) used - title:", title);
+      return {
+        title: title,
+        description: `Link from ${hostname}`,
+        image: bestResult.image,
+        siteName: hostname,
+        _strategy: 6,
+      };
+    } catch (e) {
+      console.log("[fetchMeta] ✗ Strategy 6 failed:", e);
+    }
+  }
+
+  console.log("[fetchMeta] All strategies completed, returning best result");
+  return bestResult;
 });
+
