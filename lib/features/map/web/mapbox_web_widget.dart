@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
 import 'dart:js' as js;
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
@@ -9,6 +10,7 @@ import 'package:waypoint/features/map/web/web_map_controller.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
+import 'package:waypoint/features/map/utils/coordinate_extensions.dart';
 
 /// Mapbox GL JS widget for web platform
 /// Uses the same custom Mapbox style as mobile for visual consistency
@@ -18,6 +20,7 @@ class MapboxWebWidget extends StatefulWidget {
   final double initialTilt;
   final double initialBearing;
   final void Function(WaypointMapController)? onMapCreated;
+  final Function(LatLng)? onTap; // Added: map tap callback
   final List<MapAnnotation> annotations;
   final List<MapPolyline> polylines;
 
@@ -28,6 +31,7 @@ class MapboxWebWidget extends StatefulWidget {
     this.initialTilt = 0.0,
     this.initialBearing = 0.0,
     this.onMapCreated,
+    this.onTap, // Added: map tap callback
     this.annotations = const [],
     this.polylines = const [],
   });
@@ -238,8 +242,46 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         })]);
 
         map.callMethod('on', ['click', js.allowInterop((e) {
+          // CRITICAL: Ignore clicks on map controls (zoom buttons, etc.)
+          // Check if the click target is a control element
+          // Safely access originalEvent - it might be a JsObject or null
+          try {
+            final originalEvent = e['originalEvent'];
+            if (originalEvent != null && originalEvent is js.JsObject) {
+              final target = originalEvent['target'];
+              if (target != null && target is js.JsObject) {
+                final className = (target['className'] as js.JsObject?)?.toString() ?? '';
+                final tagName = (target['tagName'] as js.JsObject?)?.toString() ?? '';
+                final id = (target['id'] as js.JsObject?)?.toString() ?? '';
+                
+                // Ignore clicks on mapbox control elements
+                if (className.contains('mapboxgl-ctrl') || 
+                    className.contains('mapboxgl-control') ||
+                    tagName == 'BUTTON' ||
+                    id.contains('zoom') ||
+                    id.contains('control')) {
+                  debugPrint('📍 [MapboxWeb] Ignoring click on map control element');
+                  return; // Don't trigger map tap
+                }
+              }
+            }
+          } catch (err) {
+            // If we can't check the target, proceed with the click
+            // This is safer than blocking all clicks
+            debugPrint('⚠️ [MapboxWeb] Could not check click target: $err');
+          }
+          
           final lngLat = e['lngLat'];
-          _controller?.onMapTapped(lngLat['lat'], lngLat['lng']);
+          final lat = (lngLat['lat'] as num?)?.toDouble();
+          final lng = (lngLat['lng'] as num?)?.toDouble();
+          if (lat != null && lng != null) {
+            final position = LatLng(lat, lng);
+            // Forward to controller stream (for internal use)
+            _controller?.onMapTapped(lat, lng);
+            // Forward to widget callback (for AdaptiveMapWidget)
+            widget.onTap?.call(position);
+            debugPrint('📍 [MapboxWeb] Map tapped at: $lat, $lng');
+          }
         })]);
 
         map.callMethod('on', ['move', js.allowInterop((e) {
@@ -544,7 +586,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         'anchor': 'center',
         'draggable': draggable,
       })])
-        ..callMethod('setLngLat', [js.JsObject.jsify([lng, lat])])
+        ..callMethod('setLngLat', [js.JsObject.jsify(LatLng(lat, lng).toLngLat())]) // Use extension
         ..callMethod('addTo', [map]);
       
       // Setup drag event listeners if draggable
@@ -587,10 +629,46 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     final marker = _markers[id];
     if (marker != null) {
       try {
-        marker.callMethod('setLngLat', [js.JsObject.jsify([lng, lat])]);
-      } catch (e) {
-        debugPrint('Failed to update marker position: $e');
+        final position = LatLng(lat, lng);
+        // Validate coordinates before updating
+        if (!position.isValid) {
+          debugPrint('❌ [MapboxWeb] Invalid coordinates for marker $id: lat=$lat, lng=$lng');
+          return;
+        }
+        
+        // Get current marker position to check if update is actually needed
+        try {
+          final currentLngLat = marker.callMethod('getLngLat', []);
+          final currentLng = (currentLngLat['lng'] as num?)?.toDouble();
+          final currentLat = (currentLngLat['lat'] as num?)?.toDouble();
+          
+          // Only update if position actually changed (more than 1 meter)
+          if (currentLat != null && currentLng != null) {
+            final distance = _calculateDistance(
+              LatLng(currentLat, currentLng),
+              position,
+            );
+            if (distance <= 0.001) { // Less than 1 meter - no update needed
+              debugPrint('📍 [MapboxWeb] Marker $id position unchanged (${distance * 1000}m), skipping update');
+              return;
+            }
+          }
+        } catch (e) {
+          // If we can't get current position, proceed with update
+          debugPrint('⚠️ [MapboxWeb] Could not get current position for $id, updating anyway: $e');
+        }
+        
+        // CRITICAL: Mapbox uses [lng, lat] format (GeoJSON standard)
+        // Update marker in place (don't recreate) to prevent visual glitches
+        // Use extension method for consistency
+        marker.callMethod('setLngLat', [js.JsObject.jsify(position.toLngLat())]);
+        debugPrint('✅ [MapboxWeb] Updated marker $id position to: $lat, $lng');
+      } catch (e, stack) {
+        debugPrint('❌ [MapboxWeb] Failed to update marker position for $id: $e');
+        debugPrint('Stack: $stack');
       }
+    } else {
+      debugPrint('⚠️ [MapboxWeb] Marker $id not found for position update');
     }
   }
 
@@ -614,32 +692,89 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     
     debugPrint('📍 [MapboxWeb] Updating annotations: ${widget.annotations.length} total');
     
-    // Remove all existing annotation markers (except user location)
+    // Remove markers that are no longer in the annotations list (except user location)
     final annotationIds = widget.annotations.map((a) => a.id).toSet();
     final toRemove = _markers.keys.where((id) => !annotationIds.contains(id) && id != 'user_location').toList();
     for (final id in toRemove) {
       _removeMarkerFromMap(id);
+      debugPrint('🗑️ [MapboxWeb] Removed marker: $id');
     }
     
     // Add or update annotations
     int added = 0;
     int updated = 0;
+    int skipped = 0;
     for (final annotation in widget.annotations) {
+      // Validate annotation has valid position using extension
+      if (!annotation.position.isValid) {
+        debugPrint('⚠️ [MapboxWeb] Skipping annotation ${annotation.id} with invalid coordinates: lat=${annotation.position.latitude}, lng=${annotation.position.longitude}');
+        skipped++;
+        continue;
+      }
+      
       // Convert icon to a simple colored circle for now
       // TODO: Support custom icons via icon images
       final colorHex = '#${(annotation.color.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
       
-      // Check if marker already exists
+      // Check if marker already exists - UPDATE IN PLACE to prevent visual glitches
       if (_markers.containsKey(annotation.id)) {
-        _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
-        updated++;
+        // Check if position actually changed before updating (avoid unnecessary updates)
+        final existingMarker = _markers[annotation.id];
+        if (existingMarker != null) {
+          try {
+            // Get current marker position from Mapbox
+            final currentLngLat = existingMarker.callMethod('getLngLat', []);
+            final currentLng = (currentLngLat['lng'] as num?)?.toDouble();
+            final currentLat = (currentLngLat['lat'] as num?)?.toDouble();
+            
+            // Only update if position changed significantly (> 1 meter)
+            // This prevents markers from jumping around on zoom changes
+            if (currentLat != null && currentLng != null) {
+              final distance = _calculateDistance(
+                LatLng(currentLat, currentLng),
+                annotation.position,
+              );
+              if (distance > 0.001) { // 1 meter threshold
+                // Position changed - update it
+                _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
+                updated++;
+              } else {
+                // Position hasn't changed, skip update (marker stays at fixed lat/lng)
+                skipped++;
+              }
+            } else {
+              // Can't get current position, update anyway (shouldn't happen normally)
+              _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
+              updated++;
+            }
+          } catch (e) {
+            // If we can't get current position, update anyway (fallback)
+            _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
+            updated++;
+          }
+        }
       } else {
+        // Create new marker
         _addAnnotationMarker(map, annotation, colorHex);
         added++;
       }
     }
     
-    debugPrint('✅ [MapboxWeb] Annotations updated: $added added, $updated updated');
+    debugPrint('✅ [MapboxWeb] Annotations updated: $added added, $updated updated, $skipped skipped');
+  }
+  
+  /// Calculate distance between two points in kilometers
+  double _calculateDistance(LatLng p1, LatLng p2) {
+    const double earthRadius = 6371; // km
+    final lat1 = p1.latitude * math.pi / 180;
+    final lat2 = p2.latitude * math.pi / 180;
+    final dLat = (p2.latitude - p1.latitude) * math.pi / 180;
+    final dLng = (p2.longitude - p1.longitude) * math.pi / 180;
+    
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * math.sin(dLng / 2) * math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadius * c;
   }
   
   /// Add an annotation as a marker on the map
@@ -653,29 +788,38 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       
       // Create custom marker element with icon support
       // Align styling with Mapbox POI markers: use same size and style as Mapbox native POIs
+      // Note: position is NOT set on the outer element - Mapbox handles marker positioning internally
+      // Setting position: 'relative' can interfere with Mapbox's positioning system
       final el = html.DivElement()
         ..className = 'waypoint-annotation-marker'
         ..style.width = '28px' // Match Mapbox POI marker size
         ..style.height = '28px'
+        ..style.cursor = 'pointer'
+        ..style.pointerEvents = 'auto'; // Marker can receive clicks (for onTap)
+      
+      // Create inner container for icon and label (allows label positioning without interfering with Mapbox)
+      final innerContainer = html.DivElement()
+        ..style.position = 'relative' // Position relative for label absolute positioning
+        ..style.width = '100%'
+        ..style.height = '100%'
         ..style.borderRadius = '50%'
         ..style.backgroundColor = colorHex // Use POI type color (already aligned with Mapbox)
         ..style.border = '2px solid white' // Match Mapbox POI border style
         ..style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)' // Match Mapbox POI shadow
-        ..style.cursor = 'pointer'
         ..style.display = 'flex'
         ..style.alignItems = 'center'
-        ..style.justifyContent = 'center'
-        ..style.position = 'relative';
+        ..style.justifyContent = 'center';
       
       // Add Material Icons font to display icon
-      el.style.fontFamily = 'Material Icons';
-      el.style.fontSize = '16px';
-      el.style.color = 'white';
-      el.style.fontWeight = 'normal';
+      // Use larger, more visible icons for better appearance
+      innerContainer.style.fontFamily = 'Material Icons';
+      innerContainer.style.fontSize = '18px'; // Increased from 16px for better visibility
+      innerContainer.style.color = 'white';
+      innerContainer.style.fontWeight = 'bold'; // Make icons bolder for better visibility
       
       // Get icon codepoint from IconData
       final iconCodePoint = annotation.icon.codePoint;
-      el.innerText = String.fromCharCode(iconCodePoint);
+      innerContainer.innerText = String.fromCharCode(iconCodePoint);
       
       // Add label text below icon if available (for waypoints, not POIs)
       if (annotation.label != null && annotation.label!.isNotEmpty && annotation.label != 'Unnamed') {
@@ -693,20 +837,37 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
           ..style.whiteSpace = 'nowrap'
           ..style.fontFamily = 'sans-serif'
           ..innerText = annotation.label!;
-        el.append(labelEl);
+        innerContainer.append(labelEl);
+      }
+      
+      // Append inner container to outer element
+      el.append(innerContainer);
+      
+      // Validate coordinates before creating marker
+      final lng = annotation.position.longitude;
+      final lat = annotation.position.latitude;
+      
+      // Validate coordinate ranges (prevent invalid coordinates)
+      if (!annotation.position.isValid) {
+        debugPrint('❌ [MapboxWeb] Invalid coordinates for ${annotation.id}: lat=$lat, lng=$lng');
+        return;
       }
       
       final marker = js.JsObject(mapboxgl['Marker'], [js.JsObject.jsify({
         'element': el,
         'anchor': 'center',
       })])
-        ..callMethod('setLngLat', [js.JsObject.jsify([annotation.position.longitude, annotation.position.latitude])])
+        // CRITICAL: Mapbox uses [lng, lat] format (GeoJSON standard)
+        // Use extension method for consistency
+        ..callMethod('setLngLat', [js.JsObject.jsify(annotation.position.toLngLat())])
         ..callMethod('addTo', [map]);
       
-      // Add click handler
+      // Add click handler - stop propagation to prevent map click, but allow marker click
       el.onClick.listen((e) {
-        e.stopPropagation();
+        e.stopPropagation(); // Prevent click from reaching map
+        e.stopImmediatePropagation(); // Prevent other handlers
         annotation.onTap?.call();
+        debugPrint('📍 [MapboxWeb] Marker ${annotation.id} clicked at: $lat, $lng');
       });
       
       _markers[annotation.id] = marker;
@@ -730,7 +891,8 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       final polyline = widget.polylines.first;
       if (polyline.points.length >= 2) {
         // Convert LatLng points to [lng, lat] coordinates
-        final coordinates = polyline.points.map((p) => [p.longitude, p.latitude]).toList();
+        // Use extension method for consistent coordinate format
+        final coordinates = polyline.points.map((p) => p.toLngLat()).toList();
         _addRouteToMap(map, coordinates, polyline.color.value, polyline.width);
       }
     }
@@ -744,10 +906,17 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     
     // Update annotations if they changed (check by length and IDs to catch content changes)
     final annotationsChanged = widget.annotations.length != oldWidget.annotations.length ||
-        widget.annotations.any((a) => !oldWidget.annotations.any((old) => old.id == a.id)) ||
-        oldWidget.annotations.any((a) {
-          final old = oldWidget.annotations.firstWhere((o) => o.id == a.id, orElse: () => a);
-          return old.id != a.id || old.position != a.position;
+        widget.annotations.any((newAnnotation) => 
+          !oldWidget.annotations.any((old) => old.id == newAnnotation.id)) ||
+        widget.annotations.any((newAnnotation) {
+          final oldAnnotation = oldWidget.annotations.firstWhere(
+            (o) => o.id == newAnnotation.id, 
+            orElse: () => newAnnotation,
+          );
+          // Compare actual positions (check if they're different annotations or positions changed)
+          return oldAnnotation.id != newAnnotation.id || 
+                 oldAnnotation.position.latitude != newAnnotation.position.latitude ||
+                 oldAnnotation.position.longitude != newAnnotation.position.longitude;
         });
     
     if (annotationsChanged && _isMapReady && _mapInstance != null) {

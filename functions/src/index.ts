@@ -126,6 +126,11 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     
     let image = metaTags.get("og:image") || metaTags.get("twitter:image") || null;
     
+    // Decode HTML entities in image URL
+    if (image) {
+      image = decodeEntities(image);
+    }
+    
     // Handle relative image URLs
     if (image && !image.startsWith("http")) {
       try {
@@ -150,7 +155,51 @@ export const fetchMeta = onCall({region: "us-central1", timeoutSeconds: 30}, asy
     // Apply title cleaning based on site
     const cleanedTitle = cleanTitle(title, siteName);
 
-    return {title: cleanedTitle, description, image, siteName};
+    // Filter out low-quality descriptions
+    const filterDescription = (desc: string | null): string | null => {
+      if (!desc) return null;
+      
+      const trimmed = desc.trim();
+      
+      // Skip if description is too short
+      if (trimmed.length < 20) {
+        console.log("[fetchMeta] Filtering description (too short):", trimmed.substring(0, 50));
+        return null;
+      }
+      
+      // Skip if description is mostly punctuation/special characters
+      const letterCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
+      if (letterCount < trimmed.length * 0.3) {
+        console.log("[fetchMeta] Filtering description (mostly punctuation):", trimmed.substring(0, 50));
+        return null;
+      }
+      
+      // Skip if description starts with warning/note patterns
+      const lowerTrimmed = trimmed.toLowerCase();
+      if (lowerTrimmed.startsWith("let op:") || 
+          lowerTrimmed.startsWith("note:") || 
+          lowerTrimmed.startsWith("warning:") ||
+          lowerTrimmed.startsWith("attention:") ||
+          lowerTrimmed.startsWith("important:")) {
+        console.log("[fetchMeta] Filtering description (warning/note pattern):", trimmed.substring(0, 50));
+        return null;
+      }
+      
+      // Skip if description looks like a disclaimer or terms text
+      if (lowerTrimmed.includes("terms and conditions") ||
+          lowerTrimmed.includes("privacy policy") ||
+          lowerTrimmed.startsWith("by using") ||
+          lowerTrimmed.startsWith("please note")) {
+        console.log("[fetchMeta] Filtering description (disclaimer pattern):", trimmed.substring(0, 50));
+        return null;
+      }
+      
+      return trimmed;
+    };
+
+    const filteredDescription = filterDescription(description);
+
+    return {title: cleanedTitle, description: filteredDescription, image, siteName};
   };
 
   // Strategy 1: Direct fetch with browser-like headers

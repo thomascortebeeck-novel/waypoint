@@ -59,12 +59,22 @@
     .waypoint-annotation-marker {
       z-index: 1000 !important;
       position: relative;
-      pointer-events: auto;
+      pointer-events: auto; /* Marker can receive clicks */
     }
     
     .waypoint-annotation-marker:hover {
       transform: scale(1.2);
       z-index: 1001 !important;
+    }
+    
+    /* Ensure map canvas can receive clicks even when markers are present */
+    .mapboxgl-canvas {
+      pointer-events: auto !important;
+    }
+    
+    /* Map container should always receive clicks */
+    .mapboxgl-map {
+      pointer-events: auto !important;
     }
     
     /* Material Icons font for POI icons */

@@ -62,6 +62,8 @@ Timer? _searchDebounce;
 bool _snapToTrail = true;
 bool _busy = false;
 bool _searching = false;
+bool _isProgrammaticCameraMove = false; // Track programmatic camera moves to prevent map tap pop-up
+bool _dialogOrBottomSheetOpen = false; // Track when dialogs/bottom sheets are open to prevent map taps
 final _points = <ll.LatLng>[];
 Map<String, dynamic>? _previewGeometry;
 double? _previewDistance;
@@ -140,7 +142,19 @@ if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
     Log.i('route_builder', '📍 Camera center refined (controller not ready): $refinedCenter');
   }
 }
-_loadPOIs();
+
+// Only load POIs if waypoints already exist (editing existing route)
+// If no waypoints, wait for user to search for a location first
+final hasWaypoints = _poiWaypoints.isNotEmpty || _points.isNotEmpty || widget.initial != null;
+if (hasWaypoints) {
+  // Fit map to show all waypoints when editing existing route
+  _fitToWaypoints();
+  // Load POIs after fitting
+  _loadPOIs();
+} else {
+  // New route - don't load POIs yet, wait for user to search
+  Log.i('route_builder', '📍 New route - POIs will load after user searches for a location');
+}
 }
 });
 try {
@@ -211,8 +225,15 @@ double _getCameraZoom() {
 
 /// Handle zoom controls - works in both flutter_map and Mapbox modes
 void _handleZoom(int delta) {
+  // Set flag to prevent map tap pop-up during programmatic zoom
+  setState(() => _isProgrammaticCameraMove = true);
+  
   if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
     _map.move(_map.camera.center, _map.camera.zoom + delta);
+    // Reset flag after a short delay
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) setState(() => _isProgrammaticCameraMove = false);
+    });
   } else {
     // For Mapbox mode: Animate camera via controller and update state
     final newZoom = (_currentCameraZoom ?? 11.0) + delta;
@@ -230,6 +251,11 @@ void _handleZoom(int delta) {
       Log.w('route_builder', '⚠️ Map controller not ready, zoom command skipped');
     }
     Log.i('route_builder', 'Zoom changed to $newZoom');
+    
+    // Reset flag after zoom animation completes
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (mounted) setState(() => _isProgrammaticCameraMove = false);
+    });
   }
 }
 
@@ -253,10 +279,86 @@ Map<String, double> _calculateBoundsFromCenterZoom(ll.LatLng center, double zoom
   };
 }
 
+/// Fit map to show all waypoints and route points
+void _fitToWaypoints() {
+  final allPoints = <ll.LatLng>[];
+  
+  // Add route points
+  if (_points.isNotEmpty) {
+    allPoints.addAll(_points);
+  }
+  
+  // Add waypoint positions
+  for (final wp in _poiWaypoints) {
+    allPoints.add(wp.position);
+  }
+  
+  // Add route geometry points if available
+  if (_previewGeometry != null) {
+    final routePoints = _coordsToLatLng(_previewGeometry!['coordinates']);
+    if (routePoints.isNotEmpty) {
+      allPoints.addAll(routePoints);
+    }
+  }
+  
+  if (allPoints.isEmpty) {
+    Log.i('route_builder', '📍 No waypoints to fit - skipping');
+    return;
+  }
+  
+  // Calculate bounds
+  double minLat = allPoints.first.latitude;
+  double maxLat = allPoints.first.latitude;
+  double minLng = allPoints.first.longitude;
+  double maxLng = allPoints.first.longitude;
+  
+  for (final point in allPoints) {
+    if (point.latitude < minLat) minLat = point.latitude;
+    if (point.latitude > maxLat) maxLat = point.latitude;
+    if (point.longitude < minLng) minLng = point.longitude;
+    if (point.longitude > maxLng) maxLng = point.longitude;
+  }
+  
+  // Add padding (15%)
+  final latPadding = (maxLat - minLat) * 0.15;
+  final lngPadding = (maxLng - minLng) * 0.15;
+  minLat -= latPadding;
+  maxLat += latPadding;
+  minLng -= lngPadding;
+  maxLng += lngPadding;
+  
+  final center = ll.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+  final latDiff = maxLat - minLat;
+  final lngDiff = maxLng - minLng;
+  final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+  
+  // Calculate appropriate zoom level
+  double zoom = 14.0;
+  if (maxDiff > 0.5) {
+    zoom = 10.0;
+  } else if (maxDiff > 0.2) {
+    zoom = 11.0;
+  } else if (maxDiff > 0.1) {
+    zoom = 12.0;
+  } else if (maxDiff > 0.05) {
+    zoom = 13.0;
+  }
+  
+  Log.i('route_builder', '📍 Fitting map to ${allPoints.length} waypoints/points: center=$center, zoom=$zoom');
+  _moveCamera(center, zoom);
+}
+
 /// Move camera - works in both flutter_map and Mapbox modes
 void _moveCamera(ll.LatLng position, [double? zoom]) {
+  // Set flag to prevent map tap pop-up during programmatic camera moves
+  setState(() => _isProgrammaticCameraMove = true);
+  
   if (MapFeatureFlags.useLegacyEditor || !MapFeatureFlags.useMapboxEverywhere) {
     _map.move(position, zoom ?? _getCameraZoom());
+    // Reset flag after a short delay to allow camera animation to complete
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _isProgrammaticCameraMove = false);
+    });
   } else {
     // For Mapbox mode: Animate camera via controller and update state (Issue #2 fix)
     final targetZoom = zoom ?? _getCameraZoom();
@@ -273,6 +375,11 @@ void _moveCamera(ll.LatLng position, [double? zoom]) {
     } else {
       Log.w('route_builder', '⚠️ Map controller not ready, camera move skipped');
     }
+    
+    // Reset flag after camera animation completes (Mapbox animations are typically 500ms)
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _isProgrammaticCameraMove = false);
+    });
   }
 }
 
@@ -414,6 +521,41 @@ child: Stack(children: [
 Positioned.fill(
 child: _buildMapWidget(center),
 ),
+// Fit Waypoints button (only show if waypoints exist)
+if (_poiWaypoints.isNotEmpty || _points.length >= 2)
+  Positioned(
+    bottom: 120, // Above zoom controls (which are at ~80px from bottom)
+    right: 16,
+    child: Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(8),
+      color: Colors.white,
+      child: InkWell(
+        onTap: () {
+          _fitToWaypoints();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.fit_screen, size: 20, color: Colors.grey.shade800),
+              const SizedBox(width: 6),
+              Text(
+                'Fit Waypoints',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  ),
 // Floating Search Bar (top center of map area)
 _FloatingSearchBar(
 controller: _searchController,
@@ -649,15 +791,31 @@ Widget _buildMapboxEditor(ll.LatLng center) {
   
   // Convert OSM POIs to annotations (with deduplication)
   // Skip OSM POIs that are very close to custom waypoints (within ~50m)
+  // Also filter out OSM viewpoints - Mapbox shows viewpoints natively, so we don't need OSM duplicates
   // This prevents duplicate markers when Mapbox style shows POIs and we also have OSM POIs
-  for (final poi in _osmPOIs) {
+  int poiDeduplicated = 0;
+  int viewpointsFiltered = 0;
+  
+  // First pass: Filter out viewpoints (Mapbox handles these natively)
+  final nonViewpointPOIs = _osmPOIs.where((poi) {
+    if (poi.type == POIType.viewpoint) {
+      viewpointsFiltered++;
+      Log.i('route_builder', 'Skipping OSM viewpoint ${poi.name} - Mapbox shows viewpoints natively');
+      return false;
+    }
+    return true;
+  }).toList();
+  
+  // Second pass: Check proximity to waypoints and route points
+  for (final poi in nonViewpointPOIs) {
     // Check if this OSM POI is too close to any custom waypoint
     bool isDuplicate = false;
     for (final wp in _poiWaypoints) {
       final distance = _calculateDistance(poi.coordinates, wp.position);
       if (distance < 0.05) { // 50 meters threshold
         isDuplicate = true;
-        Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to waypoint ${wp.name} (${distance.toStringAsFixed(2)}km)');
+        poiDeduplicated++;
+        Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to waypoint ${wp.name} (${(distance * 1000).toStringAsFixed(1)}m)');
         break;
       }
     }
@@ -668,8 +826,27 @@ Widget _buildMapboxEditor(ll.LatLng center) {
         final distance = _calculateDistance(poi.coordinates, point);
         if (distance < 0.05) { // 50 meters threshold
           isDuplicate = true;
-          Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to route point (${distance.toStringAsFixed(2)}km)');
+          poiDeduplicated++;
+          Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to route point (${(distance * 1000).toStringAsFixed(1)}m)');
           break;
+        }
+      }
+    }
+    
+    // Also check if this OSM POI is very close to another OSM POI of the same type (within 50m)
+    // This helps reduce duplicates when Mapbox also shows the same POI
+    if (!isDuplicate) {
+      for (final otherPoi in nonViewpointPOIs) {
+        if (otherPoi.id != poi.id && otherPoi.type == poi.type) {
+          final distance = _calculateDistance(poi.coordinates, otherPoi.coordinates);
+          if (distance < 0.05) { // 50 meters threshold
+            // If they're the same type and very close, prefer the one with a better name or skip both
+            // For now, skip the second one found (simple heuristic)
+            isDuplicate = true;
+            poiDeduplicated++;
+            Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to another ${poi.type.name} POI (${(distance * 1000).toStringAsFixed(1)}m)');
+            break;
+          }
         }
       }
     }
@@ -681,6 +858,14 @@ Widget _buildMapboxEditor(ll.LatLng center) {
       ));
     }
   }
+  
+  if (viewpointsFiltered > 0) {
+    Log.i('route_builder', '📍 Filtered $viewpointsFiltered OSM viewpoints (Mapbox shows viewpoints natively)');
+  }
+  if (poiDeduplicated > 0) {
+    Log.i('route_builder', '📍 Deduplicated $poiDeduplicated OSM POIs (too close to waypoints/route points/other POIs)');
+  }
+  Log.i('route_builder', '📍 Converting ${_osmPOIs.length} OSM POIs to ${annotations.length} annotations (${_osmPOIs.length - annotations.length} filtered: $viewpointsFiltered viewpoints + $poiDeduplicated duplicates)');
   
   // Convert custom waypoints to annotations
   for (final wp in _poiWaypoints) {
@@ -698,24 +883,46 @@ Widget _buildMapboxEditor(ll.LatLng center) {
       // Store controller reference for camera commands (Issue #2 fix)
       _mapboxController = controller;
       Log.i('route_builder', '🗺️ Mapbox controller stored for camera commands');
+      
+      // Load POIs after map is ready (if not already loading)
+      // Small delay to ensure map is fully initialized
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && !_loadingPOIs && _osmPOIs.isEmpty) {
+          final currentZoom = _getCameraZoom();
+          if (currentZoom >= 12.0) {
+            Log.i('route_builder', '🗺️ Map ready, loading POIs...');
+            _loadPOIs();
+          }
+        }
+      });
     },
     onTap: (latLng) async {
       if (_searchResults.isNotEmpty) {
         setState(() => _searchResults = []);
         return;
       }
+      // Don't show pop-up if camera move was programmatic (from search/zoom)
+      if (_isProgrammaticCameraMove) {
+        Log.i('route_builder', 'Ignoring map tap - programmatic camera move in progress');
+        setState(() => _isProgrammaticCameraMove = false); // Reset flag
+        return;
+      }
+      // Don't show pop-up if a dialog or bottom sheet is currently open
+      if (_dialogOrBottomSheetOpen) {
+        Log.i('route_builder', 'Ignoring map tap - dialog or bottom sheet is open');
+        return;
+      }
       Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
       await _showMapTapActionPicker(context, latLng);
     },
     onCameraChanged: (cameraPos) {
-      // Store camera state for Mapbox mode
+      // Store camera state WITHOUT triggering rebuild (prevents marker jitter during zoom)
+      // We use instance variables directly instead of setState to avoid visual artifacts
       final newCenter = cameraPos.center;
       final newZoom = cameraPos.zoom;
       
-      setState(() {
-        _currentCameraCenter = newCenter;
-        _currentCameraZoom = newZoom;
-      });
+      _currentCameraCenter = newCenter;
+      _currentCameraZoom = newZoom;
       
       // Always refresh POIs on zoom changes (best practice: refresh on any zoom change)
       // Also refresh if camera moved significantly (>2km)
@@ -731,11 +938,15 @@ Widget _buildMapboxEditor(ll.LatLng center) {
           _osmPOIs.isEmpty;
       
       if (shouldReload) {
-        // Clear old POIs immediately when zoom changes to prevent clustering artifacts
-        if (zoomChanged && _lastPOIZoom != null) {
+        // DON'T clear POIs immediately - this causes markers to disappear and reappear
+        // Instead, let the new POIs merge with existing ones through the annotation update
+        // Only clear if zooming out below threshold
+        if (zoomChanged && newZoom < 12.0 && _lastPOIZoom != null && _lastPOIZoom! >= 12.0) {
+          // Only clear when zooming out below the POI threshold
           setState(() {
-            _osmPOIs = []; // Clear old POIs immediately
+            _osmPOIs = [];
           });
+          Log.i('route_builder', '📍 Zoomed out below POI threshold, clearing POIs');
         }
         
         // Debounce to avoid too many API calls
@@ -763,6 +974,17 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
       onTap: (tapPos, latLng) async {
         if (_searchResults.isNotEmpty) {
           setState(() => _searchResults = []);
+          return;
+        }
+        // Don't show pop-up if camera move was programmatic (from search/zoom)
+        if (_isProgrammaticCameraMove) {
+          Log.i('route_builder', 'Ignoring map tap - programmatic camera move in progress');
+          setState(() => _isProgrammaticCameraMove = false); // Reset flag
+          return;
+        }
+        // Don't show pop-up if a dialog or bottom sheet is currently open
+        if (_dialogOrBottomSheetOpen) {
+          Log.i('route_builder', 'Ignoring map tap - dialog or bottom sheet is open');
           return;
         }
         Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
@@ -996,10 +1218,12 @@ _lastPOICenter = null; // Force reload
 _lastPOIZoom = null; // Force reload
 });
 
+// Load POIs after search (this is when user first searches for a location)
 // Debounce POI reload after camera animation completes
 _poiDebounce?.cancel();
 _poiDebounce = Timer(const Duration(milliseconds: 1000), () {
   if (mounted) {
+    Log.i('route_builder', '📍 Loading POIs after location search...');
     _loadPOIs();
   }
 });
@@ -1130,14 +1354,61 @@ POIType.picnicSite,
 maxResults: maxResults,
 );
 
+// Apply corridor filtering if route geometry exists
+List<POI> filteredPois = pois;
+if (_previewGeometry != null || _points.length >= 2) {
+  // Get route points from preview geometry (preferred) or _points
+  List<ll.LatLng> routePoints;
+  if (_previewGeometry != null) {
+    routePoints = _coordsToLatLng(_previewGeometry!['coordinates']);
+  } else {
+    routePoints = _points;
+  }
+  
+  if (routePoints.length >= 2) {
+    Log.i('route_builder', '🔍 Filtering ${pois.length} POIs by route corridor (${routePoints.length} route points, 2km radius)...');
+    try {
+      filteredPois = await POIService.filterPOIsNearTrail(
+        trail: routePoints,
+        pois: pois,
+        radiusMeters: 2000.0, // 2km corridor
+      );
+      Log.i('route_builder', '✅ Filtered to ${filteredPois.length} POIs within 2km of route (${pois.length - filteredPois.length} filtered out)');
+    } catch (e, stack) {
+      Log.e('route_builder', '❌ Corridor filter failed, showing all POIs', e, stack);
+      // Fallback to showing all POIs if filtering fails
+      filteredPois = pois;
+    }
+  }
+}
+
 if (mounted) {
+// Instead of replacing all POIs, merge with existing ones to prevent marker flicker
+// Only add new POIs that don't already exist (by ID)
+final existingIds = _osmPOIs.map((p) => p.id).toSet();
+final newPois = filteredPois.where((p) => !existingIds.contains(p.id)).toList();
+final updatedPois = <POI>[];
+// Update existing POIs with new data (in case coordinates changed slightly)
+for (final existingPoi in _osmPOIs) {
+  final updatedPoi = filteredPois.firstWhere(
+    (p) => p.id == existingPoi.id,
+    orElse: () => existingPoi,
+  );
+  updatedPois.add(updatedPoi);
+}
+// Combine updated and new POIs
+final allPois = [...updatedPois, ...newPois];
+
 setState(() {
-_osmPOIs = pois;
-_loadingPOIs = false;
-_lastPOICenter = _getCameraCenter(); // Use helper method
-_lastPOIZoom = currentZoom; // Use helper method
+  _osmPOIs = allPois;
+  _loadingPOIs = false;
+  _lastPOICenter = _getCameraCenter(); // Use helper method
+  _lastPOIZoom = currentZoom; // Use helper method
 });
-Log.i('route_builder', '✅ Loaded ${pois.length} OSM POIs at zoom ${currentZoom.toStringAsFixed(1)} (maxResults: $maxResults)');
+Log.i('route_builder', '✅ Loaded ${filteredPois.length} OSM POIs from API (${newPois.length} new, ${updatedPois.length} updated) at zoom ${currentZoom.toStringAsFixed(1)} (maxResults: $maxResults, total in memory: ${allPois.length})');
+if (filteredPois.length < maxResults && filteredPois.length == pois.length) {
+  Log.i('route_builder', 'ℹ️ API returned fewer POIs than requested (${filteredPois.length} < $maxResults) - may indicate sparse POI coverage in this area');
+}
 }
 } catch (e, stack) {
 Log.e('route_builder', '❌ Failed to load POIs', e, stack);
@@ -1148,6 +1419,9 @@ setState(() => _loadingPOIs = false);
 }
 
 void _showOSMPOIDetails(POI poi) {
+// Set flag to prevent map taps while bottom sheet is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 showModalBottomSheet(
 context: context,
 builder: (context) => Container(
@@ -1209,7 +1483,12 @@ color: Colors.grey.shade600,
 ],
 ),
 ),
-);
+).whenComplete(() {
+  // Clear flag when bottom sheet is dismissed (immediately, no delay)
+  if (mounted) {
+    setState(() => _dialogOrBottomSheetOpen = false);
+  }
+});
 }
 
 Future<void> _updatePreview() async {
@@ -1442,6 +1721,9 @@ await _showWaypointDialogAtLocation(latLng);
 return;
 }
 
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final action = await showDialog<String>(
 context: context,
 builder: (context) => Dialog(
@@ -1514,12 +1796,20 @@ await _addWaypointAtLocation(type, latLng);
 
 /// Show waypoint dialog at a specific location (when adding via map tap from + button)
 Future<void> _showWaypointDialogAtLocation(ll.LatLng latLng) async {
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final result = await showDialog<RouteWaypoint>(
 context: context,
 builder: (context) => _AddWaypointDialog(
 proximityBias: latLng,
 ),
 );
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
 
 if (result != null && mounted) {
 // Check if it's a route point - if so, add to _points, otherwise to _poiWaypoints
@@ -1545,6 +1835,9 @@ _moveCamera(result.position); // Use helper method
 }
 
 Future<void> _addWaypointAtLocation(WaypointType type, ll.LatLng position) async {
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final result = await showDialog<RouteWaypoint>(
 context: context,
 builder: (context) => _AddWaypointDialog(
@@ -1552,6 +1845,11 @@ preselectedType: type,
 proximityBias: position,
 ),
 );
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
 
 if (result != null && mounted) {
 setState(() {
@@ -1567,6 +1865,9 @@ _poiWaypoints.add(result);
 }
 
 Future<void> _editWaypoint(RouteWaypoint waypoint) async {
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final result = await showDialog<RouteWaypoint>(
 context: context,
 builder: (context) => _WaypointEditorDialog(
@@ -1575,6 +1876,11 @@ type: waypoint.type,
 position: waypoint.position,
 ),
 );
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
 
 if (!mounted) return;
 
@@ -1593,6 +1899,9 @@ _poiWaypoints[index] = result;
 }
 
 Future<void> _deleteWaypoint(RouteWaypoint waypoint) async {
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final confirmed = await showDialog<bool>(
 context: context,
 builder: (context) => AlertDialog(
@@ -1612,6 +1921,11 @@ child: const Text('Delete'),
 ),
 );
 
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
+
 if (confirmed == true && mounted) {
 setState(() {
 _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
@@ -1621,6 +1935,9 @@ _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
 
 Future<void> _showAddRoutePointDialog() async {
 // Show the waypoint dialog with routePoint preselected
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final center = _getCameraCenter(); // Use helper method
 final result = await showDialog<RouteWaypoint>(
 context: context,
@@ -1629,6 +1946,11 @@ preselectedType: WaypointType.routePoint,
 proximityBias: center,
 ),
 );
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
 
 if (result != null && mounted) {
 setState(() {
@@ -1640,6 +1962,9 @@ await _updatePreview();
 }
 
 Future<void> _showRoutePointOptions(int index) async {
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final action = await showDialog<String>(
 context: context,
 builder: (context) => Dialog(
@@ -1674,7 +1999,18 @@ onTap: () => Navigator.of(context).pop('delete'),
 ),
 );
 
-if (!mounted || action == null) return;
+// Clear flag when dialog closes (immediately, no delay)
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
+
+if (!mounted || action == null) {
+  // Ensure flag is cleared even if action is null
+  if (mounted) {
+    setState(() => _dialogOrBottomSheetOpen = false);
+  }
+  return;
+}
 
 if (action == 'delete') {
 setState(() {
@@ -1973,6 +2309,9 @@ preselectedType = WaypointType.viewingPoint;
 break;
 }
 
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final center = _getCameraCenter(); // Use helper method
 final result = await showDialog<RouteWaypoint>(
 context: context,
@@ -1982,6 +2321,11 @@ excludeRoutePoint: true,
 preselectedType: preselectedType,
 ),
 );
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
 
 if (result != null && mounted) {
 setState(() {
@@ -2002,6 +2346,9 @@ _moveCamera(result.position); // Use helper method
 Future<void> _showAddWaypointDialog() async {
 // Show the waypoint dialog directly (using user's current map center as proximity bias)
 // Exclude routePoint type since this is for POI waypoints only
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+
 final center = _getCameraCenter(); // Use helper method
 final result = await showDialog<RouteWaypoint>(
 context: context,
@@ -2010,6 +2357,11 @@ proximityBias: center,
 excludeRoutePoint: true,
 ),
 );
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+}
 
 if (result != null && mounted) {
 setState(() {
@@ -3532,7 +3884,13 @@ child: Icon(Icons.close_rounded, size: 20, color: Colors.grey.shade600),
 ),
 
 Expanded(
-child: SingleChildScrollView(
+child: NotificationListener<ScrollNotification>(
+  // Prevent scroll events from reaching the map
+  onNotification: (notification) {
+    // Consume all scroll notifications to prevent map zoom
+    return true;
+  },
+  child: SingleChildScrollView(
 padding: const EdgeInsets.all(20),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4202,6 +4560,7 @@ child: Text('Search or set location first', style: TextStyle(fontSize: 13, color
 ),
 ],
 ),
+],
 ),
 const SizedBox(width: 16),
 TextButton(
@@ -4661,7 +5020,13 @@ onPressed: () => Navigator.of(context).pop(),
 ),
 const Divider(height: 1),
 Expanded(
-child: SingleChildScrollView(
+child: NotificationListener<ScrollNotification>(
+  // Prevent scroll events from reaching the map
+  onNotification: (notification) {
+    // Consume all scroll notifications to prevent map zoom
+    return true;
+  },
+  child: SingleChildScrollView(
 padding: const EdgeInsets.all(16),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
@@ -4671,6 +5036,7 @@ const SizedBox(height: 16),
 if (_selectedType != WaypointType.accommodation) _buildPoiFields(),
 if (_selectedType == WaypointType.accommodation) _buildAccommodationFields(),
 ],
+),
 ),
 ),
 ),

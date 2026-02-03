@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waypoint/models/poi_model.dart';
+import 'package:waypoint/services/trail_corridor_filter.dart';
 import 'package:waypoint/utils/logger.dart';
 
 /// Service for fetching outdoor Points of Interest from OpenStreetMap
@@ -120,5 +121,56 @@ class POIService {
       poiTypes: poiTypes,
       maxResults: maxResults,
     );
+  }
+
+  /// Filter POIs to only show those within a specified radius of a trail/route.
+  /// 
+  /// This is useful for the Route Builder screen where you want to show only
+  /// POIs relevant to the route being built (like AllTrails does).
+  /// 
+  /// [trail] - List of LatLng points representing the route/trail polyline
+  /// [pois] - List of POIs to filter (typically from fetchPOIs)
+  /// [radiusMeters] - Maximum distance in meters from the trail (default: 2000m)
+  /// [useBackgroundIsolate] - If true, runs filtering in background isolate (recommended for large datasets)
+  /// 
+  /// Returns a filtered list of POIs within the corridor.
+  /// 
+  /// Example:
+  /// ```dart
+  /// final allPOIs = await POIService.fetchPOIs(...);
+  /// final routePoints = day.route.routePoints.map((p) => LatLng(p['lat']!, p['lng']!)).toList();
+  /// final nearbyPOIs = await POIService.filterPOIsNearTrail(
+  ///   trail: routePoints,
+  ///   pois: allPOIs,
+  ///   radiusMeters: 2000.0,
+  /// );
+  /// ```
+  static Future<List<POI>> filterPOIsNearTrail({
+    required List<LatLng> trail,
+    required List<POI> pois,
+    double radiusMeters = 2000.0,
+    bool useBackgroundIsolate = true,
+  }) async {
+    if (trail.isEmpty || pois.isEmpty) {
+      return [];
+    }
+
+    Log.i('poi', 'Filtering ${pois.length} POIs for trail with ${trail.length} points (radius: ${radiusMeters}m)');
+
+    if (useBackgroundIsolate && (trail.length > 100 || pois.length > 50)) {
+      // Use background isolate for large datasets to prevent UI jank
+      return await TrailCorridorFilter.filterPOIsInCorridorAsync(
+        trail: trail,
+        pois: pois,
+        radiusMeters: radiusMeters,
+      );
+    } else {
+      // Small datasets can run synchronously on main thread
+      return TrailCorridorFilter.filterPOIsInCorridor(
+        trail: trail,
+        pois: pois,
+        radiusMeters: radiusMeters,
+      );
+    }
   }
 }

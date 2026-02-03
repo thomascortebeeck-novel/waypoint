@@ -321,6 +321,7 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
         initialBearing: config.initialBearing,
         annotations: widget.annotations,
         polylines: widget.polylines,
+        onTap: widget.onTap, // Forward map tap callback
         onMapCreated: (controller) {
           widget.onMapCreated?.call(controller);
           Log.i('map', '✅ Mapbox GL JS map created successfully');
