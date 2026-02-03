@@ -1727,7 +1727,17 @@ setState(() => _dialogOrBottomSheetOpen = true);
 
 final action = await showDialog<String>(
 context: context,
-builder: (context) => Dialog(
+builder: (context) => NotificationListener<ScrollNotification>(
+// Consume all scroll notifications to prevent map zoom
+onNotification: (notification) => true,
+child: Listener(
+// Intercept mouse wheel/trackpad scrolling on Web to prevent map zoom
+onPointerSignal: (event) {
+if (event is PointerScrollEvent) {
+// Absorb the scroll event to prevent it from reaching the map
+}
+},
+child: Dialog(
 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
 child: Padding(
 padding: const EdgeInsets.all(24),
@@ -1776,6 +1786,8 @@ label: 'Viewing Point',
 onTap: () => Navigator.of(context).pop('viewingPoint'),
 ),
 ],
+),
+),
 ),
 ),
 ),
@@ -3785,7 +3797,17 @@ backgroundColor: Colors.orange,
 }
 
 @override
-Widget build(BuildContext context) => Dialog(
+Widget build(BuildContext context) => NotificationListener<ScrollNotification>(
+// Consume all scroll notifications at the Dialog level to prevent map zoom
+onNotification: (notification) => true,
+child: Listener(
+// Intercept mouse wheel/trackpad scrolling on Web at the Dialog level
+onPointerSignal: (event) {
+if (event is PointerScrollEvent) {
+// Absorb the scroll event to prevent it from reaching the map
+}
+},
+child: Dialog(
 backgroundColor: Colors.transparent,
 elevation: 0,
 child: GestureDetector(
@@ -4612,6 +4634,8 @@ Text('Add Waypoint', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
 ),
 ),
 ),
+),
+),
 );
 
 bool _canSave() {
@@ -5002,7 +5026,17 @@ super.dispose();
 }
 
 @override
-Widget build(BuildContext context) => Dialog(
+Widget build(BuildContext context) => NotificationListener<ScrollNotification>(
+// Consume all scroll notifications at the Dialog level to prevent map zoom
+onNotification: (notification) => true,
+child: Listener(
+// Intercept mouse wheel/trackpad scrolling on Web at the Dialog level
+onPointerSignal: (event) {
+if (event is PointerScrollEvent) {
+// Absorb the scroll event to prevent it from reaching the map
+}
+},
+child: Dialog(
 child: Container(
 constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
 child: Column(
@@ -5095,6 +5129,8 @@ child: const Text('Save'),
 ),
 ),
 ],
+),
+),
 ),
 ),
 );
