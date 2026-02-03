@@ -3458,6 +3458,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   List<Map<String, dynamic>> _mapboxSearchResults = []; // Mapbox geocoding results
   bool _mapboxSearching = false; // Mapbox search in progress
   final _addressSearchController = TextEditingController(); // Controller for manual address search
+  final _latitudeController = TextEditingController(); // Controller for manual latitude input
+  final _longitudeController = TextEditingController(); // Controller for manual longitude input
   Timer? _addressSearchDebounce; // Debounce for address search
   MapboxPlace? _selectedMapboxPlace; // Selected Mapbox search result
 
@@ -3465,6 +3467,23 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   void initState() {
     super.initState();
     _selectedType = widget.preselectedType ?? WaypointType.restaurant;
+    // Add listeners to lat/lng controllers to clear selected place when manually entering coordinates
+    _latitudeController.addListener(() {
+      if (_latitudeController.text.isNotEmpty && _selectedMapboxPlace != null) {
+        setState(() {
+          _selectedMapboxPlace = null;
+          _extractedLocation = null;
+        });
+      }
+    });
+    _longitudeController.addListener(() {
+      if (_longitudeController.text.isNotEmpty && _selectedMapboxPlace != null) {
+        setState(() {
+          _selectedMapboxPlace = null;
+          _extractedLocation = null;
+        });
+      }
+    });
   }
 
   @override
@@ -3474,6 +3493,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     _airbnbAddressController.dispose();
     _urlController.dispose();
     _addressSearchController.dispose();
+    _latitudeController.dispose();
+    _longitudeController.dispose();
     _addressSearchDebounce?.cancel();
     super.dispose();
   }
@@ -3786,8 +3807,12 @@ void _selectMapboxResult(Map<String, dynamic> result) {
       _extractedLocation = place.location;
       _extractedAddress = {'formatted': formattedAddress};
       _mapboxSearchResults = [];
-      _addressSearchController.clear();
+      _addressSearchController.text = formattedAddress; // Keep the address in the search field
       _hasSearchedOrExtracted = true;
+      
+      // Populate lat/lng fields
+      _latitudeController.text = place.latitude.toStringAsFixed(6);
+      _longitudeController.text = place.longitude.toStringAsFixed(6);
       
       // Auto-fill name if empty
       if (_nameController.text.trim().isEmpty && name.isNotEmpty) {
@@ -4057,128 +4082,205 @@ setState(() {
 ),
 ),
 ],
-// Mapbox search section - available for all waypoint types
-if (!_hasSearchedOrExtracted || _selectedMapboxPlace == null) ...[
-  const SizedBox(height: 20),
-  Row(
-    children: [
-      Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-      const SizedBox(width: 8),
-      Text('Search location', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-    ],
+// Location section - always visible for all waypoint types
+const SizedBox(height: 20),
+Row(
+  children: [
+    Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
+    const SizedBox(width: 8),
+    Text('Location', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+  ],
+),
+const SizedBox(height: 12),
+// Show extracted location status if available
+if (_extractedLocation != null && _selectedMapboxPlace == null) ...[
+  Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.blue.shade50,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.blue.shade200),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.location_on_rounded, color: Colors.blue.shade700, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Location from URL', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.blue.shade700)),
+              Text('${_extractedLocation!.latitude.toStringAsFixed(6)}, ${_extractedLocation!.longitude.toStringAsFixed(6)}', style: TextStyle(fontSize: 12, color: Colors.blue.shade700.withOpacity(0.8))),
+              if (_extractedAddress != null && _extractedAddress!['formatted'] != null)
+                Text(_extractedAddress!['formatted'], style: TextStyle(fontSize: 11, color: Colors.blue.shade700.withOpacity(0.7))),
+            ],
+          ),
+        ),
+      ],
+    ),
   ),
   const SizedBox(height: 12),
+],
+// Mapbox search field - always available
+Row(
+  children: [
+    Expanded(
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: TextField(
+          controller: _addressSearchController,
+          decoration: InputDecoration(
+            hintText: 'Search address or place...',
+            hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+            prefixIcon: Container(
+              padding: const EdgeInsets.all(12),
+              child: Icon(Icons.search_rounded, color: Colors.grey.shade400, size: 22),
+            ),
+            suffixIcon: _addressSearchController.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear_rounded, size: 20),
+                    color: Colors.grey.shade400,
+                    onPressed: () {
+                      _addressSearchController.clear();
+                      setState(() {
+                        _mapboxSearchResults = [];
+                      });
+                    },
+                  )
+                : (_mapboxSearching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : null),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          ),
+          onChanged: (value) {
+            _addressSearchDebounce?.cancel();
+            _addressSearchDebounce = Timer(const Duration(milliseconds: 600), () {
+              if (mounted) _performMapboxSearch(value);
+            });
+            setState(() {}); // Update UI to show/hide clear button
+          },
+        ),
+      ),
+    ),
+  ],
+),
+if (_mapboxSearchResults.isNotEmpty)
   Container(
+    constraints: const BoxConstraints(maxHeight: 200),
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
       border: Border.all(color: Colors.grey.shade200),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withValues(alpha: 0.04),
-          blurRadius: 8,
-          offset: const Offset(0, 2),
+          color: Colors.black.withValues(alpha: 0.08),
+          blurRadius: 12,
+          offset: const Offset(0, 4),
         ),
       ],
     ),
-    child: TextField(
-      controller: _addressSearchController,
-      decoration: InputDecoration(
-        hintText: 'Search address or place...',
-        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
-        prefixIcon: Container(
-          padding: const EdgeInsets.all(12),
-          child: Icon(Icons.search_rounded, color: Colors.grey.shade400, size: 22),
-        ),
-        suffixIcon: _addressSearchController.text.isNotEmpty
-            ? IconButton(
-                icon: const Icon(Icons.clear_rounded, size: 20),
-                color: Colors.grey.shade400,
-                onPressed: () {
-                  _addressSearchController.clear();
-                  setState(() {
-                    _mapboxSearchResults = [];
-                  });
-                },
-              )
-            : (_mapboxSearching
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                  )
-                : null),
-        border: InputBorder.none,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      ),
-      onChanged: (value) {
-        _addressSearchDebounce?.cancel();
-        _addressSearchDebounce = Timer(const Duration(milliseconds: 600), () {
-          if (mounted) _performMapboxSearch(value);
-        });
-        setState(() {}); // Update UI to show/hide clear button
+    margin: const EdgeInsets.only(top: 8),
+    child: ListView.builder(
+      shrinkWrap: true,
+      itemCount: _mapboxSearchResults.length,
+      itemBuilder: (context, index) {
+        final result = _mapboxSearchResults[index];
+        final name = result['name'] as String? ?? '';
+        final formattedAddress = result['formattedAddress'] as String? ?? '';
+        return ListTile(
+          leading: Icon(Icons.location_on_rounded, color: Colors.blue.shade600, size: 20),
+          title: Text(name, style: const TextStyle(fontWeight: FontWeight.w500)),
+          subtitle: Text(formattedAddress, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          onTap: () => _selectMapboxResult(result),
+        );
       },
     ),
   ),
-  if (_mapboxSearchResults.isNotEmpty)
-    Container(
-      constraints: const BoxConstraints(maxHeight: 200),
+if (_selectedMapboxPlace != null)
+  Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: Container(
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_rounded, color: Colors.green.shade700, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Location selected', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.green.shade700)),
+                Text(_selectedMapboxPlace!.formattedAddress, style: TextStyle(fontSize: 12, color: Colors.green.shade700.withOpacity(0.8))),
+              ],
+            ),
           ),
         ],
       ),
-      margin: const EdgeInsets.only(top: 8),
-      child: ListView.builder(
-        shrinkWrap: true,
-        itemCount: _mapboxSearchResults.length,
-        itemBuilder: (context, index) {
-          final result = _mapboxSearchResults[index];
-          final name = result['name'] as String? ?? '';
-          final formattedAddress = result['formattedAddress'] as String? ?? '';
-          return ListTile(
-            leading: Icon(Icons.location_on_rounded, color: Colors.blue.shade600, size: 20),
-            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w500)),
-            subtitle: Text(formattedAddress, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            onTap: () => _selectMapboxResult(result),
-          );
-        },
+    ),
+  ),
+// Manual latitude/longitude input fields
+const SizedBox(height: 12),
+Row(
+  children: [
+    Expanded(
+      child: _ModernTextField(
+        label: 'Latitude',
+        isRequired: false,
+        controller: _latitudeController,
+        hintText: 'e.g., 68.3496',
+        prefixIcon: Icons.north_rounded,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
       ),
     ),
-  if (_selectedMapboxPlace != null)
-    Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.green.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.check_circle_rounded, color: Colors.green.shade700, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Location selected', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.green.shade700)),
-                  Text(_selectedMapboxPlace!.formattedAddress, style: TextStyle(fontSize: 12, color: Colors.green.shade700.withOpacity(0.8))),
-                ],
-              ),
-            ),
-          ],
-        ),
+    const SizedBox(width: 12),
+    Expanded(
+      child: _ModernTextField(
+        label: 'Longitude',
+        isRequired: false,
+        controller: _longitudeController,
+        hintText: 'e.g., 18.8300',
+        prefixIcon: Icons.east_rounded,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
       ),
     ),
-],
+  ],
+),
+if (_latitudeController.text.isNotEmpty && _longitudeController.text.isNotEmpty)
+  Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Row(
+      children: [
+        Icon(Icons.info_outline_rounded, size: 16, color: Colors.grey.shade600),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            'Manual coordinates will override search results',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+        ),
+      ],
+    ),
+  ),
 const SizedBox(height: 20),
 Text('Type', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700, letterSpacing: 0.3)),
 const SizedBox(height: 12),
@@ -4578,17 +4680,34 @@ return widget.proximityBias != null; // Must have a location set
 if (_selectedType == WaypointType.accommodation && _accommodationType == null) return false;
 if (_accommodationType == POIAccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
 
+// Check for manual latitude/longitude input
+final latText = _latitudeController.text.trim();
+final lngText = _longitudeController.text.trim();
+bool hasManualCoordinates = false;
+if (latText.isNotEmpty && lngText.isNotEmpty) {
+  try {
+    final lat = double.parse(latText);
+    final lng = double.parse(lngText);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      hasManualCoordinates = true;
+    }
+  } catch (_) {
+    // Invalid coordinates
+  }
+}
+
 // Allow saving if:
-// 1. Mapbox place is selected (has location)
-// 2. Location extracted from URL metadata
-// 3. Metadata is extracted AND we have a proximity bias (map location)
-// 4. Airbnb with confirmed address
+// 1. Manual coordinates entered (highest priority)
+// 2. Mapbox place is selected (has location)
+// 3. Location extracted from URL metadata
+// 4. Metadata is extracted AND we have a proximity bias (map location)
+// 5. Airbnb with confirmed address
 final hasMapboxPlace = _selectedMapboxPlace != null;
 final hasExtractedLocation = _extractedLocation != null;
 final hasMetadataWithLocation = _extractedMetadata != null && widget.proximityBias != null;
 final hasAirbnbLocation = _accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed;
 
-if (!hasMapboxPlace && !hasExtractedLocation && !hasMetadataWithLocation && !hasAirbnbLocation) return false;
+if (!hasManualCoordinates && !hasMapboxPlace && !hasExtractedLocation && !hasMetadataWithLocation && !hasAirbnbLocation) return false;
 
 return true;
 }
@@ -4606,12 +4725,39 @@ void _save() async {
   String? address;
   
   // Priority order for position:
-  // 1. Selected Mapbox place (from search)
-  // 2. Extracted location from URL metadata
-  // 3. Airbnb geocoded location
-  // 4. Route point proximity bias
-  // 5. Proximity bias (map tap location) as fallback
-  if (_selectedMapboxPlace != null) {
+  // 1. Manual latitude/longitude input (highest priority - user override)
+  // 2. Selected Mapbox place (from search)
+  // 3. Extracted location from URL metadata
+  // 4. Airbnb geocoded location
+  // 5. Route point proximity bias
+  // 6. Proximity bias (map tap location) as fallback
+  
+  // Check for manual coordinates first
+  final latText = _latitudeController.text.trim();
+  final lngText = _longitudeController.text.trim();
+  if (latText.isNotEmpty && lngText.isNotEmpty) {
+    try {
+      final lat = double.parse(latText);
+      final lng = double.parse(lngText);
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        position = ll.LatLng(lat, lng);
+        address = _addressSearchController.text.trim().isEmpty ? null : _addressSearchController.text.trim();
+      } else {
+        throw 'Coordinates out of range';
+      }
+    } catch (e) {
+      // Invalid coordinates, fall through to other options
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Invalid coordinates: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+  } else if (_selectedMapboxPlace != null) {
     position = _selectedMapboxPlace!.location;
     address = _selectedMapboxPlace!.formattedAddress;
   } else if (_extractedLocation != null) {
@@ -5495,3 +5641,4 @@ activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
 Navigator.of(context).pop(waypoint);
 }
 }
+
