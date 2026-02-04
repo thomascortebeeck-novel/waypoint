@@ -24,6 +24,7 @@ import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
 import 'package:waypoint/utils/route_calculations.dart';
+import 'package:waypoint/core/theme/colors.dart';
 
 enum DayViewTab { summary, map, waypoints }
 
@@ -346,8 +347,8 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
   }
 
   @override
-  Color get _primary => const Color(0xFF10B981);
-  Color get _primaryLight => const Color(0xFFECFDF5);
+  Color get _primary => BrandColors.primary; // #2D6A4F - Primary green
+  Color get _primaryLight => BrandColors.primaryContainerLight.withValues(alpha: 0.3); // Light green background
   Color get _textPrimary => const Color(0xFF111827);
   Color get _textSecondary => const Color(0xFF6B7280);
   Color get _textMuted => const Color(0xFF9CA3AF);
@@ -1301,19 +1302,19 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                 children: [
                   SizedBox(
                     width: itemWidth,
-                    child: _buildIncludedCard(Icons.restaurant, 'Restaurants', waypointCounts['restaurants'] ?? 0, Colors.pink),
+                    child: _buildIncludedCard(Icons.restaurant, 'Restaurants', waypointCounts['restaurants'] ?? 0, WaypointIconColors.getWaypointIconColor('restaurant')),
                   ),
                   SizedBox(
                     width: itemWidth,
-                    child: _buildIncludedCard(Icons.hotel, 'Accommodations', waypointCounts['accommodations'] ?? 0, Colors.purple),
+                    child: _buildIncludedCard(Icons.hotel, 'Accommodations', waypointCounts['accommodations'] ?? 0, WaypointIconColors.getWaypointIconColor('accommodation')),
                   ),
                   SizedBox(
                     width: itemWidth,
-                    child: _buildIncludedCard(Icons.local_activity, 'Activities', waypointCounts['activities'] ?? 0, Colors.blue),
+                    child: _buildIncludedCard(Icons.local_activity, 'Activities', waypointCounts['activities'] ?? 0, WaypointIconColors.getWaypointIconColor('activity')),
                   ),
                   SizedBox(
                     width: itemWidth,
-                    child: _buildIncludedCard(Icons.visibility, 'Viewing Points', waypointCounts['viewingPoints'] ?? 0, Colors.cyan),
+                    child: _buildIncludedCard(Icons.visibility, 'Viewing Points', waypointCounts['viewingPoints'] ?? 0, WaypointIconColors.getWaypointIconColor('waypoint')),
                   ),
                 ],
               );
@@ -2053,13 +2054,22 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       viewingPointCount = viewingWaypoints.length;
     }
 
-    // Count service points
-    int servicePointCount = 0;
-    final serviceWaypoints = waypointsByCategory[TimeSlotCategory.servicePoint] ?? [];
+    // Count logistics points (gear, transportation, food)
+    int logisticsCount = 0;
+    final logisticsGearWaypoints = waypointsByCategory[TimeSlotCategory.logisticsGear] ?? [];
+    final logisticsTransportationWaypoints = waypointsByCategory[TimeSlotCategory.logisticsTransportation] ?? [];
+    final logisticsFoodWaypoints = waypointsByCategory[TimeSlotCategory.logisticsFood] ?? [];
+    final allLogisticsWaypoints = [
+      ...logisticsGearWaypoints,
+      ...logisticsTransportationWaypoints,
+      ...logisticsFoodWaypoints,
+    ];
     if (selection != null) {
-      servicePointCount = countSelectedInCategory(TimeSlotCategory.servicePoint, serviceWaypoints);
+      logisticsCount = countSelectedInCategory(TimeSlotCategory.logisticsGear, logisticsGearWaypoints) +
+                      countSelectedInCategory(TimeSlotCategory.logisticsTransportation, logisticsTransportationWaypoints) +
+                      countSelectedInCategory(TimeSlotCategory.logisticsFood, logisticsFoodWaypoints);
     } else {
-      servicePointCount = serviceWaypoints.length;
+      logisticsCount = allLogisticsWaypoints.length;
     }
 
     // Always show all 5 types with their counts
@@ -2089,7 +2099,7 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
 
     chips.add(_buildHighlightChip(
       Icons.local_convenience_store,
-      '$servicePointCount service point${servicePointCount != 1 ? 's' : ''}',
+      '$logisticsCount logistics point${logisticsCount != 1 ? 's' : ''}',
       const Color(0xFF4CAF50), // Green
     ));
 

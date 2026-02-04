@@ -22,6 +22,7 @@ import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
 import 'package:waypoint/utils/route_calculations.dart';
 import 'package:waypoint/services/favorite_service.dart';
+import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/services/order_service.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/review_service.dart';
@@ -396,9 +397,9 @@ debugPrint('Failed to load reviews: $e');
 }
 }
 
-Color get _primary => const Color(0xFF10B981);
-Color get _primaryLight => const Color(0xFFECFDF5);
-Color get _primaryDark => const Color(0xFF059669);
+Color get _primary => BrandColors.primary; // #2D6A4F - Primary green
+Color get _primaryLight => BrandColors.primaryContainerLight.withValues(alpha: 0.3); // Light green background
+Color get _primaryDark => BrandColors.tertiaryDarkGreen; // Dark green for accents
 Color get _surface => Colors.white;
 Color get _background => const Color(0xFFF9FAFB);
 Color get _border => const Color(0xFFE5E7EB);
@@ -1104,9 +1105,9 @@ color: Colors.white,
 ),
 child: TabBar(
 controller: _mainTabController,
-labelColor: const Color(0xFF10B981),
+labelColor: BrandColors.primary, // #2D6A4F - Primary green
 unselectedLabelColor: const Color(0xFF9CA3AF),
-indicatorColor: const Color(0xFF10B981),
+indicatorColor: BrandColors.primary, // #2D6A4F - Primary green
 indicatorWeight: 2,
 indicatorSize: TabBarIndicatorSize.label,
 splashFactory: NoSplash.splashFactory,
@@ -1729,19 +1730,19 @@ runSpacing: 12,
 children: [
 SizedBox(
 width: itemWidth,
-child: _buildIncludedCard(context, Icons.restaurant, 'Restaurants', waypointCounts['restaurants'] ?? 0, Colors.pink),
+child: _buildIncludedCard(context, Icons.restaurant, 'Restaurants', waypointCounts['restaurants'] ?? 0, WaypointIconColors.getWaypointIconColor('restaurant')),
 ),
 SizedBox(
 width: itemWidth,
-child: _buildIncludedCard(context, Icons.hotel, 'Accommodations', waypointCounts['accommodations'] ?? 0, Colors.purple),
+child: _buildIncludedCard(context, Icons.hotel, 'Accommodations', waypointCounts['accommodations'] ?? 0, WaypointIconColors.getWaypointIconColor('accommodation')),
 ),
 SizedBox(
 width: itemWidth,
-child: _buildIncludedCard(context, Icons.local_activity, 'Activities', waypointCounts['activities'] ?? 0, Colors.blue),
+child: _buildIncludedCard(context, Icons.local_activity, 'Activities', waypointCounts['activities'] ?? 0, WaypointIconColors.getWaypointIconColor('activity')),
 ),
 SizedBox(
 width: itemWidth,
-child: _buildIncludedCard(context, Icons.location_on, 'Waypoints', waypointCounts['waypoints'] ?? 0, Colors.cyan),
+child: _buildIncludedCard(context, Icons.location_on, 'Waypoints', waypointCounts['waypoints'] ?? 0, WaypointIconColors.getWaypointIconColor('waypoint')),
 ),
 ],
 );
@@ -2949,8 +2950,12 @@ _handleCheckout();
 }
 },
 style: ElevatedButton.styleFrom(
-backgroundColor: _primary,
-foregroundColor: Colors.white,
+backgroundColor: _hasPurchasedOptimistic 
+    ? BrandColors.secondary  // #FCBF49 - Yellow for "Start Adventure" CTA
+    : _primary,                // #2D6A4F - Green for "Get Free Access" / "Unlock Plan"
+foregroundColor: _hasPurchasedOptimistic 
+    ? NeutralColors.textPrimary  // Dark text on yellow
+    : Colors.white,              // White text on green
 padding: const EdgeInsets.symmetric(vertical: 18),
 shape: RoundedRectangleBorder(
 borderRadius: BorderRadius.circular(12),
@@ -3049,7 +3054,7 @@ int accommodationCount = day.accommodations.length;
 int restaurantCount = day.restaurants.length;
 int activityCount = day.activities.length;
 int viewingPointCount = 0;
-int servicePointCount = 0;
+int logisticsCount = 0;
 
 if (day.route?.poiWaypoints.isNotEmpty ?? false) {
 for (final poiJson in day.route!.poiWaypoints) {
@@ -3069,7 +3074,7 @@ case WaypointType.viewingPoint:
 viewingPointCount++;
 break;
 case WaypointType.servicePoint:
-servicePointCount++;
+logisticsCount++;
 break;
 default:
 break;
@@ -3107,7 +3112,7 @@ const Color(0xFFFFC107), // Yellow/Gold
 
 chips.add(_buildHighlightChip(
 Icons.local_convenience_store,
-'$servicePointCount service point${servicePointCount != 1 ? 's' : ''}',
+'$logisticsCount logistics point${logisticsCount != 1 ? 's' : ''}',
 const Color(0xFF4CAF50), // Green
 ));
 

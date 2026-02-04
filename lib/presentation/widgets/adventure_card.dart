@@ -443,10 +443,13 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   }
 
   Widget _buildInfoBadge({required String icon, required String label, required bool isDark}) {
+    final tagColor = ActivityTagColors.getActivityColor(label);
+    final tagBgColor = ActivityTagColors.getActivityBgColor(label);
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: isDark ? BadgeColors.darkBackground : BadgeColors.lightBackground,
+        color: tagBgColor,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -459,7 +462,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: isDark ? BadgeColors.darkText : BadgeColors.lightText,
+              color: tagColor,
             ),
           ),
         ],

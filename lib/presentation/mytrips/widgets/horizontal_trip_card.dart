@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/presentation/mytrips/widgets/image_upload_dialog.dart';
@@ -410,20 +411,20 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
 
     switch (trip.customizationStatus) {
       case TripCustomizationStatus.draft:
-        bgColor = Colors.orange.shade50;
-        textColor = Colors.orange.shade700;
+        bgColor = StatusColors.draftBg;
+        textColor = StatusColors.draft;
         icon = Icons.edit_note;
         label = 'Draft';
         break;
       case TripCustomizationStatus.customizing:
-        bgColor = Colors.blue.shade50;
-        textColor = Colors.blue.shade700;
+        bgColor = StatusColors.customizingBg;
+        textColor = StatusColors.customizing;
         icon = Icons.tune;
         label = 'Customizing';
         break;
       case TripCustomizationStatus.ready:
-        bgColor = Colors.green.shade50;
-        textColor = Colors.green.shade700;
+        bgColor = StatusColors.readyBg;
+        textColor = StatusColors.ready;
         icon = Icons.check_circle;
         label = 'Ready';
         break;
@@ -453,13 +454,13 @@ class _HorizontalTripCardState extends State<HorizontalTripCard> {
     Color bg;
     switch (status) {
       case _TripStatus.upcoming:
-        bg = const Color(0xFF10B981);
+        bg = StatusColors.upcoming;
         break;
       case _TripStatus.inProgress:
-        bg = const Color(0xFF3B82F6);
+        bg = StatusColors.inProgress;
         break;
       case _TripStatus.completed:
-        bg = const Color(0xFF6B7280);
+        bg = StatusColors.completed;
         break;
     }
     return Container(

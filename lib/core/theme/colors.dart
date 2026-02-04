@@ -9,10 +9,12 @@ import 'package:flutter/material.dart';
 // BRAND PALETTE
 // ========================================
 class BrandColors {
-  static const Color primary = Color(0xFF1B4332);      // Hunter Green - Main brand color
-  static const Color primaryDark = Color(0xFF0F261C);  // Darker shade of Hunter Green
-  static const Color primaryLight = Color(0xFF2D6A4F); // Lighter green - Completed routes
-  static const Color secondary = Color(0xFFFCBF49);    // Maize Crayola - Accent/warnings
+  static const Color primary = Color(0xFF2D6A4F);      // Lighter Green - Main brand color (CHANGED from Hunter Green)
+  static const Color primaryDark = Color(0xFF0F261C);  // Darker shade of green
+  static const Color primaryLight = Color(0xFF52B788); // Lighter green - Completed routes
+  static const Color primaryContainerLight = Color(0xFF95F4C8); // Very light green for containers
+  static const Color tertiaryDarkGreen = Color(0xFF1B4332); // Hunter Green - Moved from primary, used for tertiary elements
+  static const Color secondary = Color(0xFFFCBF49);    // Maize Crayola - Accent/warnings (UNCHANGED)
   
   // Vibrant Green Palette (Promos & Badges)
   static const Color vibrantGreen = Color(0xFF10B981);
@@ -73,12 +75,92 @@ class NeutralColors {
 }
 
 // ========================================
+// STATUS COLORS
+// ========================================
+class StatusColors {
+  /// Active/In-Progress states → Primary Green
+  static const Color upcoming = BrandColors.primary;      // #2D6A4F - Upcoming trips
+  static const Color published = BrandColors.primary;     // #2D6A4F - Published plans
+  static const Color customizing = BrandColors.primary;   // #2D6A4F - Customizing trips
+  static const Color inProgress = BrandColors.primary;    // #2D6A4F - In progress trips
+  
+  /// Draft/Warning states → Secondary Yellow
+  static const Color draft = BrandColors.secondary;       // #FCBF49 - Draft plans/trips
+  
+  /// Completed/Neutral → Gray
+  static const Color completed = Color(0xFF6C757D);        // Gray - Completed trips
+  static const Color ready = SemanticColors.success;      // #52B788 - Ready state
+  
+  /// Background colors (light variants)
+  static Color get upcomingBg => BrandColors.primary.withValues(alpha: 0.12);
+  static Color get publishedBg => BrandColors.primary.withValues(alpha: 0.12);
+  static Color get customizingBg => BrandColors.primary.withValues(alpha: 0.12);
+  static Color get draftBg => BrandColors.secondary.withValues(alpha: 0.12);
+  static Color get completedBg => Color(0xFF6C757D).withValues(alpha: 0.12);
+  static Color get readyBg => SemanticColors.success.withValues(alpha: 0.12);
+}
+
+// ========================================
 // DIFFICULTY COLORS
 // ========================================
 class DifficultyColors {
   static const Color easy = Color(0xFF52B788);    // Green
   static const Color moderate = Color(0xFFFCBF49); // Yellow/Orange  
   static const Color hard = Color(0xFFD62828);    // Red
+}
+
+// ========================================
+// ACTIVITY TAG COLORS
+// ========================================
+class ActivityTagColors {
+  /// Get color for activity category
+  static Color getActivityColor(String activityLabel) {
+    // Outdoor activities → Primary Green
+    if (['Hiking', 'Skiing', 'Adventure', 'Cycling', 'Climbing', 'Road Tripping', 'Tours', 'City Trips'].contains(activityLabel)) {
+      return BrandColors.primary;
+    }
+    // Comfort/Leisure → Secondary Yellow
+    if (['Comfort'].contains(activityLabel)) {
+      return BrandColors.secondary;
+    }
+    // Default → Primary Green
+    return BrandColors.primary;
+  }
+  
+  /// Get background color with opacity
+  static Color getActivityBgColor(String activityLabel) {
+    return getActivityColor(activityLabel).withValues(alpha: 0.12);
+  }
+}
+
+// ========================================
+// WAYPOINT ICON COLORS
+// ========================================
+class WaypointIconColors {
+  /// Get icon color for waypoint type
+  static Color getWaypointIconColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'restaurant':
+      case 'restaurants':
+        return SemanticColors.error; // #D62828 - Red for food/dining
+      case 'accommodation':
+      case 'accommodations':
+      case 'activity':
+      case 'activities':
+      case 'waypoint':
+      case 'waypoints':
+      case 'viewingpoint':
+      case 'viewing points':
+        return BrandColors.primary; // #2D6A4F - Primary green
+      default:
+        return BrandColors.primary;
+    }
+  }
+  
+  /// Get background color with opacity for waypoint icons
+  static Color getWaypointIconBgColor(String type) {
+    return getWaypointIconColor(type).withValues(alpha: 0.12);
+  }
 }
 
 // ========================================
@@ -89,8 +171,8 @@ class LightModeColors {
   static const Color primary = BrandColors.primary;
   static const Color primaryLight = BrandColors.primaryLight; // Restored
   static const Color onPrimary = NeutralColors.white;
-  static const Color primaryContainer = BrandColors.primaryLight;
-  static const Color onPrimaryContainer = NeutralColors.white;
+  static const Color primaryContainer = BrandColors.primaryContainerLight; // Light container color
+  static const Color onPrimaryContainer = Color(0xFF002114); // Dark text on light container
 
   // Secondary
   static const Color secondary = BrandColors.secondary;
@@ -98,7 +180,7 @@ class LightModeColors {
   static const Color secondaryContainer = Color(0xFFFFF3E0); // Lighter yellow/orange
 
   // Tertiary
-  static const Color tertiary = BrandColors.primaryLight;
+  static const Color tertiary = BrandColors.tertiaryDarkGreen; // Old primary color
   static const Color onTertiary = NeutralColors.white;
 
   // Error
@@ -137,7 +219,7 @@ class DarkModeColors {
   static const Color primary = Color(0xFF52B788); // Lighter green for dark mode
   static const Color primaryLight = Color(0xFF81C784); // Restored
   static const Color onPrimary = Color(0xFF0F261C);
-  static const Color primaryContainer = Color(0xFF1B4332);
+  static const Color primaryContainer = BrandColors.tertiaryDarkGreen; // Use tertiary dark green
   static const Color onPrimaryContainer = Color(0xFFE8F5E9);
 
   // Secondary
@@ -181,6 +263,13 @@ class WaypointGradients {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [BrandColors.primary, BrandColors.primaryLight],
+  );
+  
+  // Gradient using old primary for backward compatibility if needed
+  static const LinearGradient brandPrimaryLegacy = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [BrandColors.tertiaryDarkGreen, BrandColors.primary],
   );
 
   static LinearGradient heroOverlay = LinearGradient(

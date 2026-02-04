@@ -80,7 +80,7 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
       borderRadius: BorderRadius.circular(8),
       hoverColor: NeutralColors.neutral100,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: [
             // Timeline rail with colored icon node (matching map markers)
@@ -204,7 +204,7 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
     final showTime = shouldShowTimeInput(widget.category);
     
     return Padding(
-      padding: const EdgeInsets.only(left: 20, bottom: 20),
+      padding: const EdgeInsets.only(left: 20, bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -234,9 +234,9 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
                       itemBuilder: (context, index) {
                         final waypoint = widget.waypoints[index];
                         final isSelected = widget.selectedWaypointIds.contains(waypoint.id);
-                        return Padding(
-                          key: ValueKey(waypoint.id),
-                          padding: const EdgeInsets.only(left: 12, bottom: 12),
+                      return Padding(
+                        key: ValueKey(waypoint.id),
+                        padding: const EdgeInsets.only(left: 12, bottom: 8),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -248,13 +248,14 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
                                 showActions: widget.showActions,
                                 onEdit: widget.showActions ? () => widget.onEditWaypoint(waypoint) : null,
                                 onDelete: widget.showActions ? () => widget.onDeleteWaypoint(waypoint) : null,
-                                showDragHandle: widget.showActions,
+                                showDragHandle: false, // Never show drag handle in categories
                                 isSelectable: widget.isSelectable,
                                 isSelected: isSelected,
                                 onSelect: widget.isSelectable && widget.onToggleSelection != null
                                     ? () => widget.onToggleSelection!(waypoint, !isSelected)
                                     : null,
                                 isViewOnly: widget.isViewOnly,
+                                isCompact: true, // Use compact layout for builder screen
                               ),
                             ],
                           ),
@@ -266,7 +267,7 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
                       final waypoint = entry.value;
                       final isSelected = widget.selectedWaypointIds.contains(waypoint.id);
                       return Padding(
-                        padding: const EdgeInsets.only(left: 12, bottom: 12),
+                        padding: const EdgeInsets.only(left: 12, bottom: 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -285,6 +286,7 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
                                   ? () => widget.onToggleSelection!(waypoint, !isSelected)
                                   : null,
                               isViewOnly: widget.isViewOnly,
+                              isCompact: true, // Use compact layout for builder screen
                             ),
                           ],
                         ),

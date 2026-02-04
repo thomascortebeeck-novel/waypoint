@@ -21,6 +21,7 @@ class WebMapController extends WaypointMapController {
   Function(String id)? _jsRemoveMarker;
   Function(String id, bool draggable)? _jsSetMarkerDraggable;
   Function(String id, double lat, double lng)? _jsUpdateMarkerPosition;
+  Function(bool enabled)? _jsSetScrollZoomEnabled;
 
   /// Initialize controller with JavaScript interop functions
   void initialize({
@@ -32,6 +33,7 @@ class WebMapController extends WaypointMapController {
     required Function(String id) removeMarker,
     Function(String id, bool draggable)? setMarkerDraggable,
     Function(String id, double lat, double lng)? updateMarkerPosition,
+    Function(bool enabled)? setScrollZoomEnabled,
     required CameraPosition initialPosition,
   }) {
     _jsSetCamera = setCamera;
@@ -42,6 +44,7 @@ class WebMapController extends WaypointMapController {
     _jsRemoveMarker = removeMarker;
     _jsSetMarkerDraggable = setMarkerDraggable;
     _jsUpdateMarkerPosition = updateMarkerPosition;
+    _jsSetScrollZoomEnabled = setScrollZoomEnabled;
     _currentPosition = initialPosition;
   }
 
@@ -171,6 +174,16 @@ class WebMapController extends WaypointMapController {
 
   @override
   CameraPosition? get currentPosition => _currentPosition;
+
+  @override
+  Future<void> disableScrollZoom() async {
+    _jsSetScrollZoomEnabled?.call(false);
+  }
+
+  @override
+  Future<void> enableScrollZoom() async {
+    _jsSetScrollZoomEnabled?.call(true);
+  }
 
   @override
   void dispose() {

@@ -482,6 +482,18 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       updateMarkerPosition: (id, lat, lng) {
         _updateMarkerPosition(id, lat, lng);
       },
+      setScrollZoomEnabled: (enabled) {
+        try {
+          // Disable/enable scroll zoom on Mapbox GL JS
+          if (enabled) {
+            map.callMethod('scrollZoom', ['enable']);
+          } else {
+            map.callMethod('scrollZoom', ['disable']);
+          }
+        } catch (e) {
+          debugPrint('⚠️ [MapboxWeb] Failed to ${enabled ? "enable" : "disable"} scroll zoom: $e');
+        }
+      },
       initialPosition: CameraPosition(
         center: widget.initialCenter,
         zoom: widget.initialZoom,

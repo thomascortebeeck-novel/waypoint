@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:waypoint/core/theme/waypoint_theme.dart';
+import 'package:waypoint/core/theme/colors.dart';
 
 /// Badge variants
 enum WaypointBadgeVariant {
@@ -85,16 +86,30 @@ class WaypointBadge extends StatelessWidget {
   );
 
   /// Factory constructor for status badge
-  factory WaypointBadge.status(String status, {bool isDraft = false}) => WaypointBadge(
-    label: status,
-    variant: WaypointBadgeVariant.status,
-    backgroundColor: isDraft 
-        ? SemanticColors.warningLight 
-        : SemanticColors.successLight,
-    textColor: isDraft 
-        ? SemanticColors.warning 
-        : SemanticColors.success,
-  );
+  factory WaypointBadge.status(String status, {bool isDraft = false, bool isCompleted = false}) {
+    // Determine colors based on status
+    Color bgColor;
+    Color textColor;
+    
+    if (isCompleted) {
+      bgColor = StatusColors.completed;
+      textColor = Colors.white;
+    } else if (isDraft || status.toLowerCase() == 'draft') {
+      bgColor = StatusColors.draft;
+      textColor = NeutralColors.textPrimary;
+    } else {
+      // Upcoming, Published, Customizing, In Progress → Primary Green
+      bgColor = StatusColors.published;
+      textColor = Colors.white;
+    }
+    
+    return WaypointBadge(
+      label: status,
+      variant: WaypointBadgeVariant.status,
+      backgroundColor: bgColor,
+      textColor: textColor,
+    );
+  }
 
   /// Factory constructor for admin badge
   factory WaypointBadge.admin() => const WaypointBadge(

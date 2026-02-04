@@ -66,6 +66,12 @@ abstract class WaypointMapController {
   /// Get current camera position
   CameraPosition? get currentPosition;
 
+  /// Disable scroll zoom on the map (e.g., when a modal is open)
+  Future<void> disableScrollZoom();
+
+  /// Enable scroll zoom on the map (e.g., when a modal closes)
+  Future<void> enableScrollZoom();
+
   /// Dispose resources
   void dispose();
 }

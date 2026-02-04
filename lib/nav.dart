@@ -735,8 +735,10 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppRadius.md),
-                // Remove the left selection border to match mobile/tablet behavior
-                // where only the label/icon color changes when active.
+                // Add subtle background tint for selected state
+                color: widget.isSelected 
+                    ? context.colors.primary.withValues(alpha: 0.08)
+                    : null,
                 border: null,
               ),
               child: Row(

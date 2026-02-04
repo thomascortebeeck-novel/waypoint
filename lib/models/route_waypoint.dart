@@ -33,6 +33,13 @@ enum ActivityTime {
   allDay,
 }
 
+/// Logistics category for logistics waypoints
+enum LogisticsCategory {
+  gear,
+  transportation,
+  food,
+}
+
 /// Time slot category for organizing waypoints chronologically
 enum TimeSlotCategory {
   breakfast,
@@ -43,7 +50,9 @@ enum TimeSlotCategory {
   dinner,
   eveningActivity,
   accommodation,
-  servicePoint,
+  logisticsGear,
+  logisticsTransportation,
+  logisticsFood,
   viewingPoint,
 }
 
@@ -105,6 +114,9 @@ class RouteWaypoint {
   // Activity-specific fields
   ActivityTime? activityTime; // Only for activity type
 
+  // Logistics-specific fields
+  LogisticsCategory? logisticsCategory; // Only for logistics/servicePoint type
+
   // Timeline organization
   TimeSlotCategory? timeSlotCategory;
   String? suggestedStartTime; // HH:MM format (24h), set by plan builder
@@ -137,6 +149,7 @@ class RouteWaypoint {
     this.airbnbPropertyId,
     this.mealTime,
     this.activityTime,
+    this.logisticsCategory,
     this.timeSlotCategory,
     this.suggestedStartTime,
     this.actualStartTime,
@@ -167,6 +180,7 @@ class RouteWaypoint {
         if (airbnbPropertyId != null) 'airbnbPropertyId': airbnbPropertyId,
         if (mealTime != null) 'mealTime': mealTime!.name,
         if (activityTime != null) 'activityTime': activityTime!.name,
+        if (logisticsCategory != null) 'logisticsCategory': logisticsCategory!.name,
         if (timeSlotCategory != null) 'timeSlotCategory': timeSlotCategory!.name,
         if (suggestedStartTime != null) 'suggestedStartTime': suggestedStartTime,
         if (actualStartTime != null) 'actualStartTime': actualStartTime,
@@ -220,6 +234,12 @@ class RouteWaypoint {
                 orElse: () => ActivityTime.allDay,
               )
             : null,
+        logisticsCategory: json['logisticsCategory'] != null
+            ? LogisticsCategory.values.firstWhere(
+                (e) => e.name == json['logisticsCategory'],
+                orElse: () => LogisticsCategory.gear,
+              )
+            : null,
         timeSlotCategory: json['timeSlotCategory'] != null
             ? TimeSlotCategory.values.firstWhere(
                 (e) => e.name == json['timeSlotCategory'],
@@ -255,6 +275,7 @@ class RouteWaypoint {
     String? airbnbPropertyId,
     MealTime? mealTime,
     ActivityTime? activityTime,
+    LogisticsCategory? logisticsCategory,
     TimeSlotCategory? timeSlotCategory,
     Object? suggestedStartTime = _undefined,
     Object? actualStartTime = _undefined,
@@ -284,6 +305,7 @@ class RouteWaypoint {
         airbnbPropertyId: airbnbPropertyId ?? this.airbnbPropertyId,
         mealTime: mealTime ?? this.mealTime,
         activityTime: activityTime ?? this.activityTime,
+        logisticsCategory: logisticsCategory ?? this.logisticsCategory,
         timeSlotCategory: timeSlotCategory ?? this.timeSlotCategory,
         suggestedStartTime: suggestedStartTime == _undefined ? this.suggestedStartTime : suggestedStartTime as String?,
         actualStartTime: actualStartTime == _undefined ? this.actualStartTime : actualStartTime as String?,
@@ -343,7 +365,7 @@ String getWaypointLabel(WaypointType type) {
     case WaypointType.viewingPoint:
       return 'Viewing Point';
     case WaypointType.servicePoint:
-      return 'Service Point';
+      return 'Logistics';
     case WaypointType.routePoint:
       return 'Route Point';
   }
@@ -464,8 +486,12 @@ String getTimeSlotLabel(TimeSlotCategory category) {
       return 'Evening Activity';
     case TimeSlotCategory.accommodation:
       return 'Accommodation';
-    case TimeSlotCategory.servicePoint:
-      return 'Service Points';
+    case TimeSlotCategory.logisticsGear:
+      return 'Logistics - Gear';
+    case TimeSlotCategory.logisticsTransportation:
+      return 'Logistics - Transportation';
+    case TimeSlotCategory.logisticsFood:
+      return 'Logistics - Food';
     case TimeSlotCategory.viewingPoint:
       return 'Viewing Points';
   }
@@ -485,8 +511,12 @@ IconData getTimeSlotIcon(TimeSlotCategory category) {
       return Icons.local_activity; // Same as activity waypoints
     case TimeSlotCategory.accommodation:
       return Icons.hotel; // Same as accommodation waypoints
-    case TimeSlotCategory.servicePoint:
-      return Icons.local_convenience_store; // Same as service point waypoints
+    case TimeSlotCategory.logisticsGear:
+      return Icons.backpack;
+    case TimeSlotCategory.logisticsTransportation:
+      return Icons.directions_car;
+    case TimeSlotCategory.logisticsFood:
+      return Icons.shopping_bag;
     case TimeSlotCategory.viewingPoint:
       return Icons.visibility; // Same as viewing point waypoints
   }
@@ -506,8 +536,10 @@ Color getTimeSlotColor(TimeSlotCategory category) {
       return const Color(0xFF9C27B0); // Purple - same as activity
     case TimeSlotCategory.accommodation:
       return const Color(0xFF2196F3); // Blue - same as accommodation
-    case TimeSlotCategory.servicePoint:
-      return const Color(0xFF4CAF50); // Green - same as service point
+    case TimeSlotCategory.logisticsGear:
+    case TimeSlotCategory.logisticsTransportation:
+    case TimeSlotCategory.logisticsFood:
+      return const Color(0xFF4CAF50); // Green - same as logistics
     case TimeSlotCategory.viewingPoint:
       return const Color(0xFFFFC107); // Yellow/Gold - same as viewing point
   }
@@ -532,7 +564,9 @@ int getTimeSlotOrder(TimeSlotCategory category) {
       return 20; // 8 PM
     case TimeSlotCategory.accommodation:
       return 22; // 10 PM
-    case TimeSlotCategory.servicePoint:
+    case TimeSlotCategory.logisticsGear:
+    case TimeSlotCategory.logisticsTransportation:
+    case TimeSlotCategory.logisticsFood:
       return 10; // Can be anywhere, default to mid-morning
     case TimeSlotCategory.viewingPoint:
       return 13; // Can be anywhere, default to midday
@@ -572,9 +606,16 @@ TimeSlotCategory? autoAssignTimeSlotCategory(RouteWaypoint waypoint) {
     return TimeSlotCategory.accommodation;
   }
   
-  // Service point
-  if (waypoint.type == WaypointType.servicePoint) {
-    return TimeSlotCategory.servicePoint;
+  // Logistics (service point)
+  if (waypoint.type == WaypointType.servicePoint && waypoint.logisticsCategory != null) {
+    switch (waypoint.logisticsCategory!) {
+      case LogisticsCategory.gear:
+        return TimeSlotCategory.logisticsGear;
+      case LogisticsCategory.transportation:
+        return TimeSlotCategory.logisticsTransportation;
+      case LogisticsCategory.food:
+        return TimeSlotCategory.logisticsFood;
+    }
   }
   
   // Viewing point
@@ -604,7 +645,9 @@ String? getDefaultSuggestedTime(TimeSlotCategory category) {
       return '20:00';
     case TimeSlotCategory.accommodation:
       return '15:00'; // Check-in time
-    case TimeSlotCategory.servicePoint:
+    case TimeSlotCategory.logisticsGear:
+    case TimeSlotCategory.logisticsTransportation:
+    case TimeSlotCategory.logisticsFood:
     case TimeSlotCategory.viewingPoint:
       return null; // No default time for these
   }
@@ -613,7 +656,9 @@ String? getDefaultSuggestedTime(TimeSlotCategory category) {
 /// Check if a time slot category should show time input
 bool shouldShowTimeInput(TimeSlotCategory category) {
   switch (category) {
-    case TimeSlotCategory.servicePoint:
+    case TimeSlotCategory.logisticsGear:
+    case TimeSlotCategory.logisticsTransportation:
+    case TimeSlotCategory.logisticsFood:
     case TimeSlotCategory.viewingPoint:
       return false;
     default:

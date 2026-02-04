@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:waypoint/core/theme/colors.dart';
 
 /// Types of outdoor Points of Interest
 enum POIType {
@@ -119,7 +120,7 @@ enum POIType {
       case POIType.parking:
         return const Color(0xFF757575);
       case POIType.trailhead:
-        return const Color(0xFF1B4332);
+        return BrandColors.primary; // Use new primary color
       case POIType.picnicSite:
         return const Color(0xFF52B788);
       case POIType.toilets:

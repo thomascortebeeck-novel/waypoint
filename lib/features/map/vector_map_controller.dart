@@ -308,6 +308,42 @@ class VectorMapController extends WaypointMapController {
   CameraPosition? get currentPosition => _currentPosition;
 
   @override
+  Future<void> disableScrollZoom() async {
+    final map = _mapboxMap;
+    if (map == null) return;
+    
+    try {
+      // Disable scroll zoom on Mapbox native
+      await map.setSettings(
+        Settings(
+          scrollEnabled: false,
+        ),
+      );
+      Log.i('map', '🔒 Scroll zoom disabled');
+    } catch (e) {
+      Log.e('map', 'Failed to disable scroll zoom', e);
+    }
+  }
+
+  @override
+  Future<void> enableScrollZoom() async {
+    final map = _mapboxMap;
+    if (map == null) return;
+    
+    try {
+      // Enable scroll zoom on Mapbox native
+      await map.setSettings(
+        Settings(
+          scrollEnabled: true,
+        ),
+      );
+      Log.i('map', '🔓 Scroll zoom enabled');
+    } catch (e) {
+      Log.e('map', 'Failed to enable scroll zoom', e);
+    }
+  }
+
+  @override
   void dispose() {
     _mapTapController.close();
     _cameraMoveController.close();

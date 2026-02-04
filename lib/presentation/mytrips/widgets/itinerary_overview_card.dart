@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/presentation/mytrips/widgets/image_upload_dialog.dart';
@@ -243,13 +244,13 @@ class _ItineraryOverviewCardState extends State<ItineraryOverviewCard> {
     Color bg;
     switch (status) {
       case _TripStatus.upcoming:
-        bg = const Color(0xFF10B981);
+        bg = StatusColors.upcoming;
         break;
       case _TripStatus.inProgress:
-        bg = const Color(0xFF3B82F6);
+        bg = StatusColors.inProgress;
         break;
       case _TripStatus.completed:
-        bg = const Color(0xFF6B7280);
+        bg = StatusColors.completed;
         break;
     }
     return Container(

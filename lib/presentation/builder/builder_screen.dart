@@ -3,11 +3,14 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
+import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
+import 'package:waypoint/components/day_content_builder.dart';
+import 'package:waypoint/models/orderable_item.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/integrations/mapbox_service.dart';
@@ -124,6 +127,9 @@ AccommodationType? _accommodationType;
   
   // Current day being edited in Step 5
   int _currentDayIndex = 0;
+  
+  // Day plan ordering (per day)
+  Map<int, DayPlanOrderManager> _dayOrderManagers = {};
 
 @override
 void dispose() {
@@ -529,7 +535,7 @@ final lineIndex = index ~/ 2;
 return Container(
 width: 40,
 height: 2,
-color: _currentStep > lineIndex ? const Color(0xFF428A13) : const Color(0xFFE5EBE5),
+color: _currentStep > lineIndex ? BrandColors.primary : const Color(0xFFE5EBE5),
 );
 }
 }),
@@ -572,17 +578,17 @@ height: 40,
 decoration: BoxDecoration(
 shape: BoxShape.circle,
 color: isCompleted
-? const Color(0xFF428A13)
+? BrandColors.primary  // #2D6A4F - Primary green
 : Colors.white,
 border: Border.all(
 color: isCompleted || isActive
-? const Color(0xFF428A13)
+? BrandColors.primary  // #2D6A4F - Primary green
 : const Color(0xFFE5EBE5),
 width: 2,
 ),
 boxShadow: isActive ? [
 BoxShadow(
-color: const Color(0xFF428A13).withValues(alpha: 0.15),
+color: BrandColors.primary.withValues(alpha: 0.15),  // #2D6A4F with opacity
 blurRadius: 12,
 spreadRadius: 4,
 ),
@@ -594,7 +600,7 @@ child: isCompleted
 : Text(
 '${stepIndex + 1}',
 style: TextStyle(
-color: isActive ? const Color(0xFF428A13) : const Color(0xFF8A8A8A),
+color: isActive ? BrandColors.primary : const Color(0xFF8A8A8A),  // #2D6A4F for active
 fontSize: 16,
 fontWeight: FontWeight.w600,
 ),
@@ -3123,12 +3129,12 @@ Container(
 width: 48,
 height: 48,
 decoration: BoxDecoration(
-color: _isPublished ? const Color(0xFFE8F5E9) : Colors.orange.shade50,
+color: _isPublished ? StatusColors.publishedBg : StatusColors.draftBg,
 borderRadius: BorderRadius.circular(12),
 ),
 child: Icon(
 _isPublished ? Icons.public : Icons.edit_note,
-color: _isPublished ? const Color(0xFF428A13) : Colors.orange.shade700,
+color: _isPublished ? StatusColors.published : StatusColors.draft,
 size: 24,
 ),
 ),
@@ -3166,14 +3172,14 @@ value: _isPublished,
 onChanged: (value) {
 setState(() => _isPublished = value);
 },
-activeColor: const Color(0xFF428A13),
+activeColor: StatusColors.published,
 ),
 Text(
 _isPublished ? 'Published' : 'Draft',
 style: TextStyle(
 fontSize: 12,
 fontWeight: FontWeight.w600,
-color: _isPublished ? const Color(0xFF428A13) : Colors.orange.shade700,
+color: _isPublished ? StatusColors.published : StatusColors.draft,
 ),
 ),
 ],
@@ -4038,11 +4044,12 @@ _addWaypointFromItinerary(dayNum, WaypointType.viewingPoint, vf);
 },
 ),
 ListTile(
-leading: Icon(Icons.local_gas_station, color: getWaypointColor(WaypointType.servicePoint)),
-title: const Text('Service Point'),
+leading: Icon(Icons.backpack, color: getWaypointColor(WaypointType.servicePoint)),
+title: const Text('Logistics'),
 onTap: () {
 Navigator.of(context).pop();
-_addWaypointFromItinerary(dayNum, WaypointType.servicePoint, vf);
+// Show sub-category selection for logistics
+_showLogisticsSubCategoryDialog(dayNum, vf);
 },
 ),
 ],
@@ -4057,145 +4064,372 @@ child: const Text('Cancel'),
 );
 }
 
-/// Build timeline layout with categories for all waypoints
-Widget _buildAllWaypointsList(int dayNum, _VersionFormData vf) {
-final existingRoute = vf.routeByDay[dayNum];
-Log.i('builder', 'Building waypoints list for day $dayNum. Route exists: ${existingRoute != null}');
-if (existingRoute != null) {
-Log.i('builder', 'Day $dayNum route has ${existingRoute.poiWaypoints.length} waypoints');
-}
-if (existingRoute == null) {
-return Container(
-padding: const EdgeInsets.all(16),
-decoration: BoxDecoration(
-color: Colors.grey.shade100,
-borderRadius: BorderRadius.circular(8),
-),
-child: Row(
+/// Show logistics sub-category selection dialog
+Future<void> _showLogisticsSubCategoryDialog(int dayNum, _VersionFormData vf) async {
+final result = await showDialog<LogisticsCategory>(
+context: context,
+builder: (context) => AlertDialog(
+title: const Text('Select Logistics Category'),
+content: Column(
+mainAxisSize: MainAxisSize.min,
 children: [
-Icon(Icons.place, color: Colors.grey.shade600),
-const SizedBox(width: 8),
-Text(
-'Create a route first to add waypoints',
-style: TextStyle(color: Colors.grey.shade600),
+ListTile(
+leading: const Icon(Icons.backpack, color: Color(0xFF4CAF50)),
+title: const Text('Gear'),
+onTap: () => Navigator.of(context).pop(LogisticsCategory.gear),
+),
+ListTile(
+leading: const Icon(Icons.directions_car, color: Color(0xFF4CAF50)),
+title: const Text('Transportation'),
+onTap: () => Navigator.of(context).pop(LogisticsCategory.transportation),
+),
+ListTile(
+leading: const Icon(Icons.shopping_bag, color: Color(0xFF4CAF50)),
+title: const Text('Food'),
+onTap: () => Navigator.of(context).pop(LogisticsCategory.food),
+),
+],
+),
+actions: [
+TextButton(
+onPressed: () => Navigator.of(context).pop(),
+child: const Text('Cancel'),
 ),
 ],
 ),
 );
+
+if (result != null) {
+// Add waypoint with logistics category
+await _addWaypointFromItineraryWithLogistics(dayNum, result, vf);
+}
 }
 
-// Get all waypoints and auto-assign categories if missing
-final waypoints = existingRoute.poiWaypoints
-.map((json) {
-  final wp = RouteWaypoint.fromJson(json);
-  // Auto-assign time slot category if not set (for existing waypoints)
-  if (wp.timeSlotCategory == null) {
-    final autoCategory = autoAssignTimeSlotCategory(wp);
-    return wp.copyWith(timeSlotCategory: autoCategory);
-  }
-  return wp;
-})
-.toList();
-
-// If any categories were auto-assigned, save them back to the route
-bool needsUpdate = false;
-for (int i = 0; i < waypoints.length; i++) {
-  if (existingRoute.poiWaypoints[i]['timeSlotCategory'] == null && 
-      waypoints[i].timeSlotCategory != null) {
-    needsUpdate = true;
-    break;
-  }
+/// Add waypoint with logistics category
+Future<void> _addWaypointFromItineraryWithLogistics(int dayNum, LogisticsCategory logisticsCategory, _VersionFormData vf) async {
+// Check if route exists
+final existingRoute = vf.routeByDay[dayNum];
+if (existingRoute == null) {
+ScaffoldMessenger.of(context).showSnackBar(
+const SnackBar(
+content: Text('Please create a route first'),
+),
+);
+return;
 }
-if (needsUpdate) {
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (mounted) {
-      setState(() {
-        vf.routeByDay[dayNum] = DayRoute(
-          geometry: existingRoute.geometry,
-          distance: existingRoute.distance,
-          duration: existingRoute.duration,
-          routePoints: existingRoute.routePoints,
-          elevationProfile: existingRoute.elevationProfile,
-          ascent: existingRoute.ascent,
-          descent: existingRoute.descent,
-          poiWaypoints: waypoints.map((wp) => wp.toJson()).toList(),
-        );
-      });
+
+// Determine time slot category based on logistics category
+TimeSlotCategory timeSlotCategory;
+switch (logisticsCategory) {
+case LogisticsCategory.gear:
+timeSlotCategory = TimeSlotCategory.logisticsGear;
+break;
+case LogisticsCategory.transportation:
+timeSlotCategory = TimeSlotCategory.logisticsTransportation;
+break;
+case LogisticsCategory.food:
+timeSlotCategory = TimeSlotCategory.logisticsFood;
+break;
+}
+
+// Use the same flow as _addWaypointFromItinerary but with logistics category
+final result = await showDialog<RouteWaypoint>(
+context: context,
+builder: (context) => _AddWaypointFromItineraryDialog(
+type: WaypointType.servicePoint,
+),
+);
+
+if (result != null && mounted) {
+setState(() {
+final waypoint = result.copyWith(
+logisticsCategory: logisticsCategory,
+timeSlotCategory: timeSlotCategory,
+);
+final route = vf.routeByDay[dayNum]!;
+final updatedPoiWaypoints = List<Map<String, dynamic>>.from(route.poiWaypoints);
+updatedPoiWaypoints.add(waypoint.toJson());
+vf.routeByDay[dayNum] = route.copyWith(poiWaypoints: updatedPoiWaypoints);
+});
+}
+}
+
+/// Initialize ordering for a day from waypoints
+void _initializeDayOrdering(int dayNum, List<RouteWaypoint> waypoints) {
+  _dayOrderManagers[dayNum] = DayPlanOrderBuilder.buildFromWaypoints(dayNum, waypoints);
+}
+
+/// Get waypoints by section ID for a day
+Map<String, List<RouteWaypoint>> _getWaypointsBySectionId(int dayNum, List<RouteWaypoint> waypoints) {
+  final map = <String, List<RouteWaypoint>>{};
+  
+  for (final wp in waypoints) {
+    String? sectionId;
+    switch (wp.type) {
+      case WaypointType.restaurant:
+        sectionId = 'restaurantSection_${wp.mealTime?.name ?? "lunch"}';
+        break;
+      case WaypointType.activity:
+        sectionId = 'activitySection_${wp.activityTime?.name ?? "afternoon"}';
+        break;
+      case WaypointType.accommodation:
+        sectionId = 'accommodationSection';
+        break;
+      case WaypointType.servicePoint:
+      case WaypointType.viewingPoint:
+      case WaypointType.routePoint:
+        // These are individual items, not sections
+        break;
     }
+    if (sectionId != null) {
+      map.putIfAbsent(sectionId, () => []).add(wp);
+    }
+  }
+  
+  return map;
+}
+
+/// Get waypoints by ID for a day
+Map<String, RouteWaypoint> _getWaypointsById(List<RouteWaypoint> waypoints) {
+  return { for (final wp in waypoints) wp.id: wp };
+}
+
+/// Move an item up in the day plan
+void _moveItemUp(int dayNum, String itemId, _VersionFormData vf) {
+  final manager = _dayOrderManagers[dayNum];
+  if (manager == null) return;
+  
+  setState(() {
+    _dayOrderManagers[dayNum] = manager.moveUp(itemId);
+    _applyOrderingToWaypoints(dayNum, vf);
   });
 }
 
-Log.i('builder', 'Total waypoints for day $dayNum: ${waypoints.length}');
-
-// Group waypoints by time slot category
-final Map<TimeSlotCategory, List<RouteWaypoint>> waypointsByCategory = {};
-for (final category in TimeSlotCategory.values) {
-  waypointsByCategory[category] = waypoints
-      .where((wp) => wp.timeSlotCategory == category)
-      .toList();
+/// Move an item down in the day plan
+void _moveItemDown(int dayNum, String itemId, _VersionFormData vf) {
+  final manager = _dayOrderManagers[dayNum];
+  if (manager == null) return;
+  
+  setState(() {
+    _dayOrderManagers[dayNum] = manager.moveDown(itemId);
+    _applyOrderingToWaypoints(dayNum, vf);
+  });
 }
 
-// Build timeline sections for each category - only show sections with waypoints
-return Column(
-  children: TimeSlotCategory.values.where((category) {
-    final categoryWaypoints = waypointsByCategory[category] ?? [];
-    return categoryWaypoints.isNotEmpty;
-  }).map((category) {
-    final categoryWaypoints = waypointsByCategory[category] ?? [];
-    Log.i('builder', 'Day $dayNum - ${getTimeSlotLabel(category)}: ${categoryWaypoints.length} waypoints');
-    
-    return DayTimelineSection(
-      category: category,
-      waypoints: categoryWaypoints,
-      isExpanded: true,
-      onAddWaypoint: () {
-        // Determine what type to add based on category
-        WaypointType type;
-        switch (category) {
-          case TimeSlotCategory.breakfast:
-          case TimeSlotCategory.lunch:
-          case TimeSlotCategory.dinner:
-            type = WaypointType.restaurant;
+/// Apply the ordering to actual waypoints in the route
+void _applyOrderingToWaypoints(int dayNum, _VersionFormData vf) {
+  final manager = _dayOrderManagers[dayNum];
+  if (manager == null) return;
+  
+  final existingRoute = vf.routeByDay[dayNum];
+  if (existingRoute == null) return;
+  
+  final waypoints = existingRoute.poiWaypoints
+      .map((json) => RouteWaypoint.fromJson(json))
+      .toList();
+  
+  // Get ordered items
+  final orderedItems = manager.sortedItems;
+  
+  // Reorder waypoints based on ordered items
+  final reorderedWaypoints = <RouteWaypoint>[];
+  for (final item in orderedItems) {
+    if (item.isSection) {
+      // Add all waypoints in this section
+      final sectionId = item.id;
+      final sectionWaypoints = waypoints.where((wp) {
+        String? wpSectionId;
+        switch (wp.type) {
+          case WaypointType.restaurant:
+            wpSectionId = 'restaurantSection_${wp.mealTime?.name ?? "lunch"}';
             break;
-          case TimeSlotCategory.accommodation:
-            type = WaypointType.accommodation;
+          case WaypointType.activity:
+            wpSectionId = 'activitySection_${wp.activityTime?.name ?? "afternoon"}';
             break;
-          case TimeSlotCategory.morningActivity:
-          case TimeSlotCategory.allDayActivity:
-          case TimeSlotCategory.afternoonActivity:
-          case TimeSlotCategory.eveningActivity:
-            type = WaypointType.activity;
+          case WaypointType.accommodation:
+            wpSectionId = 'accommodationSection';
             break;
-          case TimeSlotCategory.servicePoint:
-            type = WaypointType.servicePoint;
-            break;
-          case TimeSlotCategory.viewingPoint:
-            type = WaypointType.viewingPoint;
+          default:
             break;
         }
-        _addWaypointToCategory(dayNum, type, category, vf);
-      },
-      onEditWaypoint: (waypoint) {
-        final index = waypoints.indexOf(waypoint);
-        if (index >= 0) {
-          _editWaypointFromItinerary(dayNum, index, vf);
-        }
-      },
-      onDeleteWaypoint: (waypoint) {
-        final index = waypoints.indexOf(waypoint);
-        if (index >= 0) {
-          _deleteWaypointFromItinerary(dayNum, index, vf);
-        }
-      },
-      onTimeChange: (waypoint, newTime) {
-        _updateWaypointTime(dayNum, waypoint, newTime, vf);
-      },
-      onReorder: (oldIndex, newIndex) {
-        _reorderWaypointsInCategory(dayNum, category, oldIndex, newIndex, vf);
-      },
+        return wpSectionId == sectionId;
+      }).toList();
+      reorderedWaypoints.addAll(sectionWaypoints);
+    } else if (item.isIndividualWaypoint && item.waypointId != null) {
+      // Add this individual waypoint
+      final wp = waypoints.firstWhere(
+        (w) => w.id == item.waypointId,
+        orElse: () => waypoints.first, // Fallback (shouldn't happen)
+      );
+      if (!reorderedWaypoints.contains(wp)) {
+        reorderedWaypoints.add(wp);
+      }
+    }
+  }
+  
+  // Add any remaining waypoints that weren't in the ordering
+  for (final wp in waypoints) {
+    if (!reorderedWaypoints.contains(wp)) {
+      reorderedWaypoints.add(wp);
+    }
+  }
+  
+  // Update the route
+  vf.routeByDay[dayNum] = DayRoute(
+    geometry: existingRoute.geometry,
+    distance: existingRoute.distance,
+    duration: existingRoute.duration,
+    routePoints: existingRoute.routePoints,
+    elevationProfile: existingRoute.elevationProfile,
+    ascent: existingRoute.ascent,
+    descent: existingRoute.descent,
+    poiWaypoints: reorderedWaypoints.map((wp) => wp.toJson()).toList(),
+  );
+}
+
+/// Build timeline layout with categories for all waypoints
+Widget _buildAllWaypointsList(int dayNum, _VersionFormData vf) {
+  final existingRoute = vf.routeByDay[dayNum];
+  Log.i('builder', 'Building waypoints list for day $dayNum. Route exists: ${existingRoute != null}');
+  if (existingRoute != null) {
+    Log.i('builder', 'Day $dayNum route has ${existingRoute.poiWaypoints.length} waypoints');
+  }
+  if (existingRoute == null) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.place, color: Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Text(
+            'Create a route first to add waypoints',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+        ],
+      ),
     );
-  }).toList(),
-);
+  }
+
+  // Get all waypoints and auto-assign categories if missing
+  final waypoints = existingRoute.poiWaypoints
+      .map((json) {
+        final wp = RouteWaypoint.fromJson(json);
+        // Auto-assign time slot category if not set (for existing waypoints)
+        if (wp.timeSlotCategory == null) {
+          final autoCategory = autoAssignTimeSlotCategory(wp);
+          return wp.copyWith(timeSlotCategory: autoCategory);
+        }
+        return wp;
+      })
+      .toList();
+
+  // Initialize ordering if not already done
+  if (!_dayOrderManagers.containsKey(dayNum)) {
+    _initializeDayOrdering(dayNum, waypoints);
+  }
+
+  // Get the order manager for this day
+  final orderManager = _dayOrderManagers[dayNum];
+  if (orderManager == null) {
+    return const SizedBox.shrink();
+  }
+
+  // Use DayContentBuilder to render
+  return DayContentBuilder(
+    dayNumber: dayNum,
+    orderedItems: orderManager.sortedItems,
+    waypointsBySectionId: _getWaypointsBySectionId(dayNum, waypoints),
+    waypointsById: _getWaypointsById(waypoints),
+    onMoveUp: (itemId) => _moveItemUp(dayNum, itemId, vf),
+    onMoveDown: (itemId) => _moveItemDown(dayNum, itemId, vf),
+    canMoveUp: (itemId) => orderManager.canMoveUp(itemId),
+    canMoveDown: (itemId) => orderManager.canMoveDown(itemId),
+    onEditWaypoint: (waypoint) {
+      final index = waypoints.indexOf(waypoint);
+      if (index >= 0) {
+        _editWaypointFromItinerary(dayNum, index, vf);
+      }
+    },
+    onDeleteWaypoint: (waypoint) {
+      final index = waypoints.indexOf(waypoint);
+      if (index >= 0) {
+        _deleteWaypointFromItinerary(dayNum, index, vf);
+        // Reinitialize ordering after deletion
+        final updatedRoute = vf.routeByDay[dayNum];
+        if (updatedRoute != null) {
+          final updatedWaypoints = updatedRoute.poiWaypoints
+              .map((json) => RouteWaypoint.fromJson(json))
+              .toList();
+          _initializeDayOrdering(dayNum, updatedWaypoints);
+        }
+      }
+    },
+    onAddWaypoint: (type, sectionType) {
+      // Determine category and waypoint type
+      TimeSlotCategory? category;
+      WaypointType wpType;
+      
+      switch (type) {
+        case OrderableItemType.restaurantSection:
+          wpType = WaypointType.restaurant;
+          switch (sectionType) {
+            case 'breakfast':
+              category = TimeSlotCategory.breakfast;
+              break;
+            case 'lunch':
+              category = TimeSlotCategory.lunch;
+              break;
+            case 'dinner':
+              category = TimeSlotCategory.dinner;
+              break;
+            default:
+              category = TimeSlotCategory.lunch;
+          }
+          break;
+        case OrderableItemType.activitySection:
+          wpType = WaypointType.activity;
+          switch (sectionType) {
+            case 'morning':
+              category = TimeSlotCategory.morningActivity;
+              break;
+            case 'afternoon':
+              category = TimeSlotCategory.afternoonActivity;
+              break;
+            case 'night':
+              category = TimeSlotCategory.eveningActivity;
+              break;
+            case 'allDay':
+              category = TimeSlotCategory.allDayActivity;
+              break;
+            default:
+              category = TimeSlotCategory.afternoonActivity;
+          }
+          break;
+        case OrderableItemType.accommodationSection:
+          wpType = WaypointType.accommodation;
+          category = TimeSlotCategory.accommodation;
+          break;
+        case OrderableItemType.logisticsWaypoint:
+          wpType = WaypointType.servicePoint;
+          category = TimeSlotCategory.logisticsGear; // Default
+          break;
+        case OrderableItemType.viewingPointWaypoint:
+          wpType = WaypointType.viewingPoint;
+          category = TimeSlotCategory.viewingPoint;
+          break;
+      }
+      
+      if (category != null) {
+        _addWaypointToCategory(dayNum, wpType, category, vf);
+      }
+    },
+    showActions: true,
+    isViewOnly: false,
+  );
 }
 
 List<PackingCategory> _composePackingCategories(_VersionFormData vf, {List<PackingCategory> fallback = const []}) {

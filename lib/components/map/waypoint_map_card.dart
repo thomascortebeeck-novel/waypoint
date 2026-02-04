@@ -10,6 +10,7 @@ import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/trip_selection_model.dart';
 import 'package:waypoint/services/poi_service.dart';
 import 'package:waypoint/utils/logger.dart';
+import 'package:waypoint/core/theme/colors.dart';
 
 /// Configuration for map display modes
 enum MapDisplayMode {
@@ -375,8 +376,8 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
                   icon: const Icon(Icons.edit_location, size: 18),
                   label: const Text('Edit Route'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black87,
+                    backgroundColor: BrandColors.primary, // #2D6A4F - Primary green
+                    foregroundColor: Colors.white,
                     elevation: 4,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     shape: RoundedRectangleBorder(
