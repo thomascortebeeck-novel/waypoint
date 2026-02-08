@@ -790,6 +790,51 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
     return _cachedTotalElevation ?? 0.0;
   }
 
+  /// Format season range as "Feb - Apr" or "Nov - Feb" (handles year wrapping)
+  String _formatSeasonRange(int startMonth, int endMonth) {
+    const monthAbbreviations = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    
+    if (startMonth >= 1 && startMonth <= 12 && endMonth >= 1 && endMonth <= 12) {
+      final start = monthAbbreviations[startMonth - 1];
+      final end = monthAbbreviations[endMonth - 1];
+      return '$start - $end';
+    }
+    return '';
+  }
+
+  /// Calculate estimated cost from all waypoints across all days
+  PriceRange? _calculateEstimatedCost(PlanVersion? version) {
+    if (version == null) return null;
+    
+    double totalMin = 0.0;
+    double totalMax = 0.0;
+    bool hasAnyPrice = false;
+    
+    for (final day in version.days) {
+      if (day.route?.poiWaypoints != null) {
+        for (final waypointJson in day.route!.poiWaypoints) {
+          final waypoint = RouteWaypoint.fromJson(waypointJson);
+          if (waypoint.estimatedPriceRange != null) {
+            totalMin += waypoint.estimatedPriceRange!.min;
+            totalMax += waypoint.estimatedPriceRange!.max;
+            hasAnyPrice = true;
+          }
+        }
+      }
+    }
+    
+    if (!hasAnyPrice || (totalMin == 0 && totalMax == 0)) return null;
+    
+    return PriceRange(
+      min: totalMin,
+      max: totalMax,
+      currency: 'EUR',
+    );
+  }
+
   Widget _buildStatsBar() {
     final totalDistance = _totalDistance;
     final totalElevation = _totalElevation;
@@ -863,6 +908,81 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
               'Elevation',
             ),
           ),
+          // Best Season stat (4th item)
+          if ((_plan?.bestSeasonStartMonth != null && _plan?.bestSeasonEndMonth != null) ||
+              (_planMeta?.bestSeasonStartMonth != null && _planMeta?.bestSeasonEndMonth != null)) ...[
+            Container(
+              width: 1,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    _border,
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: _buildStatItem(
+                Icons.calendar_month,
+                _formatSeasonRange(
+                  _plan?.bestSeasonStartMonth ?? _planMeta?.bestSeasonStartMonth ?? 1,
+                  _plan?.bestSeasonEndMonth ?? _planMeta?.bestSeasonEndMonth ?? 1,
+                ),
+                '',
+                'Best Season',
+              ),
+            ),
+          ],
+          // Estimated Cost stat (5th item, only if showPrices is true)
+          if ((_plan?.showPrices ?? _planMeta?.showPrices ?? false) && _selectedVersion != null) ...[
+            Builder(
+              builder: (context) {
+                final estimatedCost = _calculateEstimatedCost(_selectedVersion);
+                if (estimatedCost == null || (estimatedCost.min == 0 && estimatedCost.max == 0)) {
+                  return const SizedBox.shrink();
+                }
+                return Container(
+                  width: 1,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        _border,
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            Builder(
+              builder: (context) {
+                final estimatedCost = _calculateEstimatedCost(_selectedVersion);
+                if (estimatedCost == null || (estimatedCost.min == 0 && estimatedCost.max == 0)) {
+                  return const SizedBox.shrink();
+                }
+                final costText = estimatedCost.min == estimatedCost.max
+                    ? '€${estimatedCost.min.toStringAsFixed(0)}'
+                    : '€${estimatedCost.min.toStringAsFixed(0)} - €${estimatedCost.max.toStringAsFixed(0)}';
+                return Expanded(
+                  child: _buildStatItem(
+                    Icons.euro,
+                    costText,
+                    '',
+                    'Est. Cost',
+                  ),
+                );
+              },
+            ),
+          ],
         ],
       ),
     );

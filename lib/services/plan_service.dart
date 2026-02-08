@@ -761,6 +761,69 @@ class PlanService {
         .map((s) => s.docs.map((d) => Plan.fromJson(d.data())).toList());
   }
 
+  /// Search published plans by location and name
+  /// Searches for plans where location or name contains the query (case-insensitive)
+  Future<List<Plan>> searchPlans(String query) async {
+    if (query.trim().isEmpty) {
+      return [];
+    }
+    
+    try {
+      final lowerQuery = query.toLowerCase().trim();
+      
+      // Get all published plans (we'll filter in memory for text search)
+      // Firestore doesn't support case-insensitive text search natively
+      final snapshot = await _firestore
+          .collection(_collection)
+          .where('is_published', isEqualTo: true)
+          .limit(200) // Get more results to filter from
+          .get();
+      
+      final allPlans = snapshot.docs.map((doc) => Plan.fromJson(doc.data())).toList();
+      
+      // Filter plans where name or location contains the query
+      final filteredPlans = allPlans.where((plan) {
+        final nameMatch = plan.name.toLowerCase().contains(lowerQuery);
+        final locationMatch = plan.location.toLowerCase().contains(lowerQuery);
+        return nameMatch || locationMatch;
+      }).toList();
+      
+      // Sort by relevance (exact matches first, then by creation date)
+      filteredPlans.sort((a, b) {
+        final aNameExact = a.name.toLowerCase() == lowerQuery;
+        final bNameExact = b.name.toLowerCase() == lowerQuery;
+        final aLocationExact = a.location.toLowerCase() == lowerQuery;
+        final bLocationExact = b.location.toLowerCase() == lowerQuery;
+        
+        if (aNameExact && !bNameExact) return -1;
+        if (!aNameExact && bNameExact) return 1;
+        if (aLocationExact && !bLocationExact) return -1;
+        if (!aLocationExact && bLocationExact) return 1;
+        
+        // Otherwise sort by creation date (newest first)
+        return b.createdAt.compareTo(a.createdAt);
+      });
+      
+      return filteredPlans.take(50).toList(); // Limit to 50 results
+    } catch (e) {
+      debugPrint('Error searching plans: $e');
+      return [];
+    }
+  }
+
+  /// Stream search results for published plans
+  Stream<List<Plan>> streamSearchPlans(String query) {
+    if (query.trim().isEmpty) {
+      return Stream.value([]);
+    }
+    
+    // For streaming, we'll use a periodic refresh approach
+    // In a production app, you might want to use Algolia or similar for better search
+    return Stream.periodic(const Duration(milliseconds: 500), (_) => query)
+        .asyncMap((q) => searchPlans(q))
+        .distinct();
+  }
+
   // ============================================================================
   // FULL PLAN LOADING (For itinerary viewing - loads from subcollections)
   // ============================================================================

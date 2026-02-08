@@ -71,6 +71,12 @@ class Plan {
   final List<FAQItem> faqItems;
   /// Review statistics for this plan
   final ReviewStats? reviewStats;
+  /// Best season start month (1-12, where 1 = January)
+  final int? bestSeasonStartMonth;
+  /// Best season end month (1-12, where 1 = January)
+  final int? bestSeasonEndMonth;
+  /// Whether to show price estimates from waypoints on detail pages
+  final bool showPrices;
 
   Plan({
     required this.id,
@@ -94,6 +100,9 @@ class Plan {
     this.maxGroupSize,
     this.faqItems = const [],
     this.reviewStats,
+    this.bestSeasonStartMonth,
+    this.bestSeasonEndMonth,
+    this.showPrices = false,
   });
 
   double get minPrice => versions.isEmpty 
@@ -152,6 +161,9 @@ class Plan {
       reviewStats: json['review_stats'] != null
           ? ReviewStats.fromJson(json['review_stats'] as Map<String, dynamic>)
           : null,
+      bestSeasonStartMonth: json['best_season_start_month'] as int?,
+      bestSeasonEndMonth: json['best_season_end_month'] as int?,
+      showPrices: json['show_prices'] as bool? ?? false,
     );
   }
 
@@ -178,6 +190,9 @@ class Plan {
       if (maxGroupSize != null) 'max_group_size': maxGroupSize,
       'faq_items': faqItems.map((f) => f.toJson()).toList(),
       if (reviewStats != null) 'review_stats': reviewStats!.toJson(),
+      if (bestSeasonStartMonth != null) 'best_season_start_month': bestSeasonStartMonth,
+      if (bestSeasonEndMonth != null) 'best_season_end_month': bestSeasonEndMonth,
+      'show_prices': showPrices,
     };
   }
 
@@ -203,6 +218,9 @@ class Plan {
     int? maxGroupSize,
     List<FAQItem>? faqItems,
     ReviewStats? reviewStats,
+    int? bestSeasonStartMonth,
+    int? bestSeasonEndMonth,
+    bool? showPrices,
   }) {
     return Plan(
       id: id ?? this.id,
@@ -226,6 +244,9 @@ class Plan {
       maxGroupSize: maxGroupSize ?? this.maxGroupSize,
       faqItems: faqItems ?? this.faqItems,
       reviewStats: reviewStats ?? this.reviewStats,
+      bestSeasonStartMonth: bestSeasonStartMonth ?? this.bestSeasonStartMonth,
+      bestSeasonEndMonth: bestSeasonEndMonth ?? this.bestSeasonEndMonth,
+      showPrices: showPrices ?? this.showPrices,
     );
   }
 }

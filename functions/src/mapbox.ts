@@ -159,18 +159,45 @@ export const geocodeAddressMapbox = onCall({region: "europe-west1", cors: true},
       let postalCode: string | undefined;
       let country: string | undefined;
       
+      // For address type features, feature.text contains house number + street name
+      // For other types, extract street from context
+      if (feature.properties.types?.includes("address")) {
+        // Use feature.text which includes house number + street (e.g., "123 Main St")
+        street = feature.text;
+      } else {
+        // For non-address types, extract street from context
+        for (const ctx of context) {
+          const id = ctx.id?.split(".")[0] || "";
+          if (id === "address" && !street) street = ctx.text;
+        }
+        // If we have a house number in properties.address, prepend it to street
+        if (feature.properties.address && street) {
+          street = `${feature.properties.address} ${street}`;
+        } else if (feature.properties.address && !street) {
+          street = feature.properties.address;
+        }
+      }
+      
+      // Extract other components from context
       for (const ctx of context) {
         const id = ctx.id?.split(".")[0] || "";
-        if (id === "address" && !street) street = ctx.text;
-        else if (id === "place" && !locality) locality = ctx.text;
+        if (id === "place" && !locality) locality = ctx.text;
         else if (id === "region" && !region) region = ctx.text;
         else if (id === "postcode" && !postalCode) postalCode = ctx.text;
         else if (id === "country" && !country) country = ctx.text;
       }
 
       // Build formatted address
+      // For address type features, feature.text contains the house number + street name
+      // feature.properties.address contains just the house number
       const parts: string[] = [];
-      if (feature.properties.address) parts.push(feature.properties.address);
+      if (feature.properties.types?.includes("address")) {
+        // For address type, use feature.text which includes house number + street
+        if (feature.text) parts.push(feature.text);
+      } else if (feature.properties.address) {
+        // For other types, use address property
+        parts.push(feature.properties.address);
+      }
       if (locality) parts.push(locality);
       if (region) parts.push(region);
       if (postalCode) parts.push(postalCode);

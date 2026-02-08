@@ -153,15 +153,16 @@ class DayPlanOrderManager {
 /// Utility to create the initial order from waypoints
 class DayPlanOrderBuilder {
   /// Build initial ordered items from a list of waypoints
-  /// Uses sensible defaults but allows full reordering afterward
+  /// Preserves existing section order based on waypoint order field
   static DayPlanOrderManager buildFromWaypoints(
     int dayNumber,
     List<RouteWaypoint> waypoints,
   ) {
     final items = <OrderableItem>[];
     final seenSections = <String>{};
+    final sectionFirstOrder = <String, int>{}; // Track first order value for each section
     
-    // Default ordering template (used for initial placement)
+    // Default ordering template (used only when no existing order is found)
     final defaultOrder = <String, int>{
       'accommodationSection': 0,
       'restaurantSection_breakfast': 1,
@@ -177,62 +178,33 @@ class DayPlanOrderBuilder {
     int currentOrder = 0;
     int logisticsOrder = 100; // Logistics/viewing points start at 100
     
-    // First pass: identify all sections
+    // First pass: identify all sections and track their first occurrence order
     for (final wp in waypoints) {
       final category = wp.timeSlotCategory ?? autoAssignTimeSlotCategory(wp);
+      String? sectionId;
       
       switch (wp.type) {
         case WaypointType.restaurant:
           final mealTime = wp.mealTime?.name ?? 'lunch';
-          final sectionId = OrderableItem.createSectionId(
+          sectionId = OrderableItem.createSectionId(
             OrderableItemType.restaurantSection, 
             mealTime,
           );
-          if (!seenSections.contains(sectionId)) {
-            seenSections.add(sectionId);
-            final order = defaultOrder[sectionId] ?? currentOrder++;
-            items.add(OrderableItem(
-              id: sectionId,
-              type: OrderableItemType.restaurantSection,
-              order: order,
-              sectionType: mealTime,
-            ));
-          }
           break;
           
         case WaypointType.activity:
           final activityTime = wp.activityTime?.name ?? 'afternoon';
-          final sectionId = OrderableItem.createSectionId(
+          sectionId = OrderableItem.createSectionId(
             OrderableItemType.activitySection,
             activityTime,
           );
-          if (!seenSections.contains(sectionId)) {
-            seenSections.add(sectionId);
-            final order = defaultOrder[sectionId] ?? currentOrder++;
-            items.add(OrderableItem(
-              id: sectionId,
-              type: OrderableItemType.activitySection,
-              order: order,
-              sectionType: activityTime,
-            ));
-          }
           break;
           
         case WaypointType.accommodation:
-          final sectionId = OrderableItem.createSectionId(
+          sectionId = OrderableItem.createSectionId(
             OrderableItemType.accommodationSection,
             null,
           );
-          if (!seenSections.contains(sectionId)) {
-            seenSections.add(sectionId);
-            final order = defaultOrder[sectionId] ?? currentOrder++;
-            items.add(OrderableItem(
-              id: sectionId,
-              type: OrderableItemType.accommodationSection,
-              order: order,
-              sectionType: null,
-            ));
-          }
           break;
           
         case WaypointType.servicePoint: // Logistics - each waypoint is individual
@@ -263,9 +235,67 @@ class DayPlanOrderBuilder {
           // Route points are not part of the day plan ordering
           break;
       }
+      
+      // Track the first order value for each section
+      if (sectionId != null && !sectionFirstOrder.containsKey(sectionId)) {
+        sectionFirstOrder[sectionId] = wp.order;
+      }
     }
     
-    // Sort by initial order and reassign clean sequential orders
+    // Second pass: create section items with order based on first waypoint's order
+    for (final wp in waypoints) {
+      String? sectionId;
+      OrderableItemType? itemType;
+      String? sectionType;
+      
+      switch (wp.type) {
+        case WaypointType.restaurant:
+          final mealTime = wp.mealTime?.name ?? 'lunch';
+          sectionId = OrderableItem.createSectionId(
+            OrderableItemType.restaurantSection, 
+            mealTime,
+          );
+          itemType = OrderableItemType.restaurantSection;
+          sectionType = mealTime;
+          break;
+          
+        case WaypointType.activity:
+          final activityTime = wp.activityTime?.name ?? 'afternoon';
+          sectionId = OrderableItem.createSectionId(
+            OrderableItemType.activitySection,
+            activityTime,
+          );
+          itemType = OrderableItemType.activitySection;
+          sectionType = activityTime;
+          break;
+          
+        case WaypointType.accommodation:
+          sectionId = OrderableItem.createSectionId(
+            OrderableItemType.accommodationSection,
+            null,
+          );
+          itemType = OrderableItemType.accommodationSection;
+          sectionType = null;
+          break;
+          
+        default:
+          break;
+      }
+      
+      if (sectionId != null && itemType != null && !seenSections.contains(sectionId)) {
+        seenSections.add(sectionId);
+        // Use the first waypoint's order for this section, or default if not found
+        final order = sectionFirstOrder[sectionId] ?? defaultOrder[sectionId] ?? currentOrder++;
+        items.add(OrderableItem(
+          id: sectionId,
+          type: itemType,
+          order: order,
+          sectionType: sectionType,
+        ));
+      }
+    }
+    
+    // Sort by order and reassign clean sequential orders
     items.sort((a, b) => a.order.compareTo(b.order));
     final reorderedItems = items.asMap().entries
         .map((e) => e.value.copyWith(order: e.key))

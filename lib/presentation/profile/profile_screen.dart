@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
+import 'package:waypoint/auth/auth_exception.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/providers/theme_provider.dart';
@@ -923,17 +924,14 @@ class _EmailAuthFormState extends State<_EmailAuthForm> {
         
         if (!mounted) return;
         
-        // If sign in failed (user is null), show error and keep form open
-        if (user == null) {
-          errorMessage = 'Incorrect email or password. Please try again.';
-          return;
-        }
-        
         // Check email verification status
         if (!widget.auth.isEmailVerified) {
           _showEmailVerificationDialog();
           return;
         }
+        
+        if (!mounted) return;
+        widget.onAuthSuccess();
       } else {
         final user = await widget.auth.createAccountWithEmail(
           context,
@@ -947,19 +945,17 @@ class _EmailAuthFormState extends State<_EmailAuthForm> {
         
         if (!mounted) return;
         
-        // If account creation failed, keep form open
-        if (user == null) {
-          errorMessage = 'Failed to create account. Please try again.';
-          return;
-        }
-        
         // Show email verification dialog after signup
         _showEmailVerificationDialog();
         return;
       }
-      
-      if (!mounted) return;
-      widget.onAuthSuccess();
+    } on AuthException catch (e) {
+      errorMessage = e.message;
+    } catch (e) {
+      debugPrint('Unexpected error during authentication: $e');
+      errorMessage = _mode == _AuthMode.signIn 
+          ? 'Sign in failed. Please try again.'
+          : 'Failed to create account. Please try again.';
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -1235,17 +1231,15 @@ class _EmailAuthSheetState extends State<_EmailAuthSheet> {
         
         if (!mounted) return;
         
-        // If sign in failed (user is null), show error and keep sheet open
-        if (user == null) {
-          errorMessage = 'Incorrect email or password. Please try again.';
-          return;
-        }
-        
         // Check email verification status
         if (!widget.auth.isEmailVerified) {
           _showEmailVerificationDialog();
           return;
         }
+        
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        widget.onAuthSuccess();
       } else {
         final user = await widget.auth.createAccountWithEmail(
           context,
@@ -1259,20 +1253,17 @@ class _EmailAuthSheetState extends State<_EmailAuthSheet> {
         
         if (!mounted) return;
         
-        // If account creation failed, keep sheet open
-        if (user == null) {
-          errorMessage = 'Failed to create account. Please try again.';
-          return;
-        }
-        
         // Show email verification dialog after signup
         _showEmailVerificationDialog();
         return;
       }
-      
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      widget.onAuthSuccess();
+    } on AuthException catch (e) {
+      errorMessage = e.message;
+    } catch (e) {
+      debugPrint('Unexpected error during authentication: $e');
+      errorMessage = _mode == _AuthMode.signIn 
+          ? 'Sign in failed. Please try again.'
+          : 'Failed to create account. Please try again.';
     } finally {
       if (mounted) {
         setState(() => _loading = false);

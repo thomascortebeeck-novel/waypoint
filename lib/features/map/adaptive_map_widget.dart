@@ -23,6 +23,8 @@ class MapAnnotation {
   final bool draggable;
   final VoidCallback? onTap;
   final Function(LatLng)? onDrag;
+  final double? markerSize; // Optional size override (default: 22 for POIs, 28 for waypoints)
+  final double? iconSize; // Optional icon size override (default: 12 for POIs, 16 for waypoints)
   
   const MapAnnotation({
     required this.id,
@@ -33,6 +35,8 @@ class MapAnnotation {
     this.draggable = false,
     this.onTap,
     this.onDrag,
+    this.markerSize,
+    this.iconSize,
   });
   
   /// Create annotation from RouteWaypoint
@@ -50,6 +54,8 @@ class MapAnnotation {
       draggable: draggable,
       onTap: onTap,
       onDrag: onDrag,
+      markerSize: 28, // Custom waypoints are larger
+      iconSize: 16, // Larger icons for better visibility
     );
   }
   
@@ -65,6 +71,8 @@ class MapAnnotation {
       label: poi.name,
       draggable: false,
       onTap: onTap,
+      markerSize: 22, // OSM POIs match Mapbox native size
+      iconSize: 12, // Standard icon size for POIs
     );
   }
 }
@@ -402,10 +410,21 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                   annotation.label!.length == 1 && 
                   (annotation.label == 'A' || annotation.label == 'B');
               
+              // Determine marker size: start/end = 40, waypoint = 28, POI = 22
+              final markerSize = isStartEndMarker 
+                  ? 40.0 
+                  : (annotation.markerSize ?? 22.0);
+              final iconSize = isStartEndMarker 
+                  ? 18.0 
+                  : (annotation.iconSize ?? 12.0);
+              final borderWidth = isStartEndMarker 
+                  ? 3.0 
+                  : (markerSize == 28.0 ? 2.5 : 2.0); // Thicker border for waypoints
+              
               return fm.Marker(
                 point: annotation.position,
-                width: isStartEndMarker ? 40 : 22,
-                height: isStartEndMarker ? 40 : 22,
+                width: markerSize,
+                height: markerSize,
                 child: GestureDetector(
                   onTap: annotation.onTap,
                   onPanUpdate: annotation.draggable && annotation.onDrag != null
@@ -418,10 +437,12 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                       : null,
                   child: isStartEndMarker
                       ? Container(
+                          width: markerSize,
+                          height: markerSize,
                           decoration: BoxDecoration(
                             color: annotation.color,
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
+                            border: Border.all(color: Colors.white, width: borderWidth),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.3),
@@ -442,10 +463,12 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                           ),
                         )
                       : Container(
+                          width: markerSize,
+                          height: markerSize,
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: annotation.color, // FILL with category color
                             shape: BoxShape.circle,
-                            border: Border.all(color: annotation.color, width: 2),
+                            border: Border.all(color: Colors.white, width: borderWidth), // WHITE border
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.2),
@@ -454,10 +477,15 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                               ),
                             ],
                           ),
-                          child: Icon(
-                            annotation.icon,
-                            color: annotation.color,
-                            size: 12,
+                          child: Center(
+                            child: Material( // FIX: Prevents "box" icons on Web
+                              type: MaterialType.transparency,
+                              child: Icon(
+                                annotation.icon,
+                                color: Colors.white, // WHITE icon for visibility
+                                size: iconSize,
+                              ),
+                            ),
                           ),
                         ),
                 ),

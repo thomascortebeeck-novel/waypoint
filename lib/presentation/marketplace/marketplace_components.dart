@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:waypoint/core/constants/breakpoints.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/theme/colors.dart';
@@ -28,32 +29,29 @@ class ActivityCategoriesCarousel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Explore by Activity',
-                style: context.textStyles.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Explore by Activity',
+              style: context.textStyles.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Popular activities from our community',
-                style: context.textStyles.bodyMedium?.copyWith(
-                  color: context.colors.onSurface.withValues(alpha: 0.6),
-                ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Popular activities from our community',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         SizedBox(
           height: carouselHeight,
           child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: EdgeInsets.zero, // Padding handled by parent _CenteredSection
             scrollDirection: Axis.horizontal,
             itemCount: activities.length,
             separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 20 : 16),
@@ -505,12 +503,15 @@ class TestimonialsSection extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(
         vertical: isDesktop ? 64 : 48,
-        horizontal: 16,
       ),
       decoration: BoxDecoration(
         color: context.colors.surfaceContainer.withValues(alpha: 0.3),
       ),
-      child: Column(
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: WaypointBreakpoints.contentMaxWidth),
+          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 48 : 24),
+          child: Column(
         children: [
           Text(
             'What Adventurers Say',
@@ -545,7 +546,7 @@ class TestimonialsSection extends StatelessWidget {
               height: 280,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: EdgeInsets.zero, // Padding handled by parent container
                 itemCount: testimonials.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 16),
                 itemBuilder: (context, index) => SizedBox(
@@ -554,7 +555,9 @@ class TestimonialsSection extends StatelessWidget {
                 ),
               ),
             ),
-        ],
+          ],
+        ),
+        ),
       ),
     );
   }

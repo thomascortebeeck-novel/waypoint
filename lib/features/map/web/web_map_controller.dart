@@ -22,6 +22,8 @@ class WebMapController extends WaypointMapController {
   Function(String id, bool draggable)? _jsSetMarkerDraggable;
   Function(String id, double lat, double lng)? _jsUpdateMarkerPosition;
   Function(bool enabled)? _jsSetScrollZoomEnabled;
+  Function()? _jsDisableInteractions;
+  Function()? _jsEnableInteractions;
 
   /// Initialize controller with JavaScript interop functions
   void initialize({
@@ -34,6 +36,8 @@ class WebMapController extends WaypointMapController {
     Function(String id, bool draggable)? setMarkerDraggable,
     Function(String id, double lat, double lng)? updateMarkerPosition,
     Function(bool enabled)? setScrollZoomEnabled,
+    Function()? disableInteractions,
+    Function()? enableInteractions,
     required CameraPosition initialPosition,
   }) {
     _jsSetCamera = setCamera;
@@ -45,6 +49,8 @@ class WebMapController extends WaypointMapController {
     _jsSetMarkerDraggable = setMarkerDraggable;
     _jsUpdateMarkerPosition = updateMarkerPosition;
     _jsSetScrollZoomEnabled = setScrollZoomEnabled;
+    _jsDisableInteractions = disableInteractions;
+    _jsEnableInteractions = enableInteractions;
     _currentPosition = initialPosition;
   }
 
@@ -183,6 +189,16 @@ class WebMapController extends WaypointMapController {
   @override
   Future<void> enableScrollZoom() async {
     _jsSetScrollZoomEnabled?.call(true);
+  }
+
+  @override
+  Future<void> disableInteractions() async {
+    _jsDisableInteractions?.call();
+  }
+
+  @override
+  Future<void> enableInteractions() async {
+    _jsEnableInteractions?.call();
   }
 
   @override

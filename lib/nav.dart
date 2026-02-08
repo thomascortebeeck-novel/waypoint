@@ -34,6 +34,7 @@ import 'package:waypoint/presentation/trips/join_trip_screen.dart';
 import 'package:waypoint/presentation/trips/trip_members_screen.dart';
 import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
 import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
+import 'package:waypoint/presentation/marketplace/location_search_results_page.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'theme.dart';
@@ -65,6 +66,7 @@ class AppRoutes {
   static const String joinTrip = '/join/:inviteCode';
   static const String tripMembers = '/trip/:tripId/members';
   static const String adminMigration = '/admin/migration';
+  static const String locationSearch = '/search/location/:location';
 }
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -391,6 +393,14 @@ class AppRouter {
             planId: planId,
             tripId: tripId,
           );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.locationSearch,
+        builder: (context, state) {
+          final location = Uri.decodeComponent(state.pathParameters['location'] ?? '');
+          return LocationSearchResultsPage(location: location);
         },
       ),
       GoRoute(

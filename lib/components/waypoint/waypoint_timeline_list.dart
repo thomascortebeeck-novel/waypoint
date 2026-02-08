@@ -14,8 +14,6 @@ class WaypointTimelineList extends StatefulWidget {
   final Function(RouteWaypoint)? onDeleteWaypoint;
   final Function(RouteWaypoint, String?)? onTimeChange;
   final Function(TimeSlotCategory)? onAddWaypoint;
-  final Function(int, int)? onReorder;
-  
   // Selection mode (for trip owner)
   final bool isSelectable;
   final Set<String> selectedWaypointIds;
@@ -25,7 +23,6 @@ class WaypointTimelineList extends StatefulWidget {
   final bool isViewOnly;
   final bool showActions; // Show edit/delete actions (builder mode)
   final bool enableTimeEditing; // Allow editing times (builder/trip owner)
-  final bool enableReordering; // Allow drag-to-reorder (builder mode)
   
   const WaypointTimelineList({
     super.key,
@@ -34,14 +31,12 @@ class WaypointTimelineList extends StatefulWidget {
     this.onDeleteWaypoint,
     this.onTimeChange,
     this.onAddWaypoint,
-    this.onReorder,
     this.isSelectable = false,
     this.selectedWaypointIds = const {},
     this.onToggleSelection,
     this.isViewOnly = false,
     this.showActions = false,
     this.enableTimeEditing = false,
-    this.enableReordering = false,
   });
 
   @override
@@ -96,7 +91,6 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
           onEditWaypoint: widget.onEditWaypoint ?? (_) {},
           onDeleteWaypoint: widget.onDeleteWaypoint ?? (_) {},
           onTimeChange: widget.enableTimeEditing ? widget.onTimeChange : null,
-          onReorder: widget.enableReordering ? widget.onReorder : null,
         );
       }).toList(),
     );

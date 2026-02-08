@@ -102,6 +102,12 @@ class PlanMeta {
   final AccommodationType? accommodationType;
   /// Lightweight version summaries for dropdown display (loaded without full version data)
   final List<VersionSummary> versionSummaries;
+  /// Best season start month (1-12, where 1 = January)
+  final int? bestSeasonStartMonth;
+  /// Best season end month (1-12, where 1 = January)
+  final int? bestSeasonEndMonth;
+  /// Whether to show price estimates from waypoints on detail pages
+  final bool showPrices;
 
   PlanMeta({
     required this.id,
@@ -123,6 +129,9 @@ class PlanMeta {
     this.activityCategory,
     this.accommodationType,
     this.versionSummaries = const [],
+    this.bestSeasonStartMonth,
+    this.bestSeasonEndMonth,
+    this.showPrices = false,
   });
 
   factory PlanMeta.fromJson(Map<String, dynamic> json) => PlanMeta(
@@ -159,6 +168,9 @@ class PlanMeta {
     versionSummaries: (json['version_summaries'] as List<dynamic>?)
         ?.map((v) => VersionSummary.fromJson(v as Map<String, dynamic>))
         .toList() ?? [],
+    bestSeasonStartMonth: json['best_season_start_month'] as int?,
+    bestSeasonEndMonth: json['best_season_end_month'] as int?,
+    showPrices: json['show_prices'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -181,6 +193,9 @@ class PlanMeta {
     'activity_category': activityCategory?.name,
     'accommodation_type': accommodationType?.name,
     'version_summaries': versionSummaries.map((v) => v.toJson()).toList(),
+    if (bestSeasonStartMonth != null) 'best_season_start_month': bestSeasonStartMonth,
+    if (bestSeasonEndMonth != null) 'best_season_end_month': bestSeasonEndMonth,
+    'show_prices': showPrices,
   };
 
   PlanMeta copyWith({
@@ -203,6 +218,9 @@ class PlanMeta {
     ActivityCategory? activityCategory,
     AccommodationType? accommodationType,
     List<VersionSummary>? versionSummaries,
+    int? bestSeasonStartMonth,
+    int? bestSeasonEndMonth,
+    bool? showPrices,
   }) => PlanMeta(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -223,6 +241,9 @@ class PlanMeta {
     activityCategory: activityCategory ?? this.activityCategory,
     accommodationType: accommodationType ?? this.accommodationType,
     versionSummaries: versionSummaries ?? this.versionSummaries,
+    bestSeasonStartMonth: bestSeasonStartMonth ?? this.bestSeasonStartMonth,
+    bestSeasonEndMonth: bestSeasonEndMonth ?? this.bestSeasonEndMonth,
+    showPrices: showPrices ?? this.showPrices,
   );
 
   /// Convert legacy Plan to PlanMeta (for migration)
@@ -249,6 +270,9 @@ class PlanMeta {
       versionSummaries: plan.versions
           .map((v) => VersionSummary.fromPlanVersion(v))
           .toList(),
+      bestSeasonStartMonth: plan.bestSeasonStartMonth,
+      bestSeasonEndMonth: plan.bestSeasonEndMonth,
+      showPrices: plan.showPrices,
     );
   }
 }

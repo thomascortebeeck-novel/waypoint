@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
+import 'package:waypoint/auth/auth_exception.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/user_model.dart';
@@ -1077,17 +1078,7 @@ class _JoinTripAuthSheetState extends State<_JoinTripAuthSheet> {
           marketingOptIn: false,
         );
         
-        if (user == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Failed to create account. Please try again.'),
-                backgroundColor: context.colors.error,
-              ),
-            );
-          }
-          return;
-        }
+        if (!mounted) return;
       } else {
         final user = await widget.auth.signInWithEmail(
           context,
@@ -1095,22 +1086,33 @@ class _JoinTripAuthSheetState extends State<_JoinTripAuthSheet> {
           _passwordCtrl.text,
         );
         
-        if (user == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Incorrect email or password. Please try again.'),
-                backgroundColor: context.colors.error,
-              ),
-            );
-          }
-          return;
-        }
+        if (!mounted) return;
       }
       
       if (!mounted) return;
       Navigator.of(context).pop();
       widget.onAuthSuccess();
+    } on AuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: context.colors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Unexpected error during authentication: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isSignUp 
+                ? 'Failed to create account. Please try again.'
+                : 'Sign in failed. Please try again.'),
+            backgroundColor: context.colors.error,
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _loading = false);

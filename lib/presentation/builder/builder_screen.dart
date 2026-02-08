@@ -92,6 +92,28 @@ String _getActivityLabel() {
   }
 }
 
+/// Returns the month name for a given month number (1-12)
+String _getMonthName(int monthNum) {
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  if (monthNum >= 1 && monthNum <= 12) {
+    return months[monthNum - 1];
+  }
+  return 'Unknown';
+}
+
 final _nameCtrl = TextEditingController();
 final _locationCtrl = TextEditingController();
 final _locationFocusNode = FocusNode();
@@ -124,6 +146,12 @@ bool _isPublished = true;
 // Activity categorization (plan-level)
 ActivityCategory? _activityCategory;
 AccommodationType? _accommodationType;
+
+// Best season (plan-level)
+int? _bestSeasonStartMonth; // 1-12, where 1 = January
+int? _bestSeasonEndMonth; // 1-12, where 1 = January
+// Show prices toggle (plan-level)
+bool _showPrices = false;
   
   // Current day being edited in Step 5
   int _currentDayIndex = 0;
@@ -205,10 +233,13 @@ _locationCtrl.text = plan.location;
 _descCtrl.text = plan.description;
 _heroCtrl.text = plan.heroImageUrl;
 _priceCtrl.text = plan.basePrice.toStringAsFixed(2);
-_isPublished = plan.isPublished;
-_activityCategory = plan.activityCategory;
-_accommodationType = plan.accommodationType;
-_versions.clear();
+      _isPublished = plan.isPublished;
+      _activityCategory = plan.activityCategory;
+      _accommodationType = plan.accommodationType;
+      _bestSeasonStartMonth = plan.bestSeasonStartMonth;
+      _bestSeasonEndMonth = plan.bestSeasonEndMonth;
+      _showPrices = plan.showPrices;
+      _versions.clear();
 if (plan.versions.isNotEmpty) {
 for (var i = 0; i < plan.versions.length; i++) {
 final v = plan.versions[i];
@@ -791,6 +822,52 @@ const SizedBox(height: 8),
 Text(
 "This is the price for purchasing this adventure plan",
 style: context.textStyles.bodySmall?.copyWith(color: Colors.grey),
+),
+const SizedBox(height: 24),
+
+// Best Season Section
+Text("Best Season", style: context.textStyles.titleMedium),
+const SizedBox(height: 8),
+Text("When is the best time to visit this adventure?", style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700)),
+const SizedBox(height: 12),
+Row(
+children: [
+Expanded(
+child: DropdownButtonFormField<int>(
+value: _bestSeasonStartMonth,
+decoration: InputDecoration(
+labelText: "Start Month",
+border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+),
+items: List.generate(12, (index) {
+final monthNum = index + 1;
+return DropdownMenuItem(
+value: monthNum,
+child: Text(_getMonthName(monthNum)),
+);
+}),
+onChanged: (value) => setState(() => _bestSeasonStartMonth = value),
+),
+),
+const SizedBox(width: 12),
+Expanded(
+child: DropdownButtonFormField<int>(
+value: _bestSeasonEndMonth,
+decoration: InputDecoration(
+labelText: "End Month",
+border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+),
+items: List.generate(12, (index) {
+final monthNum = index + 1;
+return DropdownMenuItem(
+value: monthNum,
+child: Text(_getMonthName(monthNum)),
+);
+}),
+onChanged: (value) => setState(() => _bestSeasonEndMonth = value),
+),
+),
+],
 ),
 const SizedBox(height: 32),
 
@@ -1784,6 +1861,8 @@ final km = (route.distance / 1000.0);
 distCtrl.text = km.toStringAsFixed(2);
 final hours = route.duration / 3600.0;
 timeCtrl.text = hours.toStringAsFixed(1);
+// Trigger auto-save to persist the route changes including waypoint ordering
+_saveCurrentStep();
 }
 } catch (e, stack) {
 Log.e('builder', 'RouteBuilderScreen failed', e, stack);
@@ -1810,7 +1889,7 @@ Expanded(child: _buildTextField(_getActivityTimeLabel(), "0", isNumber: true, co
 ],
 ),
 
-// WAYPOINTS SECTION - All types combined in one draggable list
+// WAYPOINTS SECTION - All types combined in one ordered list
 const SizedBox(height: 24),
 Row(
 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2587,12 +2666,15 @@ isFeatured: false,
 isPublished: _isPublished,
 createdAt: now,
 updatedAt: now,
-activityCategory: _activityCategory,
-accommodationType: _accommodationType,
-faqItems: planFaqItems,
-);
+      activityCategory: _activityCategory,
+      accommodationType: _accommodationType,
+      faqItems: planFaqItems,
+      bestSeasonStartMonth: _bestSeasonStartMonth,
+      bestSeasonEndMonth: _bestSeasonEndMonth,
+      showPrices: _showPrices,
+    );
 
-Log.i('builder', 'Creating plan document...');
+    Log.i('builder', 'Creating plan document...');
 final planId = await _planService.createPlan(plan);
 await _userService.addCreatedPlan(userId, planId);
 
@@ -2691,14 +2773,17 @@ location: location,
 basePrice: updatedVersions.isEmpty ? _editingPlan!.basePrice : updatedVersions.map((v) => v.price).reduce((a, b) => a < b ? a : b),
 versions: updatedVersions.isEmpty ? _editingPlan!.versions : updatedVersions,
 isPublished: _isPublished,
-updatedAt: DateTime.now(),
-activityCategory: _activityCategory,
-accommodationType: _accommodationType,
-faqItems: planFaqItems,
-);
-// Use updatePlanWithVersions to save versions and days to subcollections
-await _planService.updatePlanWithVersions(updated);
-if (!mounted) return;
+      updatedAt: DateTime.now(),
+      activityCategory: _activityCategory,
+      accommodationType: _accommodationType,
+      faqItems: planFaqItems,
+      bestSeasonStartMonth: _bestSeasonStartMonth,
+      bestSeasonEndMonth: _bestSeasonEndMonth,
+      showPrices: _showPrices,
+    );
+    // Use updatePlanWithVersions to save versions and days to subcollections
+    await _planService.updatePlanWithVersions(updated);
+    if (!mounted) return;
 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Changes saved')));
 context.go('/builder');
 } catch (e) {
@@ -2796,14 +2881,17 @@ location: location,
 basePrice: versions.isEmpty ? 0.0 : versions.map((v) => v.price).reduce((a, b) => a < b ? a : b),
 versions: versions,
 isPublished: false,
-updatedAt: DateTime.now(),
-activityCategory: _activityCategory,
-accommodationType: _accommodationType,
-faqItems: planFaqItems,
-);
-// Use updatePlanWithVersions to save versions and days to subcollections
-await _planService.updatePlanWithVersions(updated);
-Log.i('builder', 'Draft updated: ${updated.id}');
+      updatedAt: DateTime.now(),
+      activityCategory: _activityCategory,
+      accommodationType: _accommodationType,
+      faqItems: planFaqItems,
+      bestSeasonStartMonth: _bestSeasonStartMonth,
+      bestSeasonEndMonth: _bestSeasonEndMonth,
+      showPrices: _showPrices,
+    );
+    // Use updatePlanWithVersions to save versions and days to subcollections
+    await _planService.updatePlanWithVersions(updated);
+    Log.i('builder', 'Draft updated: ${updated.id}');
 } else {
 // This shouldn't happen since we create draft on "New Adventure", but handle it
 final now = DateTime.now();
@@ -2816,14 +2904,19 @@ location: location,
 basePrice: versions.isEmpty ? 0.0 : versions.map((v) => v.price).reduce((a, b) => a < b ? a : b),
 creatorId: userId,
 creatorName: creatorName,
-versions: versions,
-isPublished: false,
-createdAt: now,
-updatedAt: now,
-faqItems: planFaqItems,
-);
+      versions: versions,
+      isPublished: false,
+      createdAt: now,
+      updatedAt: now,
+      faqItems: planFaqItems,
+      activityCategory: _activityCategory,
+      accommodationType: _accommodationType,
+      bestSeasonStartMonth: _bestSeasonStartMonth,
+      bestSeasonEndMonth: _bestSeasonEndMonth,
+      showPrices: _showPrices,
+    );
 
-final newPlanId = await _planService.createPlan(plan);
+    final newPlanId = await _planService.createPlan(plan);
 await _userService.addCreatedPlan(userId, newPlanId);
 Log.i('builder', 'New draft created: $newPlanId');
 
@@ -2925,13 +3018,16 @@ location: location,
 basePrice: versions.isEmpty ? 0.0 : versions.map((v) => v.price).reduce((a, b) => a < b ? a : b),
 versions: versions,
 isPublished: _isPublished,
-updatedAt: DateTime.now(),
-activityCategory: _activityCategory,
-accommodationType: _accommodationType,
-faqItems: planFaqItems,
-);
+      updatedAt: DateTime.now(),
+      activityCategory: _activityCategory,
+      accommodationType: _accommodationType,
+      faqItems: planFaqItems,
+      bestSeasonStartMonth: _bestSeasonStartMonth,
+      bestSeasonEndMonth: _bestSeasonEndMonth,
+      showPrices: _showPrices,
+    );
 
-await _planService.updatePlanWithVersions(updated);
+    await _planService.updatePlanWithVersions(updated);
 
 if (mounted) {
 setState(() {
@@ -3943,63 +4039,56 @@ vf.routeByDay[dayNum] = updatedRoute;
 Log.i('builder', 'Updated waypoint time: ${waypoint.name} to $newTime');
 }
 
-/// Reorder waypoints within a category
-void _reorderWaypointsInCategory(int dayNum, TimeSlotCategory category, int oldIndex, int newIndex, _VersionFormData vf) {
-final existingRoute = vf.routeByDay[dayNum];
-if (existingRoute == null) return;
+/// Reorder waypoint within a category
+void _reorderWaypointInCategory(int dayNum, TimeSlotCategory category, int oldIndex, int newIndex, _VersionFormData vf) {
+  final existingRoute = vf.routeByDay[dayNum];
+  if (existingRoute == null) return;
 
-// Get all waypoints
-final allWaypoints = existingRoute.poiWaypoints
-.map((json) => RouteWaypoint.fromJson(json))
-.toList();
+  final allWaypoints = existingRoute.poiWaypoints
+      .map((json) => RouteWaypoint.fromJson(json))
+      .toList();
 
-// Get waypoints in this category
-final categoryWaypoints = allWaypoints
-.where((wp) => wp.timeSlotCategory == category)
-.toList();
+  final categoryWaypoints = allWaypoints
+      .where((wp) => wp.timeSlotCategory == category)
+      .toList();
 
-if (oldIndex >= categoryWaypoints.length || newIndex > categoryWaypoints.length) return;
+  if (oldIndex >= categoryWaypoints.length || newIndex > categoryWaypoints.length) return;
 
-// Adjust newIndex for ReorderableListView behavior
-int adjustedNewIndex = newIndex;
-if (newIndex > oldIndex) {
-adjustedNewIndex -= 1;
-}
+  int adjustedNewIndex = newIndex;
+  if (newIndex > oldIndex) {
+    adjustedNewIndex = newIndex - 1;
+  }
 
-// Reorder within category
-final item = categoryWaypoints.removeAt(oldIndex);
-categoryWaypoints.insert(adjustedNewIndex, item);
+  final item = categoryWaypoints.removeAt(oldIndex);
+  categoryWaypoints.insert(adjustedNewIndex, item);
 
-// Merge back into all waypoints, maintaining category order
-final otherWaypoints = allWaypoints
-.where((wp) => wp.timeSlotCategory != category)
-.toList();
+  final otherWaypoints = allWaypoints
+      .where((wp) => wp.timeSlotCategory != category)
+      .toList();
 
-// Combine and sort by time slot order
-final updatedWaypoints = [...otherWaypoints, ...categoryWaypoints];
-updatedWaypoints.sort((a, b) {
-final aOrder = a.timeSlotCategory != null ? getTimeSlotOrder(a.timeSlotCategory!) : 999;
-final bOrder = b.timeSlotCategory != null ? getTimeSlotOrder(b.timeSlotCategory!) : 999;
-return aOrder.compareTo(bOrder);
-});
+  final updatedWaypoints = [...otherWaypoints, ...categoryWaypoints];
+  updatedWaypoints.sort((a, b) {
+    final aTime = a.suggestedStartTime ?? '';
+    final bTime = b.suggestedStartTime ?? '';
+    return aTime.compareTo(bTime);
+  });
 
-// Update route
-final updatedRoute = DayRoute(
-geometry: existingRoute.geometry,
-distance: existingRoute.distance,
-duration: existingRoute.duration,
-routePoints: existingRoute.routePoints,
-elevationProfile: existingRoute.elevationProfile,
-ascent: existingRoute.ascent,
-descent: existingRoute.descent,
-poiWaypoints: updatedWaypoints.map((w) => w.toJson()).toList(),
-);
+  final updatedRoute = DayRoute(
+    geometry: existingRoute.geometry,
+    distance: existingRoute.distance,
+    duration: existingRoute.duration,
+    routePoints: existingRoute.routePoints,
+    elevationProfile: existingRoute.elevationProfile,
+    ascent: existingRoute.ascent,
+    descent: existingRoute.descent,
+    poiWaypoints: updatedWaypoints.map((w) => w.toJson()).toList(),
+  );
 
-setState(() {
-vf.routeByDay[dayNum] = updatedRoute;
-});
+  setState(() {
+    vf.routeByDay[dayNum] = updatedRoute;
+  });
 
-Log.i('builder', 'Reordered waypoints in ${getTimeSlotLabel(category)}');
+  Log.i('builder', 'Reordered waypoints in ${getTimeSlotLabel(category)}');
 }
 
 /// Show dialog to select waypoint type before adding
@@ -4274,6 +4363,11 @@ void _applyOrderingToWaypoints(int dayNum, _VersionFormData vf) {
     }
   }
   
+  // Update order field to reflect new positions
+  for (int i = 0; i < reorderedWaypoints.length; i++) {
+    reorderedWaypoints[i].order = i;
+  }
+  
   // Update the route
   vf.routeByDay[dayNum] = DayRoute(
     geometry: existingRoute.geometry,
@@ -4285,6 +4379,9 @@ void _applyOrderingToWaypoints(int dayNum, _VersionFormData vf) {
     descent: existingRoute.descent,
     poiWaypoints: reorderedWaypoints.map((wp) => wp.toJson()).toList(),
   );
+  
+  // Trigger auto-save to persist the ordering
+  _saveCurrentStep();
 }
 
 /// Build timeline layout with categories for all waypoints
@@ -5460,52 +5557,60 @@ State<_AddWaypointFromItineraryDialog> createState() => _AddWaypointFromItinerar
 }
 
 class _AddWaypointFromItineraryDialogState extends State<_AddWaypointFromItineraryDialog> {
-final _searchController = TextEditingController();
-final _nameController = TextEditingController();
-final _descController = TextEditingController();
-final _airbnbAddressController = TextEditingController();
-final _placesService = GooglePlacesService();
-POIAccommodationType? _accommodationType;
-MealTime? _mealTime;
-ActivityTime? _activityTime;
-List<PlacePrediction> _searchResults = [];
-PlaceDetails? _selectedPlace;
-bool _searching = false;
-bool _geocoding = false;
-ll.LatLng? _airbnbLocation;
-bool _airbnbAddressConfirmed = false;
-Timer? _searchDebounce;
-String _lastSearchedQuery = ''; // Track last successful search to prevent duplicates
+  final _searchController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _descController = TextEditingController();
+  final _airbnbAddressController = TextEditingController();
+  final _priceMinController = TextEditingController();
+  final _priceMaxController = TextEditingController();
+  final _placesService = GooglePlacesService();
+  POIAccommodationType? _accommodationType;
+  MealTime? _mealTime;
+  ActivityTime? _activityTime;
+  List<PlacePrediction> _searchResults = [];
+  PlaceDetails? _selectedPlace;
+  bool _searching = false;
+  bool _geocoding = false;
+  ll.LatLng? _airbnbLocation;
+  bool _airbnbAddressConfirmed = false;
+  Timer? _searchDebounce;
+  String _lastSearchedQuery = ''; // Track last successful search to prevent duplicates
 
 @override
 void initState() {
 super.initState();
 _searchController.addListener(_onSearchChanged);
-// Pre-fill if editing
-if (widget.existingWaypoint != null) {
-final wp = widget.existingWaypoint!;
-_nameController.text = wp.name;
-_descController.text = wp.description ?? '';
-_accommodationType = wp.accommodationType;
-_mealTime = wp.mealTime;
-_activityTime = wp.activityTime;
-if (wp.accommodationType == POIAccommodationType.airbnb) {
-_airbnbAddressController.text = wp.address ?? '';
-_airbnbLocation = wp.position;
-_airbnbAddressConfirmed = true;
-}
-}
+    // Pre-fill if editing
+    if (widget.existingWaypoint != null) {
+      final wp = widget.existingWaypoint!;
+      _nameController.text = wp.name;
+      _descController.text = wp.description ?? '';
+      _accommodationType = wp.accommodationType;
+      _mealTime = wp.mealTime;
+      _activityTime = wp.activityTime;
+      if (wp.accommodationType == POIAccommodationType.airbnb) {
+        _airbnbAddressController.text = wp.address ?? '';
+        _airbnbLocation = wp.position;
+        _airbnbAddressConfirmed = true;
+      }
+      if (wp.estimatedPriceRange != null) {
+        _priceMinController.text = wp.estimatedPriceRange!.min.toStringAsFixed(2);
+        _priceMaxController.text = wp.estimatedPriceRange!.max.toStringAsFixed(2);
+      }
+    }
 }
 
-@override
-void dispose() {
-_searchController.dispose();
-_nameController.dispose();
-_descController.dispose();
-_airbnbAddressController.dispose();
-_searchDebounce?.cancel();
-super.dispose();
-}
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _nameController.dispose();
+    _descController.dispose();
+    _airbnbAddressController.dispose();
+    _priceMinController.dispose();
+    _priceMaxController.dispose();
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
 
 void _onSearchChanged() {
 final query = _searchController.text.trim();
@@ -6118,6 +6223,42 @@ hintText: 'Add details...',
 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
 ),
 ),
+// Price estimation for restaurant, accommodation, activity, and servicePoint
+if (widget.type == WaypointType.restaurant ||
+    widget.type == WaypointType.accommodation ||
+    widget.type == WaypointType.activity ||
+    widget.type == WaypointType.servicePoint) ...[
+const SizedBox(height: 16),
+const Text('Price Estimation (optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+const SizedBox(height: 8),
+Row(
+children: [
+Expanded(
+child: TextField(
+controller: _priceMinController,
+decoration: InputDecoration(
+labelText: 'Min Price (€)',
+hintText: '0.00',
+border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+),
+keyboardType: const TextInputType.numberWithOptions(decimal: true),
+),
+),
+const SizedBox(width: 12),
+Expanded(
+child: TextField(
+controller: _priceMaxController,
+decoration: InputDecoration(
+labelText: 'Max Price (€)',
+hintText: '0.00',
+border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+),
+keyboardType: const TextInputType.numberWithOptions(decimal: true),
+),
+),
+],
+),
+],
 ],
 ),
 ),
@@ -6184,38 +6325,59 @@ waypointId,
 );
 }
 
-ll.LatLng position;
-if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
-position = _airbnbLocation!;
-} else if (_selectedPlace != null) {
-position = _selectedPlace!.location;
-} else if (widget.existingWaypoint != null) {
-// When editing, use existing waypoint's position if no new place selected
-position = widget.existingWaypoint!.position;
-} else {
-return;
-}
+  ll.LatLng position;
+  if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
+    position = _airbnbLocation!;
+  } else if (_selectedPlace != null) {
+    position = _selectedPlace!.location;
+  } else if (widget.existingWaypoint != null) {
+    // When editing, use existing waypoint's position if no new place selected
+    position = widget.existingWaypoint!.position;
+  } else {
+    return;
+  }
 
-final waypoint = RouteWaypoint(
-id: widget.existingWaypoint?.id,
-type: widget.type,
-position: position,
-name: _nameController.text.trim(),
-description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
-order: widget.existingWaypoint?.order ?? 0,
-googlePlaceId: _selectedPlace?.placeId ?? widget.existingWaypoint?.googlePlaceId,
-address: _accommodationType == POIAccommodationType.airbnb
-? _airbnbAddressController.text.trim()
-: (_selectedPlace?.address ?? widget.existingWaypoint?.address),
-rating: _selectedPlace?.rating ?? widget.existingWaypoint?.rating,
-website: _selectedPlace?.website ?? widget.existingWaypoint?.website,
-phoneNumber: _selectedPlace?.phoneNumber ?? widget.existingWaypoint?.phoneNumber,
-photoUrl: photoUrl ?? widget.existingWaypoint?.photoUrl,
-accommodationType: widget.type == WaypointType.accommodation ? _accommodationType : null,
-mealTime: widget.type == WaypointType.restaurant ? _mealTime : null,
-activityTime: widget.type == WaypointType.activity ? _activityTime : null,
-);
+  // Parse price range if provided
+  PriceRange? estimatedPriceRange;
+  final minPriceText = _priceMinController.text.trim();
+  final maxPriceText = _priceMaxController.text.trim();
+  if (minPriceText.isNotEmpty || maxPriceText.isNotEmpty) {
+    final minPrice = double.tryParse(minPriceText.replaceAll(',', '.')) ?? 0.0;
+    final maxPrice = double.tryParse(maxPriceText.replaceAll(',', '.')) ?? 0.0;
+    if (minPrice > 0 || maxPrice > 0) {
+      // If only one value is provided, use it for both min and max
+      // Ensure min <= max
+      final actualMin = minPrice > 0 ? minPrice : (maxPrice > 0 ? maxPrice : 0.0);
+      final actualMax = maxPrice > 0 ? maxPrice : (minPrice > 0 ? minPrice : 0.0);
+      estimatedPriceRange = PriceRange(
+        min: actualMin <= actualMax ? actualMin : actualMax,
+        max: actualMax >= actualMin ? actualMax : actualMin,
+        currency: 'EUR',
+      );
+    }
+  }
 
-Navigator.of(context).pop(waypoint);
+  final waypoint = RouteWaypoint(
+    id: widget.existingWaypoint?.id,
+    type: widget.type,
+    position: position,
+    name: _nameController.text.trim(),
+    description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+    order: widget.existingWaypoint?.order ?? 0,
+    googlePlaceId: _selectedPlace?.placeId ?? widget.existingWaypoint?.googlePlaceId,
+    address: _accommodationType == POIAccommodationType.airbnb
+        ? _airbnbAddressController.text.trim()
+        : (_selectedPlace?.address ?? widget.existingWaypoint?.address),
+    rating: _selectedPlace?.rating ?? widget.existingWaypoint?.rating,
+    website: _selectedPlace?.website ?? widget.existingWaypoint?.website,
+    phoneNumber: _selectedPlace?.phoneNumber ?? widget.existingWaypoint?.phoneNumber,
+    photoUrl: photoUrl ?? widget.existingWaypoint?.photoUrl,
+    accommodationType: widget.type == WaypointType.accommodation ? _accommodationType : null,
+    mealTime: widget.type == WaypointType.restaurant ? _mealTime : null,
+    activityTime: widget.type == WaypointType.activity ? _activityTime : null,
+    estimatedPriceRange: estimatedPriceRange ?? widget.existingWaypoint?.estimatedPriceRange,
+  );
+
+  Navigator.of(context).pop(waypoint);
 }
 }

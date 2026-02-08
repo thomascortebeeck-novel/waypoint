@@ -456,12 +456,6 @@ class UnifiedWaypointCard extends StatelessWidget {
                   // Selection indicator
                   if (isSelectable)
                     _buildSelectionIndicator(context),
-                  
-                  // Drag handle
-                  if (showDragHandle && showActions) ...[
-                    const SizedBox(width: 8),
-                    Icon(Icons.drag_indicator, color: Colors.grey.shade400, size: 24),
-                  ],
                 ],
               ),
             ),

@@ -50,6 +50,47 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   js.JsObject? _mapInstance;
   final Map<String, js.JsObject> _markers = {};
   final Map<String, bool> _markerDraggableState = {};
+  final Map<String, html.Element> _markerElements = {}; // Track HTML elements for proper cleanup
+  final Map<String, StreamSubscription<html.MouseEvent>> _markerClickSubscriptions = {}; // Track event listeners
+  
+  /// CRITICAL: Track when interactions are disabled to block ALL events including clicks
+  /// This prevents map clicks from triggering popups when dialogs are open
+  bool _interactionsDisabled = false;
+  
+  /// Map IconData codePoints to Material Icons names for CDN usage
+  String _getMaterialIconName(IconData icon) {
+    // Map common Material Icons to their names for CDN usage
+    // These are the most common icons used in waypoints and POIs
+    const iconNames = {
+      0xe53f: 'hotel',                    // Icons.hotel (accommodation)
+      0xe56c: 'restaurant',               // Icons.restaurant
+      0xe549: 'local_dining',             // Icons.local_dining
+      0xe88a: 'local_activity',          // Icons.local_activity
+      0xe8f4: 'visibility',              // Icons.visibility (viewing point)
+      0xe55f: 'place',                    // Icons.place
+      0xe567: 'local_convenience_store',  // Icons.local_convenience_store
+      0xe55e: 'navigation',               // Icons.navigation
+      0xe1db: 'cabin',                    // Icons.cabin
+      0xe587: 'cottage',                  // Icons.cottage
+      0xe577: 'landscape',                // Icons.landscape
+      0xe598: 'water_drop',               // Icons.water_drop
+      0xe1fe: 'roofing',                  // Icons.roofing
+      0xe54c: 'local_parking',            // Icons.local_parking
+      0xe52a: 'hiking',                   // Icons.hiking
+      0xe556: 'outdoor_grill',            // Icons.outdoor_grill
+      0xe63e: 'wc',                       // Icons.wc
+      0xe88e: 'info',                     // Icons.info
+      0xe565: 'terrain',                  // Icons.terrain
+      0xe56d: 'water',                    // Icons.water
+      0xe87a: 'explore',                  // Icons.explore
+      0xe616: 'event_seat',               // Icons.event_seat
+      0xe86d: 'shield',                   // Icons.shield
+      0xe0cd: 'phone_in_talk',            // Icons.phone_in_talk
+      0xe569: 'signpost',                 // Icons.signpost
+    };
+    
+    return iconNames[icon.codePoint] ?? 'place'; // Default to 'place' if not found
+  }
   
   // Fallback to Mapbox standard outdoors style if custom style fails
   static const _fallbackStyleUri = 'mapbox://styles/mapbox/outdoors-v12';
@@ -92,6 +133,8 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     // Check if Mapbox GL JS is already loaded
     if (js.context.hasProperty('mapboxgl')) {
       debugPrint('🗺️ [MapboxWeb] Mapbox GL JS already loaded, skipping injection');
+      // Still ensure Material Icons font is loaded
+      await _ensureMaterialIconsLoaded();
       return;
     }
     
@@ -115,6 +158,51 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
 
     // Set the access token
     js.context['mapboxgl']['accessToken'] = mapboxPublicToken;
+    
+    // CRITICAL: Inject and WAIT for Material Icons font
+    await _ensureMaterialIconsLoaded();
+  }
+
+  /// Ensure Material Icons font is loaded and ready
+  Future<void> _ensureMaterialIconsLoaded() async {
+    if (html.document.getElementById('material-icons-font') == null) {
+      final fontLink = html.LinkElement()
+        ..id = 'material-icons-font'
+        ..rel = 'stylesheet'
+        ..href = 'https://fonts.googleapis.com/icon?family=Material+Icons';
+      html.document.head!.append(fontLink);
+      debugPrint('📝 [MapboxWeb] Material Icons stylesheet injected');
+    }
+    
+    // Wait for the font to actually load using the document.fonts API
+    try {
+      // Use JavaScript interop to access document.fonts.ready
+      final fontsReady = js.context['document']['fonts']['ready'];
+      if (fontsReady != null) {
+        await js.context.callMethod('eval', ['''
+          new Promise((resolve) => {
+            document.fonts.ready.then(() => {
+              // Double-check Material Icons is loaded
+              if (document.fonts.check('12px "Material Icons"')) {
+                console.log('✅ Material Icons font loaded');
+                resolve(true);
+              } else {
+                // Font might still be loading, wait a bit more
+                setTimeout(() => {
+                  console.log('⏳ Material Icons font check after delay');
+                  resolve(true);
+                }, 500);
+              }
+            });
+          })
+        ''']);
+        debugPrint('✅ [MapboxWeb] Material Icons font ready');
+      }
+    } catch (e) {
+      // Fallback: just wait a fixed time for font to load
+      debugPrint('⚠️ [MapboxWeb] Font ready API not available, using fallback delay: $e');
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
   }
 
   void _createMap(html.DivElement container, {String? styleOverride}) {
@@ -188,6 +276,10 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       // Store map reference for later use
       js.context['waypointMap_$_viewId'] = map;
       _mapInstance = map;
+      
+      // CRITICAL: Initialize interaction flag in JS context for click handler access
+      // This ensures the click handler can always read the current flag value
+      js.context['_interactionsDisabled_$_viewId'] = false;
       
       // Set up a timeout to detect style loading failures
       // Increased timeout to 15 seconds to account for slow connections
@@ -281,7 +373,21 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         }
       })]);
 
+      // CRITICAL: Create a closure that captures the flag reference correctly
+      // Store the flag in a way that the JS interop can access it
+      js.context['_interactionsDisabled_$_viewId'] = false;
+      
       map.callMethod('on', ['click', js.allowInterop((e) {
+        // CRITICAL: Block ALL click events when interactions are disabled
+        // This prevents map taps from triggering popups when dialogs are open
+        // Check this FIRST before any other logic
+        // Access flag from JS context to ensure we get the current value
+        final isDisabled = js.context['_interactionsDisabled_$_viewId'] as bool? ?? false;
+        if (isDisabled) {
+          debugPrint('🚫 [MapboxWeb] Click BLOCKED - interactions are disabled (dialog open)');
+          return;
+        }
+        
         // CRITICAL: Ignore clicks on map controls (zoom buttons, etc.)
         // Check if the click target is a control element
         // Safely access originalEvent - it might be a JsObject or null
@@ -424,6 +530,9 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     // Enable 3D terrain (Mapbox terrain is included in Standard style)
     _enable3DTerrain(map);
     
+    // Hide Mapbox native POI labels to prevent duplicates with our custom markers
+    _hideNativePOILabels(map);
+    
     // Add annotations and polylines after map is ready
     // Note: If annotations are empty now, they'll be added via didUpdateWidget when they arrive
     _updateAnnotations(map);
@@ -485,13 +594,154 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       setScrollZoomEnabled: (enabled) {
         try {
           // Disable/enable scroll zoom on Mapbox GL JS
-          if (enabled) {
-            map.callMethod('scrollZoom', ['enable']);
-          } else {
-            map.callMethod('scrollZoom', ['disable']);
+          // scrollZoom is a property, not a method - access it first, then call enable/disable
+          final scrollZoom = map['scrollZoom'];
+          if (scrollZoom != null && scrollZoom is js.JsObject) {
+            if (enabled) {
+              scrollZoom.callMethod('enable', []);
+            } else {
+              scrollZoom.callMethod('disable', []);
+            }
           }
         } catch (e) {
           debugPrint('⚠️ [MapboxWeb] Failed to ${enabled ? "enable" : "disable"} scroll zoom: $e');
+        }
+      },
+      disableInteractions: () {
+        // CRITICAL: Set flag FIRST in both Dart and JS context to immediately block click events
+        // This ensures clicks are blocked even before CSS/JS handlers are disabled
+        _interactionsDisabled = true;
+        js.context['_interactionsDisabled_$_viewId'] = true;
+        debugPrint('🚫 [MapboxWeb] Interactions DISABLED - blocking all map events');
+        
+        try {
+          // Disable ALL map interactions via JavaScript interop
+          // This prevents scroll zoom, drag pan, click, keyboard, etc.
+          // Use the same pattern as setScrollZoomEnabled which we know works
+          final handlers = [
+            'scrollZoom',
+            'dragPan',
+            'dragRotate',
+            'doubleClickZoom',
+            'touchZoomRotate',
+            'touchPitch',
+            'keyboard',
+            'boxZoom',
+          ];
+          
+          for (final handler in handlers) {
+            try {
+              // Mapbox GL JS handlers are properties, not methods
+              // Access the handler property first, then call disable() on it
+              // Use bracket notation to access property
+              final handlerObj = map[handler];
+              if (handlerObj != null && handlerObj is js.JsObject) {
+                handlerObj.callMethod('disable', []);
+              }
+            } catch (e) {
+              // Some handlers might not exist in all Mapbox versions, continue
+              debugPrint('⚠️ [MapboxWeb] Handler $handler not available: $e');
+            }
+          }
+          
+          // Set CSS pointer-events to none on ALL Mapbox containers as backup
+          // This ensures click/tap events can't reach the map even if JS handlers fail
+          final selectors = [
+            '.mapboxgl-map',
+            '.mapboxgl-canvas-container',
+            '.mapboxgl-canvas',
+          ];
+          
+          // Try to find containers within our specific viewId first
+          final containerElement = html.document.getElementById(_viewId);
+          if (containerElement != null) {
+            for (final selector in selectors) {
+              final elements = containerElement.querySelectorAll(selector);
+              for (final element in elements) {
+                if (element is html.HtmlElement) {
+                  element.style.pointerEvents = 'none';
+                }
+              }
+            }
+          }
+          
+          // Fallback: set on all Mapbox containers globally
+          for (final selector in selectors) {
+            final elements = html.document.querySelectorAll(selector);
+            for (final element in elements) {
+              if (element is html.HtmlElement) {
+                element.style.pointerEvents = 'none';
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ [MapboxWeb] Failed to disable interactions: $e');
+        }
+      },
+      enableInteractions: () {
+        // CRITICAL: Clear flag in both Dart and JS context to allow click events again
+        _interactionsDisabled = false;
+        js.context['_interactionsDisabled_$_viewId'] = false;
+        debugPrint('✅ [MapboxWeb] Interactions ENABLED - allowing all map events');
+        
+        try {
+          // Re-enable ALL map interactions via JavaScript interop
+          final handlers = [
+            'scrollZoom',
+            'dragPan',
+            'dragRotate',
+            'doubleClickZoom',
+            'touchZoomRotate',
+            'touchPitch',
+            'keyboard',
+            'boxZoom',
+          ];
+          
+          for (final handler in handlers) {
+            try {
+              // Mapbox GL JS handlers are properties, not methods
+              // Access the handler property first, then call enable() on it
+              final handlerObj = map[handler];
+              if (handlerObj != null && handlerObj is js.JsObject) {
+                handlerObj.callMethod('enable', []);
+              }
+            } catch (e) {
+              // Some handlers might not exist in all Mapbox versions, continue
+              debugPrint('⚠️ [MapboxWeb] Handler $handler not available: $e');
+            }
+          }
+          
+          // Re-enable CSS pointer-events on ALL Mapbox containers
+          final selectors = [
+            '.mapboxgl-map',
+            '.mapboxgl-canvas-container',
+            '.mapboxgl-canvas',
+          ];
+          
+          // Try to find containers within our specific viewId first
+          final containerElement = html.document.getElementById(_viewId);
+          if (containerElement != null) {
+            for (final selector in selectors) {
+              final elements = containerElement.querySelectorAll(selector);
+              for (final element in elements) {
+                if (element is html.HtmlElement) {
+                  element.style.pointerEvents = 'auto';
+                }
+              }
+            }
+          }
+          
+          // Fallback: re-enable on all Mapbox containers globally
+          for (final selector in selectors) {
+            final elements = html.document.querySelectorAll(selector);
+            for (final element in elements) {
+              if (element is html.HtmlElement) {
+                element.style.pointerEvents = 'auto';
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ [MapboxWeb] Failed to enable interactions: $e');
         }
       },
       initialPosition: CameraPosition(
@@ -530,6 +780,43 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     } catch (e) {
       // Terrain setup failed - this is non-critical, map still works
       debugPrint('⚠️ Terrain setup skipped: $e');
+    }
+  }
+
+  /// Hide Mapbox's native POI labels to prevent duplicates with custom waypoints
+  void _hideNativePOILabels(js.JsObject map) {
+    try {
+      // Get all layers in the style
+      final style = map.callMethod('getStyle', []);
+      if (style == null) return;
+      
+      final layers = style['layers'] as List?;
+      if (layers == null) return;
+      
+      // Hide layers that contain POI labels
+      // Common Mapbox POI layer patterns: poi-label, poi_label, transit-label (for places)
+      final poiLayerPatterns = ['poi-label', 'poi_label', 'transit-label'];
+      
+      for (final layer in layers) {
+        final layerId = layer['id']?.toString() ?? '';
+        
+        // Check if this is a POI-related layer
+        for (final pattern in poiLayerPatterns) {
+          if (layerId.contains(pattern)) {
+            try {
+              map.callMethod('setLayoutProperty', [layerId, 'visibility', 'none']);
+              debugPrint('🙈 [MapboxWeb] Hidden native POI layer: $layerId');
+            } catch (e) {
+              // Layer might not exist or not support visibility
+            }
+            break;
+          }
+        }
+      }
+      
+      debugPrint('✅ [MapboxWeb] Native POI labels hidden');
+    } catch (e) {
+      debugPrint('⚠️ [MapboxWeb] Could not hide native POI labels: $e');
     }
   }
 
@@ -738,11 +1025,38 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   void _removeMarkerFromMap(String id) {
     final marker = _markers[id];
     if (marker != null) {
+      // CRITICAL: Cleanup order matters - do this in the correct sequence:
+      
+      // 1. Cancel subscription first to prevent any pending events
+      final subscription = _markerClickSubscriptions[id];
+      if (subscription != null) {
+        subscription.cancel();
+        _markerClickSubscriptions.remove(id);
+      }
+      
+      // 2. Remove JS marker from map
       try {
         marker.callMethod('remove', []);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('⚠️ [MapboxWeb] Error removing marker $id from map: $e');
+      }
+      
+      // 3. Remove HTML element from DOM
+      final element = _markerElements[id];
+      if (element != null) {
+        try {
+          element.remove(); // Remove from DOM
+        } catch (e) {
+          debugPrint('⚠️ [MapboxWeb] Error removing element for marker $id: $e');
+        }
+        _markerElements.remove(id);
+      }
+      
+      // 4. Clear state maps
       _markers.remove(id);
       _markerDraggableState.remove(id);
+      
+      debugPrint('🗑️ [MapboxWeb] Fully removed marker: $id');
     }
   }
   
@@ -855,25 +1169,41 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
           (annotation.label == 'A' || annotation.label == 'B');
       
       // Create custom marker element with icon support
-      // Align styling with Mapbox native POI markers: white background, colored icon, same size (22px)
+      // Use annotation size: start/end = 40px, waypoints = 28px, POIs = 22px
       // Note: position is NOT set on the outer element - Mapbox handles marker positioning internally
       // Setting position: 'relative' can interfere with Mapbox's positioning system
+      final markerSize = isStartEndMarker 
+          ? 40.0 
+          : (annotation.markerSize ?? 22.0);
+      final iconSize = isStartEndMarker 
+          ? 18.0 
+          : (annotation.iconSize ?? 12.0);
+      final borderWidth = isStartEndMarker 
+          ? 3.0 
+          : (markerSize == 28.0 ? 2.5 : 2.0); // Thicker border for waypoints
+      
       final el = html.DivElement()
         ..className = 'waypoint-annotation-marker'
-        ..style.width = isStartEndMarker ? '40px' : '22px' // Larger for start/end markers
-        ..style.height = isStartEndMarker ? '40px' : '22px'
+        ..style.width = '${markerSize}px'
+        ..style.height = '${markerSize}px'
         ..style.cursor = 'pointer'
         ..style.pointerEvents = 'auto'; // Marker can receive clicks (for onTap)
       
+      // Custom waypoints (markerSize == 28) should appear above Mapbox native POIs
+      if (markerSize == 28.0) {
+        el.style.zIndex = '1000';
+        el.style.position = 'relative'; // Required for z-index to work
+      }
+      
       // Create inner container for icon and label (allows label positioning without interfering with Mapbox)
-      // Match Mapbox native POI style: white background with colored border and icon
+      // Match Mapbox native POI style: colored background with white icon and white border
       final innerContainer = html.DivElement()
         ..style.position = 'relative' // Position relative for label absolute positioning
         ..style.width = '100%'
         ..style.height = '100%'
         ..style.borderRadius = '50%'
-        ..style.backgroundColor = 'white' // White background like Mapbox native POIs
-        ..style.border = '2px solid $colorHex' // Colored border matching POI type (2px to match Mapbox native)
+        ..style.backgroundColor = colorHex // Colored background like Mapbox native POIs
+        ..style.border = '${borderWidth}px solid white' // White border (2px for POIs, 2.5px for waypoints)
         ..style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)' // Subtle shadow like Mapbox
         ..style.display = 'flex'
         ..style.alignItems = 'center'
@@ -882,24 +1212,42 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       if (isStartEndMarker) {
         // For start/end markers: show text inside circle (larger, white text on colored background)
         innerContainer.style.backgroundColor = colorHex; // Colored background for start/end
-        innerContainer.style.border = '3px solid white'; // White border
-        innerContainer.style.width = '40px'; // Larger for start/end markers
-        innerContainer.style.height = '40px';
+        innerContainer.style.border = '${borderWidth}px solid white'; // White border
+        innerContainer.style.width = '${markerSize}px'; // Larger for start/end markers
+        innerContainer.style.height = '${markerSize}px';
         innerContainer.style.fontSize = '18px'; // Larger text
         innerContainer.style.fontWeight = 'bold';
         innerContainer.style.color = 'white'; // White text
         innerContainer.style.fontFamily = 'sans-serif';
         innerContainer.innerText = annotation.label!;
       } else {
-        // For regular waypoints/POIs: show icon (colored icon on white background)
-        innerContainer.style.fontFamily = 'Material Icons';
-        innerContainer.style.fontSize = '12px'; // Match Mapbox native POI icon size (12px for 22px marker)
-        innerContainer.style.color = colorHex; // Colored icon (not white)
-        innerContainer.style.fontWeight = 'normal'; // Normal weight for cleaner look
+        // For regular waypoints/POIs: show icon using Material Icons CDN as SVG image
+        // This is more reliable than font-based rendering which wasn't working
+        final iconName = _getMaterialIconName(annotation.icon);
+        final iconUrl = 'https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/$iconName/default/24px.svg';
         
-        // Get icon codepoint from IconData
-        final iconCodePoint = annotation.icon.codePoint;
-        innerContainer.innerText = String.fromCharCode(iconCodePoint);
+        final img = html.ImageElement()
+          ..src = iconUrl
+          ..style.width = '${iconSize}px'
+          ..style.height = '${iconSize}px'
+          ..style.filter = 'brightness(0) invert(1)' // Convert to white
+          ..style.objectFit = 'contain'
+          ..style.display = 'block'
+          ..style.margin = 'auto';
+        
+        // Handle image load errors with fallback
+        img.onError.listen((e) {
+          debugPrint('⚠️ [MapboxWeb] Failed to load icon image for ${annotation.id}: $iconName');
+          // Fallback: try font-based rendering
+          innerContainer.style.fontFamily = '"Material Icons"'; // REQUIRED - quotes needed for font names with spaces!
+          innerContainer.style.fontSize = '${iconSize}px';
+          innerContainer.style.color = 'white';
+          innerContainer.innerText = String.fromCharCode(annotation.icon.codePoint);
+        });
+        
+        innerContainer.append(img);
+        
+        debugPrint('🎨 [MapboxWeb] Icon for ${annotation.id}: loading SVG from CDN ($iconName, codepoint=0x${annotation.icon.codePoint.toRadixString(16)})');
         
         // Add label text below icon if available (for waypoints, not POIs)
         if (annotation.label != null && annotation.label!.isNotEmpty && annotation.label != 'Unnamed') {
@@ -943,14 +1291,35 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
         ..callMethod('setLngLat', [js.JsObject.jsify(annotation.position.toLngLat())])
         ..callMethod('addTo', [map]);
       
+      // CRITICAL: Store element reference BEFORE adding listener
+      // This ensures we can clean it up properly later
+      _markerElements[annotation.id] = el;
+      
       // Add click handler - stop propagation to prevent map click, but allow marker click
-      el.onClick.listen((e) {
+      // Store the subscription so we can cancel it when the marker is removed
+      final subscription = el.onClick.listen((e) {
+        // CRITICAL: Block marker clicks when interactions are disabled
+        // This prevents marker clicks from triggering actions when dialogs are open
+        // Check both Dart flag and JS context flag to ensure we catch the current state
+        final isDisabled = js.context['_interactionsDisabled_$_viewId'] as bool? ?? _interactionsDisabled;
+        if (isDisabled) {
+          debugPrint('🚫 [MapboxWeb] Marker click BLOCKED - interactions are disabled (dialog open)');
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          return;
+        }
+        
         e.stopPropagation(); // Prevent click from reaching map
         e.stopImmediatePropagation(); // Prevent other handlers
         annotation.onTap?.call();
         debugPrint('📍 [MapboxWeb] Marker ${annotation.id} clicked at: $lat, $lng');
       });
       
+      // Store subscription for proper cleanup
+      _markerClickSubscriptions[annotation.id] = subscription;
+      
+      // Store marker and state
       _markers[annotation.id] = marker;
       _markerDraggableState[annotation.id] = false;
       debugPrint('✅ [MapboxWeb] Added marker: ${annotation.id} at ${annotation.position.latitude},${annotation.position.longitude}');
@@ -1087,13 +1456,26 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     // Cancel timeout timer
     _loadTimeout?.cancel();
     
-    // Clean up markers
-    for (final marker in _markers.values) {
+    // Clean up all markers with proper disposal
+    // Create a copy of keys to avoid modification during iteration
+    final markerIds = _markers.keys.toList();
+    for (final id in markerIds) {
+      _removeMarkerFromMap(id);
+    }
+    
+    // Ensure all subscriptions are cancelled (safety net)
+    for (final subscription in _markerClickSubscriptions.values) {
+      subscription.cancel();
+    }
+    _markerClickSubscriptions.clear();
+    
+    // Ensure all elements are removed (safety net)
+    for (final element in _markerElements.values) {
       try {
-        marker.callMethod('remove', []);
+        element.remove();
       } catch (_) {}
     }
-    _markers.clear();
+    _markerElements.clear();
 
     // Clean up map
     try {

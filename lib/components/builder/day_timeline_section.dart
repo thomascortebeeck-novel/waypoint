@@ -15,7 +15,6 @@ class DayTimelineSection extends StatefulWidget {
   final Function(RouteWaypoint) onDeleteWaypoint;
   final Function(RouteWaypoint, String?)? onTimeChange;
   final Function(RouteWaypoint, bool)? onBookingChange; // Toggle booking status
-  final Function(int, int)? onReorder;
   final bool isExpanded;
   final VoidCallback? onToggleExpanded;
   
@@ -39,7 +38,6 @@ class DayTimelineSection extends StatefulWidget {
     required this.onDeleteWaypoint,
     this.onTimeChange,
     this.onBookingChange,
-    this.onReorder,
     this.isExpanded = true,
     this.onToggleExpanded,
     this.isSelectable = false,
@@ -221,49 +219,7 @@ class _DayTimelineSectionState extends State<DayTimelineSection> {
               ),
               child: Column(
                 children: [
-                  if (widget.onReorder != null)
-                    ReorderableListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: widget.waypoints.length,
-                      onReorder: (oldIndex, newIndex) {
-                        if (widget.onReorder != null) {
-                          widget.onReorder!(oldIndex, newIndex);
-                        }
-                      },
-                      itemBuilder: (context, index) {
-                        final waypoint = widget.waypoints[index];
-                        final isSelected = widget.selectedWaypointIds.contains(waypoint.id);
-                      return Padding(
-                        key: ValueKey(waypoint.id),
-                        padding: const EdgeInsets.only(left: 12, bottom: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (showTime && !widget.isViewOnly) _buildWaypointTimeInput(context, waypoint),
-                              if (widget.isSelectable && widget.onBookingChange != null && isSelected) 
-                                _buildBookingCheckbox(context, waypoint),
-                              UnifiedWaypointCard(
-                                waypoint: waypoint,
-                                showActions: widget.showActions,
-                                onEdit: widget.showActions ? () => widget.onEditWaypoint(waypoint) : null,
-                                onDelete: widget.showActions ? () => widget.onDeleteWaypoint(waypoint) : null,
-                                showDragHandle: false, // Never show drag handle in categories
-                                isSelectable: widget.isSelectable,
-                                isSelected: isSelected,
-                                onSelect: widget.isSelectable && widget.onToggleSelection != null
-                                    ? () => widget.onToggleSelection!(waypoint, !isSelected)
-                                    : null,
-                                isViewOnly: widget.isViewOnly,
-                                isCompact: true, // Use compact layout for builder screen
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    )
-                  else
-                    ...widget.waypoints.asMap().entries.map((entry) {
+                  ...widget.waypoints.asMap().entries.map((entry) {
                       final waypoint = entry.value;
                       final isSelected = widget.selectedWaypointIds.contains(waypoint.id);
                       return Padding(

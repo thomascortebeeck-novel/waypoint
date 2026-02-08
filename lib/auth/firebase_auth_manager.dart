@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:waypoint/auth/auth_manager.dart';
+import 'package:waypoint/auth/auth_exception.dart';
 import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/services/user_service.dart';
 
@@ -40,15 +41,17 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
       if (credential.user != null) {
         return await _userService.getUserById(credential.user!.uid);
       }
-      return null;
+      throw AuthException('Sign in failed. Please try again.');
     } on fb_auth.FirebaseAuthException catch (e) {
       debugPrint('Sign in error: ${e.code} - ${e.message}');
-      // Don't show snackbar here - let the UI handle error display
-      return null;
+      final errorMessage = _getAuthErrorMessage(e.code);
+      throw AuthException(errorMessage, e.code);
     } catch (e) {
       debugPrint('Sign in error: $e');
-      // Don't show snackbar here - let the UI handle error display
-      return null;
+      if (e is AuthException) {
+        rethrow;
+      }
+      throw AuthException('Sign in failed. Please try again.');
     }
   }
 
@@ -94,15 +97,17 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
         
         return user;
       }
-      return null;
+      throw AuthException('Failed to create account. Please try again.');
     } on fb_auth.FirebaseAuthException catch (e) {
       debugPrint('Create account error: ${e.code} - ${e.message}');
-      // Don't show snackbar here - let the UI handle error display
-      return null;
+      final errorMessage = _getAuthErrorMessage(e.code);
+      throw AuthException(errorMessage, e.code);
     } catch (e) {
       debugPrint('Create account error: $e');
-      // Don't show snackbar here - let the UI handle error display
-      return null;
+      if (e is AuthException) {
+        rethrow;
+      }
+      throw AuthException('Failed to create account. Please try again.');
     }
   }
 

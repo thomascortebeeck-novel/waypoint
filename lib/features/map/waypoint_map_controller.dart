@@ -72,6 +72,14 @@ abstract class WaypointMapController {
   /// Enable scroll zoom on the map (e.g., when a modal closes)
   Future<void> enableScrollZoom();
 
+  /// Disable all map interactions (scroll zoom, drag pan, click, etc.)
+  /// Use this when modal dialogs are open to prevent any map interaction
+  Future<void> disableInteractions();
+
+  /// Re-enable all map interactions
+  /// Call this when modal dialogs are closed
+  Future<void> enableInteractions();
+
   /// Dispose resources
   void dispose();
 }

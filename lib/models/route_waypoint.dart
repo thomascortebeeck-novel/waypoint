@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:uuid/uuid.dart';
+import 'package:waypoint/core/theme/colors.dart';
 
 /// Types of POI waypoints that can be added to a route
 enum WaypointType {
@@ -336,20 +337,21 @@ IconData getWaypointIcon(WaypointType type) {
 }
 
 /// Get the color for a waypoint type (aligned with map markers)
+/// Uses Waypoint brand colors for consistency
 Color getWaypointColor(WaypointType type) {
   switch (type) {
     case WaypointType.restaurant:
-      return const Color(0xFFFF9800); // Orange
+      return const Color(0xFFFF9800); // Orange - keep for restaurants
     case WaypointType.accommodation:
-      return const Color(0xFF2196F3); // Blue
+      return BrandColors.primary; // #2D6A4F - Primary green
     case WaypointType.activity:
-      return const Color(0xFF9C27B0); // Purple
+      return BrandColors.primary; // #2D6A4F - Primary green
     case WaypointType.viewingPoint:
-      return const Color(0xFFFFC107); // Yellow/Gold
+      return BrandColors.primary; // #2D6A4F - Primary green
     case WaypointType.servicePoint:
-      return const Color(0xFF4CAF50); // Green
+      return BrandColors.primary; // #2D6A4F - Primary green
     case WaypointType.routePoint:
-      return const Color(0xFF4CAF50); // Green - same as route lines
+      return BrandColors.primaryLight; // #52B788 - Lighter green for route points
   }
 }
 

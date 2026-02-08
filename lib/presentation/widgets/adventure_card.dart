@@ -257,11 +257,55 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                     ),
                   ],
                 ),
+              // Season badge below location
+              if (widget.plan.bestSeasonStartMonth != null && widget.plan.bestSeasonEndMonth != null) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_month,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      size: 12,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _formatSeasonRange(widget.plan.bestSeasonStartMonth!, widget.plan.bestSeasonEndMonth!),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                        shadows: const [
+                          Shadow(
+                            color: Colors.black26,
+                            blurRadius: 4,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ],
     );
+  }
+
+  /// Format season range as "Feb - Apr"
+  String _formatSeasonRange(int startMonth, int endMonth) {
+    const monthAbbreviations = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    
+    if (startMonth >= 1 && startMonth <= 12 && endMonth >= 1 && endMonth <= 12) {
+      final start = monthAbbreviations[startMonth - 1];
+      final end = monthAbbreviations[endMonth - 1];
+      return '$start - $end';
+    }
+    return '';
   }
 
   // Mapping helpers kept intact
@@ -314,6 +358,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   Widget _buildPriceBadge(BuildContext context) {
     final isFree = widget.plan.minPrice == 0;
     
+    // If showPrices is enabled, we could show estimated cost here, but for now keep plan price
+    // The estimated cost is shown on detail pages in stats bar
     return Positioned(
       top: 16,
       right: 16,
@@ -422,6 +468,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   Widget _buildBadgeRow(BuildContext context, bool isDark) {
     final activity = widget.plan.activityCategory;
     final accom = widget.plan.accommodationType;
+    final hasSeason = widget.plan.bestSeasonStartMonth != null && widget.plan.bestSeasonEndMonth != null;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -436,6 +483,12 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
           _buildInfoBadge(
             icon: _getAccommodationIcon(accom),
             label: _getAccommodationLabel(accom),
+            isDark: isDark,
+          ),
+        if (hasSeason)
+          _buildInfoBadge(
+            icon: '📅',
+            label: _formatSeasonRange(widget.plan.bestSeasonStartMonth!, widget.plan.bestSeasonEndMonth!),
             isDark: isDark,
           ),
       ],
@@ -546,49 +599,46 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: context.textStyles.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
                 Text(
-                  title,
-                  style: context.textStyles.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+                  subtitle!,
+                  style: context.textStyles.bodyMedium?.copyWith(
+                    color: context.colors.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle!,
-                    style: context.textStyles.bodyMedium?.copyWith(
-                      color: context.colors.onSurface.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
-          if (onSeeAll != null)
-            TextButton(
-              onPressed: onSeeAll,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              child: Text(
-                'See All',
-                style: context.textStyles.bodyMedium?.copyWith(
+        ),
+        if (onSeeAll != null)
+          TextButton(
+            onPressed: onSeeAll,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: Text(
+              'See All',
+              style: context.textStyles.bodyMedium?.copyWith(
                   color: context.colors.primary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-        ],
-      ),
+      ],
     );
   }
 }
