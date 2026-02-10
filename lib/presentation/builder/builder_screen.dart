@@ -122,6 +122,9 @@ bool _searchingLocation = false;
 double? _locationLat;
 double? _locationLng;
 Timer? _locationDebounceTimer; // Debounce timer for location search
+String _locationLastQuery = ''; // Track last searched query to prevent duplicates
+Future<List<PlacePrediction>>? _locationSearchFuture; // Track current search for cancellation
+DateTime? _locationLastSearchTime; // Track last search time for cooldown
 final _descCtrl = TextEditingController();
 final _heroCtrl = TextEditingController();
 final _priceCtrl = TextEditingController(text: '2.00');
@@ -162,6 +165,7 @@ bool _showPrices = false;
 @override
 void dispose() {
 _locationDebounceTimer?.cancel(); // Cancel debounce timer
+_locationSearchFuture = null; // Cancel any in-flight search
 _pageController.removeListener(_onPageChanged);
 _pageController.dispose();
 _nameCtrl.dispose();
@@ -697,16 +701,59 @@ dense: true,
 leading: const Icon(Icons.place),
 title: Text(s.text),
 subtitle: Text(s.placeName),
-onTap: () {
+onTap: () async {
 // Remove listener to prevent re-triggering search
 _locationCtrl.removeListener(_onLocationChanged);
 
+// Cancel any pending search
+_locationDebounceTimer?.cancel();
+_locationSearchFuture = null;
+
+// Show loading while fetching details
 setState(() {
-_locationCtrl.text = s.placeName;
-_locationLat = s.latitude;
-_locationLng = s.longitude;
+_searchingLocation = true;
 _locationSuggestions = null;
 });
+
+try {
+// Fetch place details only when user selects (cost optimization)
+final placesService = GooglePlacesService();
+final details = await placesService.getPlaceDetails(s.id);
+
+if (!mounted) return;
+
+if (details != null) {
+setState(() {
+_locationCtrl.text = details.address ?? details.name;
+_locationLat = details.location.latitude;
+_locationLng = details.location.longitude;
+_locationSuggestions = null;
+_searchingLocation = false;
+_locationLastQuery = ''; // Reset to allow re-searching same location
+});
+} else {
+// Fallback if details fetch fails
+setState(() {
+_locationCtrl.text = s.placeName;
+_locationLat = null;
+_locationLng = null;
+_locationSuggestions = null;
+_searchingLocation = false;
+});
+}
+} catch (e) {
+debugPrint('Failed to fetch place details: $e');
+// Fallback on error
+if (mounted) {
+setState(() {
+_locationCtrl.text = s.placeName;
+_locationLat = null;
+_locationLng = null;
+_locationSuggestions = null;
+_searchingLocation = false;
+});
+}
+}
 
 // Re-add listener after a short delay
 Future.delayed(const Duration(milliseconds: 100), () {
@@ -1851,6 +1898,9 @@ extra: {
 'end': vf.endForDay[dayNum],
 'initial': vf.routeByDay[dayNum],
 'activityCategory': _activityCategory,
+'location': (_locationLat != null && _locationLng != null) 
+    ? ll.LatLng(_locationLat!, _locationLng!) 
+    : null,
 },
 );
 if (route != null && mounted) {
@@ -3726,35 +3776,116 @@ return;
 }
 
 final text = _locationCtrl.text.trim();
-if (text.length < 3) {
+// Increased minimum length to 4 characters to reduce API calls
+if (text.length < 4) {
 setState(() {
 _locationSuggestions = null;
 _searchingLocation = false;
+_locationLastQuery = ''; // Reset last query
 });
 // Cancel any pending search
 _locationDebounceTimer?.cancel();
+_locationSearchFuture = null;
 return;
 }
 
-// Cancel previous timer
+// Don't search if query is same as last successful search
+if (text == _locationLastQuery) {
+return;
+}
+
+// Cooldown: Prevent searches if last search was less than 1.5 seconds ago
+// This prevents hitting rate limits when typing quickly
+if (_locationLastSearchTime != null) {
+final timeSinceLastSearch = DateTime.now().difference(_locationLastSearchTime!);
+if (timeSinceLastSearch.inMilliseconds < 1500) {
+// Too soon - cancel and reschedule
 _locationDebounceTimer?.cancel();
+_locationDebounceTimer = Timer(
+Duration(milliseconds: 1500 - timeSinceLastSearch.inMilliseconds),
+() => _onLocationChanged(), // Retry after cooldown
+);
+return;
+}
+}
+
+// Cancel previous timer and search
+_locationDebounceTimer?.cancel();
+_locationSearchFuture = null;
 
 // Show loading indicator immediately
 setState(() => _searchingLocation = true);
 
-// Set new debounce timer (500ms delay)
-_locationDebounceTimer = Timer(const Duration(milliseconds: 500), () async {
+// Set new debounce timer (1000ms delay for better cost efficiency)
+_locationDebounceTimer = Timer(const Duration(milliseconds: 1000), () async {
+// Check cooldown again before executing
+if (_locationLastSearchTime != null) {
+final timeSinceLastSearch = DateTime.now().difference(_locationLastSearchTime!);
+if (timeSinceLastSearch.inMilliseconds < 1500) {
+// Still too soon - reschedule
+if (mounted) {
+setState(() => _searchingLocation = false);
+}
+_locationDebounceTimer = Timer(
+Duration(milliseconds: 1500 - timeSinceLastSearch.inMilliseconds),
+() => _onLocationChanged(),
+);
+return;
+}
+}
+
+// Update last search time
+_locationLastSearchTime = DateTime.now();
+
+// Create search future for cancellation tracking
+final searchFuture = _performLocationSearch(text);
+_locationSearchFuture = searchFuture;
+
 try {
-final svc = MapboxService();
-final res = await svc.searchPlaces(text);
+final predictions = await searchFuture;
 if (!mounted) return;
-setState(() => _locationSuggestions = res);
+
+// Convert predictions to PlaceSuggestion format WITHOUT fetching details
+// Details will be fetched only when user selects a suggestion (cost optimization)
+final suggestions = <PlaceSuggestion>[];
+for (final prediction in predictions) {
+// Use placeholder coordinates - will be fetched on selection
+suggestions.add(PlaceSuggestion(
+id: prediction.placeId,
+text: prediction.text,
+placeName: prediction.text,
+latitude: 0.0, // Placeholder - fetched on selection
+longitude: 0.0, // Placeholder - fetched on selection
+isPoi: false, // Will be determined from details on selection
+));
+}
+
+if (mounted && _locationSearchFuture == searchFuture) {
+setState(() {
+_locationSuggestions = suggestions;
+_locationLastQuery = text; // Remember successful search
+});
+}
 } catch (e) {
-debugPrint('searchPlaces error: $e');
+debugPrint('Google Places search error: $e');
+if (mounted && _locationSearchFuture == searchFuture) {
+setState(() {
+_locationSuggestions = null;
+});
+}
 } finally {
-if (mounted) setState(() => _searchingLocation = false);
+if (mounted && _locationSearchFuture == searchFuture) {
+setState(() => _searchingLocation = false);
+_locationSearchFuture = null;
+}
 }
 });
+}
+
+/// Perform location search with cancellation support
+Future<List<PlacePrediction>> _performLocationSearch(String query) async {
+final placesService = GooglePlacesService();
+return await placesService.searchPlaces(query: query);
 }
 
 String _formatDuration(int seconds) {
@@ -4209,15 +4340,18 @@ return;
 
 // Determine time slot category based on logistics category
 TimeSlotCategory timeSlotCategory;
-switch (logisticsCategory) {
-case LogisticsCategory.gear:
+switch (logisticsCategory as ServiceCategory) {
+case ServiceCategory.gear:
 timeSlotCategory = TimeSlotCategory.logisticsGear;
 break;
-case LogisticsCategory.transportation:
+case ServiceCategory.transportation:
 timeSlotCategory = TimeSlotCategory.logisticsTransportation;
 break;
-case LogisticsCategory.food:
+case ServiceCategory.food:
 timeSlotCategory = TimeSlotCategory.logisticsFood;
+break;
+default:
+timeSlotCategory = TimeSlotCategory.logisticsGear;
 break;
 }
 
@@ -4252,11 +4386,14 @@ void _initializeDayOrdering(int dayNum, List<RouteWaypoint> waypoints) {
 Map<String, List<RouteWaypoint>> _getWaypointsBySectionId(int dayNum, List<RouteWaypoint> waypoints) {
   final map = <String, List<RouteWaypoint>>{};
   
-  for (final wp in waypoints) {
+    for (final wp in waypoints) {
     String? sectionId;
     switch (wp.type) {
       case WaypointType.restaurant:
         sectionId = 'restaurantSection_${wp.mealTime?.name ?? "lunch"}';
+        break;
+      case WaypointType.bar:
+        sectionId = 'barSection_${wp.mealTime?.name ?? "dinner"}';
         break;
       case WaypointType.activity:
         sectionId = 'activitySection_${wp.activityTime?.name ?? "afternoon"}';
@@ -4267,6 +4404,8 @@ Map<String, List<RouteWaypoint>> _getWaypointsBySectionId(int dayNum, List<Route
       case WaypointType.servicePoint:
       case WaypointType.viewingPoint:
       case WaypointType.routePoint:
+      case WaypointType.service:
+      case WaypointType.attraction:
         // These are individual items, not sections
         break;
     }
@@ -5757,16 +5896,21 @@ switch (widget.type) {
 case WaypointType.restaurant:
 typeFilters = ['restaurant', 'cafe', 'bar'];
 break;
+case WaypointType.bar:
+typeFilters = ['bar', 'night_club'];
+break;
 case WaypointType.accommodation:
 typeFilters = ['lodging', 'hotel'];
 break;
 case WaypointType.activity:
+case WaypointType.attraction:
 typeFilters = ['tourist_attraction'];
 break;
 case WaypointType.viewingPoint:
 typeFilters = ['tourist_attraction'];
 break;
 case WaypointType.servicePoint:
+case WaypointType.service:
 case WaypointType.routePoint:
 // Don't filter by type for service points and route points to avoid API errors
 // Let the search query determine the results

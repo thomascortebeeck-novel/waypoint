@@ -801,6 +801,8 @@ class _EmailAuthFormState extends State<_EmailAuthForm> {
               controller: _passwordCtrl,
               obscureText: _obscurePassword,
               onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 labelText: 'Password',
                 prefixIcon: const Icon(Icons.lock_outlined),
@@ -1107,6 +1109,8 @@ class _EmailAuthSheetState extends State<_EmailAuthSheet> {
                 controller: _passwordCtrl,
                 obscureText: _obscurePassword,
                 onChanged: (_) => setState(() {}),
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
                   labelText: 'Password',
                   prefixIcon: const Icon(Icons.lock_outlined),

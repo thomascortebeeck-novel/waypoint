@@ -11,7 +11,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:waypoint/integrations/mapbox_service.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
-// Google Places import removed - using Mapbox search instead
+import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/poi_model.dart';
@@ -32,6 +32,10 @@ import 'package:waypoint/components/day_content_builder.dart';
 import 'package:waypoint/models/orderable_item.dart';
 import 'package:waypoint/components/reorder_controls.dart';
 import 'package:waypoint/services/storage_service.dart';
+import 'package:waypoint/components/builder/sequential_waypoint_list.dart';
+import 'package:waypoint/services/waypoint_grouping_service.dart';
+import 'package:waypoint/services/travel_calculator_service.dart';
+import 'package:waypoint/integrations/google_directions_service.dart';
 
 /// Unified item type for sidebar reorderable list
 /// Can be either a category group or an individual service/viewing point
@@ -63,6 +67,7 @@ final ll.LatLng? start;
 final ll.LatLng? end;
 final DayRoute? initial;
 final ActivityCategory? activityCategory;
+final ll.LatLng? location; // Location from step 1 (General Info)
 
 const RouteBuilderScreen({
 super.key,
@@ -73,6 +78,7 @@ this.start,
 this.end,
 this.initial,
 this.activityCategory,
+this.location,
 });
 
 @override
@@ -83,6 +89,7 @@ class _RouteBuilderScreenState extends State<RouteBuilderScreen> {
 // FlutterMap controller for web-based map
 final fm.MapController _map = fm.MapController();
 final _svc = MapboxService();
+final _googlePlacesService = GooglePlacesService();
 final _searchController = TextEditingController();
 final _searchFocusNode = FocusNode();
 Timer? _searchDebounce;
@@ -104,7 +111,6 @@ List<PlaceSuggestion> _searchResults = [];
 final List<RouteWaypoint> _poiWaypoints = [];
 bool _waypointsExpanded = true;
 bool _hintDismissed = false;
-bool _addingWaypointViaMap = false; // True when waiting for user to tap map to add waypoint
 
 // Day plan ordering (using day 1 for route builder)
 DayPlanOrderManager? _routeOrderManager;
@@ -138,51 +144,41 @@ Log.i('route_builder', '🗺️ Tile URL: $defaultRasterTileUrl');
 
 // Initialize camera state for Mapbox mode synchronously (Issue #5 fix - set earlier)
 if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
-  _currentCameraZoom = 11.0;
-  // Set initial center immediately (use widget params which are available now)
-  // Note: _poiWaypoints and _points may not be populated yet, so use widget.start first
-  _currentCameraCenter = widget.start ?? const ll.LatLng(61.0, 8.5);
-  Log.i('route_builder', '📍 Initial camera set: $_currentCameraCenter @ zoom $_currentCameraZoom');
+  // Use location from step 1 if available, otherwise default to world map
+  if (widget.location != null) {
+    _currentCameraCenter = widget.location!;
+    _currentCameraZoom = 10.0; // Reasonable zoom for a location
+    Log.i('route_builder', '📍 Initial camera set to location from step 1: $_currentCameraCenter @ zoom $_currentCameraZoom');
+  } else {
+    // Default to world map if no waypoints exist
+    _currentCameraZoom = 2.5;
+    _currentCameraCenter = const ll.LatLng(0.0, 0.0);
+    Log.i('route_builder', '📍 Initial camera set to world map: $_currentCameraCenter @ zoom $_currentCameraZoom');
+  }
 }
 
 WidgetsBinding.instance.addPostFrameCallback((_) {
 if (mounted) {
-// Refine camera center based on loaded data (may update from initial value)
-if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
-  final refinedCenter = _poiWaypoints.firstOrNull?.position ?? 
-                        _points.firstOrNull ?? 
-                        widget.start ?? 
-                        const ll.LatLng(61.0, 8.5);
-  
-  // Only refine if the center actually changed and we have a controller
-  if (_currentCameraCenter != refinedCenter && _mapboxController != null) {
-    setState(() {
-      _currentCameraCenter = refinedCenter;
-    });
-    
-    // Actually move the map to the refined position
-    _mapboxController!.animateCamera(refinedCenter, _currentCameraZoom ?? 11.0);
-    
-    Log.i('route_builder', '📍 Camera refined and moved to: $refinedCenter');
-  } else if (_currentCameraCenter != refinedCenter) {
-    // Controller not ready yet, just update state (map will use this on creation)
-    setState(() {
-      _currentCameraCenter = refinedCenter;
-    });
-    Log.i('route_builder', '📍 Camera center refined (controller not ready): $refinedCenter');
-  }
-}
-
-// Only load POIs if waypoints already exist (editing existing route)
-// If no waypoints, wait for user to search for a location first
+// Check if we have waypoints to display
 final hasWaypoints = _poiWaypoints.isNotEmpty || _points.isNotEmpty || widget.initial != null;
+
 if (hasWaypoints) {
   // Fit map to show all waypoints when editing existing route
   _fitToWaypoints();
   // Load POIs after fitting
   _loadPOIs();
 } else {
-  // New route - don't load POIs yet, wait for user to search
+  // No waypoints - use location from step 1 if available, otherwise show world map
+  if (widget.location != null) {
+    _moveCamera(widget.location!, 10.0);
+    Log.i('route_builder', '📍 Showing location from step 1: ${widget.location}');
+  } else if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
+    if (_mapboxController != null) {
+      _mapboxController!.animateCamera(const ll.LatLng(0.0, 0.0), 2.5);
+      Log.i('route_builder', '📍 Showing world map (no waypoints)');
+    }
+  }
+  // Don't load POIs yet, wait for user to search
   Log.i('route_builder', '📍 New route - POIs will load after user searches for a location');
 }
 }
@@ -335,7 +331,9 @@ void _fitToWaypoints() {
   }
   
   if (allPoints.isEmpty) {
-    Log.i('route_builder', '📍 No waypoints to fit - skipping');
+    Log.i('route_builder', '📍 No waypoints to fit - showing world map');
+    // Show world map if no waypoints
+    _moveCamera(const ll.LatLng(0.0, 0.0), 2.5);
     return;
   }
   
@@ -1015,23 +1013,12 @@ Widget _buildMapboxEditor(ll.LatLng center) {
       });
     },
     onTap: (latLng) async {
+      // Only clear search results when tapping map
       if (_searchResults.isNotEmpty) {
         setState(() => _searchResults = []);
         return;
       }
-      // Don't show pop-up if camera move was programmatic (from search/zoom)
-      if (_isProgrammaticCameraMove) {
-        Log.i('route_builder', 'Ignoring map tap - programmatic camera move in progress');
-        setState(() => _isProgrammaticCameraMove = false); // Reset flag
-        return;
-      }
-      // Don't show pop-up if a dialog or bottom sheet is currently open
-      if (_dialogOrBottomSheetOpen) {
-        Log.i('route_builder', 'Ignoring map tap - dialog or bottom sheet is open');
-        return;
-      }
-      Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
-      await _showMapTapActionPicker(context, latLng);
+      // Map tap no longer adds waypoints - users must use search bars
     },
     onCameraChanged: (cameraPos) {
       // Store camera state WITHOUT triggering rebuild (prevents marker jitter during zoom)
@@ -1090,23 +1077,12 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
       initialZoom: 11,
       onPositionChanged: _onMapPositionChanged,
       onTap: (tapPos, latLng) async {
+        // Only clear search results when tapping map
         if (_searchResults.isNotEmpty) {
           setState(() => _searchResults = []);
           return;
         }
-        // Don't show pop-up if camera move was programmatic (from search/zoom)
-        if (_isProgrammaticCameraMove) {
-          Log.i('route_builder', 'Ignoring map tap - programmatic camera move in progress');
-          setState(() => _isProgrammaticCameraMove = false); // Reset flag
-          return;
-        }
-        // Don't show pop-up if a dialog or bottom sheet is currently open
-        if (_dialogOrBottomSheetOpen) {
-          Log.i('route_builder', 'Ignoring map tap - dialog or bottom sheet is open');
-          return;
-        }
-        Log.i('route_builder', 'Map tapped: ${latLng.latitude},${latLng.longitude}');
-        await _showMapTapActionPicker(context, latLng);
+        // Map tap no longer adds waypoints - users must use search bars
       },
     ),
     children: [
@@ -1295,15 +1271,28 @@ if (mounted) setState(() => _searchResults = []);
 return;
 }
 try {
-Log.i('route_builder', '🔍 Starting search for: "$query"');
+Log.i('route_builder', '🔍 Starting Google Places search for: "$query"');
 final center = _getCameraCenter(); // Use helper method
-final results = await _svc.searchPlaces(
-query,
-proximityLat: center.latitude,
-proximityLng: center.longitude,
+final predictions = await _googlePlacesService.searchPlaces(
+query: query,
+proximity: center,
 );
 
-Log.i('route_builder', '✅ Search returned ${results.length} results');
+Log.i('route_builder', '✅ Google Places search returned ${predictions.length} results');
+
+// Convert Google Places predictions to PlaceSuggestion format
+final results = predictions.map((prediction) {
+  // We need to get place details to get coordinates
+  // For now, create a placeholder - we'll fetch details when selected
+  return PlaceSuggestion(
+    id: prediction.placeId,
+    text: prediction.text,
+    placeName: prediction.text,
+    longitude: 0.0, // Will be fetched when selected
+    latitude: 0.0, // Will be fetched when selected
+    isPoi: false,
+  );
+}).toList();
 
 if (mounted) {
 setState(() {
@@ -1312,7 +1301,7 @@ _searching = false;
 });
 }
 } catch (e, stack) {
-Log.e('route_builder', '❌ Search failed', e, stack);
+Log.e('route_builder', '❌ Google Places search failed', e, stack);
 if (mounted) {
 setState(() {
 _searching = false;
@@ -1329,26 +1318,49 @@ duration: const Duration(seconds: 3),
 }
 }
 
-void _selectPlace(PlaceSuggestion place) {
-Log.i('route_builder', 'Place selected: ${place.text} at ${place.latitude}, ${place.longitude}');
-final latLng = ll.LatLng(place.latitude, place.longitude);
-_moveCamera(latLng, 14); // Use helper method
+Future<void> _selectPlace(PlaceSuggestion place) async {
+Log.i('route_builder', 'Place selected: ${place.text}');
 _searchFocusNode.unfocus();
 setState(() {
 _searchResults = [];
 _searchController.clear();
 });
 
-// Trigger POI refresh after camera moves to new location
-// Clear old POIs immediately and reload for new location
-setState(() {
-_osmPOIs = []; // Clear old POIs
-_lastPOICenter = null; // Force reload
-_lastPOIZoom = null; // Force reload
-});
+// Fetch place details from Google Places API
+try {
+  setState(() => _searching = true);
+  final placeDetails = await _googlePlacesService.getPlaceDetails(place.id);
+  
+  if (placeDetails == null) {
+    if (mounted) {
+      setState(() => _searching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not fetch place details'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    return;
+  }
 
-// Load POIs after search (this is when user first searches for a location)
-// Debounce POI reload after camera animation completes
+  // Move camera to selected location
+  _moveCamera(placeDetails.location, 14);
+  
+  // Show waypoint editor dialog with pre-filled location data
+  if (mounted) {
+    setState(() => _searching = false);
+    await _showWaypointEditorFromPlace(placeDetails);
+  }
+
+// Trigger POI refresh after camera moves to new location
+setState(() {
+    _osmPOIs = [];
+    _lastPOICenter = null;
+    _lastPOIZoom = null;
+  });
+
+  // Load POIs after search
 _poiDebounce?.cancel();
 _poiDebounce = Timer(const Duration(milliseconds: 1000), () {
   if (mounted) {
@@ -1356,6 +1368,18 @@ _poiDebounce = Timer(const Duration(milliseconds: 1000), () {
     _loadPOIs();
   }
 });
+} catch (e, stack) {
+  Log.e('route_builder', '❌ Failed to fetch place details', e, stack);
+  if (mounted) {
+    setState(() => _searching = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to load place details: ${e.toString()}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
 }
 
   /// Called when map position changes - debounce POI reload
@@ -1869,132 +1893,9 @@ return '${m}m';
 }
 
 Future<void> _showMapTapActionPicker(BuildContext context, ll.LatLng latLng) async {
-// If we're in waypoint-adding mode, show the waypoint dialog directly
-if (_addingWaypointViaMap) {
-setState(() => _addingWaypointViaMap = false);
-await _showWaypointDialogAtLocation(latLng);
+// This function is no longer used - waypoints are added via search bars only
+// Keeping for backward compatibility but it does nothing
 return;
-}
-
-// Set flag to prevent map taps while dialog is open
-setState(() => _dialogOrBottomSheetOpen = true);
-// Disable map scroll zoom when dialog opens
-_mapboxController?.disableInteractions();
-
-final action = await showDialog<String>(
-context: context,
-builder: (context) => ScrollBlockingDialog(
-  child: Container(
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
-    ),
-child: Stack(
-  children: [
-    Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Add padding at top to make room for close button
-        const SizedBox(height: 8),
-        Text(
-          'What to add?',
-          style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 24),
-_ActionTile(
-icon: Icons.navigation,
-color: const Color(0xFF4CAF50),
-label: 'Route Point',
-onTap: () => Navigator.of(context).pop('route'),
-),
-const SizedBox(height: 12),
-_ActionTile(
-icon: Icons.restaurant,
-color: const Color(0xFFFF9800),
-label: 'Restaurant',
-onTap: () => Navigator.of(context).pop('restaurant'),
-),
-const SizedBox(height: 12),
-_ActionTile(
-icon: Icons.hotel,
-color: const Color(0xFF2196F3),
-label: 'Accommodation',
-onTap: () => Navigator.of(context).pop('accommodation'),
-),
-const SizedBox(height: 12),
-_ActionTile(
-icon: Icons.local_activity,
-color: const Color(0xFF9C27B0),
-label: 'Activity',
-onTap: () => Navigator.of(context).pop('activity'),
-),
-const SizedBox(height: 12),
-_ActionTile(
-icon: Icons.visibility,
-color: const Color(0xFFFFC107),
-label: 'Viewing Point',
-onTap: () => Navigator.of(context).pop('viewingPoint'),
-      ),
-      ],
-    ),
-    // Close button at top right
-    Positioned(
-      top: 8,
-      right: 8,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque, // Ensure button receives all events
-        onTap: () {
-          debugPrint('🔴 [RouteBuilder] X button tapped - closing dialog');
-          Navigator.of(context).pop();
-        },
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () {
-              debugPrint('🔴 [RouteBuilder] InkWell tapped - closing dialog');
-              Navigator.of(context).pop();
-            },
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.close, size: 20, color: Colors.grey),
-            ),
-          ),
-        ),
-      ),
-    ),
-  ],
-),
-  ),
-),
-);
-
-// Re-enable map scroll zoom when dialog closes
-if (mounted) {
-  setState(() => _dialogOrBottomSheetOpen = false);
-  _mapboxController?.enableInteractions();
-}
-
-if (!mounted || action == null) return;
-
-if (action == 'route') {
-setState(() {
-_points.add(latLng);
-_hintDismissed = true; // auto-hide hint once a point is added
-});
-await _updatePreview();
-} else {
-final type = WaypointType.values.firstWhere((t) => t.name == action);
-await _addWaypointAtLocation(type, latLng);
-}
 }
 
 /// Show waypoint dialog at a specific location (when adding via map tap from + button)
@@ -2037,8 +1938,9 @@ _poiWaypoints.add(result.copyWith(timeSlotCategory: autoCategory));
 _poiWaypoints.add(result);
 }
 _initializeRouteOrdering(); // Reinitialize ordering after adding waypoint
-_moveCamera(result.position); // Use helper method
 });
+// Fit map to show all waypoints after adding
+_fitToWaypoints();
 }
 }
 }
@@ -2074,6 +1976,76 @@ _poiWaypoints.add(waypointWithCategory);
 // Reinitialize ordering after adding waypoint
 _initializeRouteOrdering();
 });
+// Fit map to show all waypoints after adding
+_fitToWaypoints();
+}
+}
+
+/// Show waypoint editor dialog from a Google Places selection
+Future<void> _showWaypointEditorFromPlace(PlaceDetails placeDetails) async {
+// Set flag to prevent map taps while dialog is open
+setState(() => _dialogOrBottomSheetOpen = true);
+// Disable map scroll zoom when dialog opens
+_mapboxController?.disableInteractions();
+
+// Determine waypoint type from place types
+WaypointType defaultType = WaypointType.attraction;
+if (placeDetails.types.contains('restaurant') || 
+    placeDetails.types.contains('food') ||
+    placeDetails.types.contains('cafe')) {
+  defaultType = WaypointType.restaurant;
+} else if (placeDetails.types.contains('lodging') || 
+           placeDetails.types.contains('hotel')) {
+  defaultType = WaypointType.accommodation;
+} else if (placeDetails.types.contains('tourist_attraction') ||
+           placeDetails.types.contains('point_of_interest')) {
+  defaultType = WaypointType.attraction;
+}
+
+// Create a temporary waypoint with place details to pre-fill the dialog
+final tempWaypoint = RouteWaypoint(
+  type: defaultType,
+  position: placeDetails.location,
+  name: placeDetails.name,
+  address: placeDetails.address,
+  googlePlaceId: placeDetails.placeId,
+  website: placeDetails.website,
+  phoneNumber: placeDetails.phoneNumber,
+  rating: placeDetails.rating,
+  order: _poiWaypoints.length,
+);
+
+final result = await showDialog<RouteWaypoint>(
+context: context,
+builder: (context) => _WaypointEditorDialog(
+existingWaypoint: tempWaypoint, // Pre-filled with place data
+type: defaultType,
+position: placeDetails.location,
+),
+);
+
+// Clear flag when dialog closes
+if (mounted) {
+  setState(() => _dialogOrBottomSheetOpen = false);
+  // Re-enable map scroll zoom when dialog closes
+  _mapboxController?.enableInteractions();
+}
+
+if (result != null && mounted) {
+  setState(() {
+    // Auto-assign time slot category if not set
+    final finalCategory = result.timeSlotCategory ?? autoAssignTimeSlotCategory(result);
+    final waypointWithCategory = result.copyWith(timeSlotCategory: finalCategory);
+    _poiWaypoints.add(waypointWithCategory);
+    
+    // Reinitialize ordering after adding waypoint
+    _initializeRouteOrdering();
+    
+    // Calculate travel time/distance from previous waypoint
+    _calculateTravelTimes();
+  });
+  // Fit map to show all waypoints after adding
+  _fitToWaypoints();
 }
 }
 
@@ -2274,13 +2246,18 @@ Map<String, List<RouteWaypoint>> _getRouteWaypointsBySectionId() {
       case WaypointType.restaurant:
         sectionId = 'restaurantSection_${wp.mealTime?.name ?? "lunch"}';
         break;
+      case WaypointType.bar:
+        sectionId = 'barSection_${wp.mealTime?.name ?? "dinner"}';
+        break;
       case WaypointType.activity:
+      case WaypointType.attraction:
         sectionId = 'activitySection_${wp.activityTime?.name ?? "afternoon"}';
         break;
       case WaypointType.accommodation:
         sectionId = 'accommodationSection';
         break;
       case WaypointType.servicePoint:
+      case WaypointType.service:
       case WaypointType.viewingPoint:
       case WaypointType.routePoint:
         // These are individual items, not sections
@@ -2374,18 +2351,12 @@ void _applyRouteOrdering() {
   
   _poiWaypoints.clear();
   _poiWaypoints.addAll(reorderedWaypoints);
+  
+  // Fit map to show all waypoints after reordering
+  _fitToWaypoints();
 }
 
 Widget _buildWaypointsSection() {
-  // Initialize ordering if not already done
-  if (_routeOrderManager == null) {
-    _initializeRouteOrdering();
-  }
-  
-  if (_routeOrderManager == null) {
-    return const SizedBox.shrink();
-  }
-
   return Container(
     decoration: BoxDecoration(
       color: Colors.white,
@@ -2407,7 +2378,7 @@ Widget _buildWaypointsSection() {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Day Timeline (${_poiWaypoints.length} waypoints)',
+                  'Waypoints (${_poiWaypoints.length})',
                   style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
@@ -2422,121 +2393,293 @@ Widget _buildWaypointsSection() {
           ),
         ),
 
-        // Timeline sections using DayContentBuilder
+        // Sequential waypoint list with drag-and-drop
         if (_waypointsExpanded)
           Container(
             constraints: const BoxConstraints(maxHeight: 500),
-            child: _poiWaypoints.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        Icon(Icons.schedule, size: 48, color: Colors.grey.shade400),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No waypoints added yet',
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Tap the + button or click on the map to add waypoints',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                          textAlign: TextAlign.center,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SequentialWaypointList(
+                waypoints: _poiWaypoints,
+                onEdit: _editWaypoint,
+                onDelete: (waypoint) {
+                  setState(() {
+                    _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
+                    _renumberWaypoints();
+                  });
+                },
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    if (newIndex > oldIndex) {
+                      newIndex -= 1;
+                    }
+                    final item = _poiWaypoints.removeAt(oldIndex);
+                    _poiWaypoints.insert(newIndex, item);
+                    _renumberWaypoints();
+                  });
+                  // Fit map to show all waypoints after reordering
+                  _fitToWaypoints();
+                  // Recalculate travel times after reordering
+                  _calculateTravelTimes();
+                },
+                onWaypointsChanged: (updatedWaypoints) {
+                  setState(() {
+                    _poiWaypoints.clear();
+                    _poiWaypoints.addAll(updatedWaypoints);
+                    _renumberWaypoints();
+                  });
+                  // Fit map to show all waypoints after updating
+                  _fitToWaypoints();
+                },
+                onTravelModeChanged: (waypoint, newMode) async {
+                  // Recalculate distance/time with new transportation mode
+                  await _recalculateTravelForWaypoint(waypoint, newMode);
+                },
+              ),
+            ),
                         ),
                       ],
                     ),
-                  )
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: DayContentBuilder(
-                      dayNumber: 1,
-                      orderedItems: _routeOrderManager!.sortedItems,
-                      waypointsBySectionId: _getRouteWaypointsBySectionId(),
-                      waypointsById: _getRouteWaypointsById(),
-                      onMoveUp: _moveRouteItemUp,
-                      onMoveDown: _moveRouteItemDown,
-                      canMoveUp: (itemId) => _routeOrderManager!.canMoveUp(itemId),
-                      canMoveDown: (itemId) => _routeOrderManager!.canMoveDown(itemId),
-                      onEditWaypoint: _editWaypoint,
-                      onDeleteWaypoint: (waypoint) {
-                        setState(() {
-                          _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
-                          _initializeRouteOrdering();
-                        });
-                      },
-                      onAddWaypoint: (type, sectionType) {
-                        // Determine category and waypoint type
-                        TimeSlotCategory? category;
-                        WaypointType wpType;
-                        
-                        switch (type) {
-                          case OrderableItemType.restaurantSection:
-                            wpType = WaypointType.restaurant;
-                            switch (sectionType) {
-                              case 'breakfast':
-                                category = TimeSlotCategory.breakfast;
-                                break;
-                              case 'lunch':
-                                category = TimeSlotCategory.lunch;
-                                break;
-                              case 'dinner':
-                                category = TimeSlotCategory.dinner;
-                                break;
-                              default:
-                                category = TimeSlotCategory.lunch;
-                            }
-                            break;
-                          case OrderableItemType.activitySection:
-                            wpType = WaypointType.activity;
-                            switch (sectionType) {
-                              case 'morning':
-                                category = TimeSlotCategory.morningActivity;
-                                break;
-                              case 'afternoon':
-                                category = TimeSlotCategory.afternoonActivity;
-                                break;
-                              case 'night':
-                                category = TimeSlotCategory.eveningActivity;
-                                break;
-                              case 'allDay':
-                                category = TimeSlotCategory.allDayActivity;
-                                break;
-                              default:
-                                category = TimeSlotCategory.afternoonActivity;
-                            }
-                            break;
-                          case OrderableItemType.accommodationSection:
-                            wpType = WaypointType.accommodation;
-                            category = TimeSlotCategory.accommodation;
-                            break;
-                          case OrderableItemType.logisticsWaypoint:
-                            wpType = WaypointType.servicePoint;
-                            category = TimeSlotCategory.logisticsGear; // Default
-                            break;
-                          case OrderableItemType.viewingPointWaypoint:
-                            wpType = WaypointType.viewingPoint;
-                            category = TimeSlotCategory.viewingPoint;
-                            break;
-                        }
-                        
-                        if (category != null) {
-                          _showAddWaypointDialogForCategory(category);
-                        }
-                      },
-                      showActions: true,
-                      isViewOnly: false,
-                    ),
-                  ),
-          ),
-      ],
-    ),
   );
 }
 
+/// Renumber waypoints sequentially (1, 2, 3...)
+/// Handles choice groups by keeping waypoints with same choiceGroupId at same order
+void _renumberWaypoints() {
+  // Sort by current order first
+  _poiWaypoints.sort((a, b) {
+    final orderCompare = a.order.compareTo(b.order);
+    if (orderCompare != 0) return orderCompare;
+    // If same order, maintain stable sort (for choice groups)
+    return a.id.compareTo(b.id);
+  });
+  
+  // Assign sequential order numbers, keeping choice groups together
+  int order = 1;
+  String? lastChoiceGroupId;
+  int? lastAssignedOrder;
+  
+  for (final wp in _poiWaypoints) {
+    // If this waypoint is in a choice group
+    if (wp.choiceGroupId != null) {
+      // If this is a new choice group, increment order
+      if (wp.choiceGroupId != lastChoiceGroupId) {
+        order++;
+        lastChoiceGroupId = wp.choiceGroupId;
+        lastAssignedOrder = order;
+      }
+      // Assign the same order as other waypoints in this choice group
+      final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
+      if (index >= 0) {
+        _poiWaypoints[index] = _poiWaypoints[index].copyWith(order: lastAssignedOrder!);
+      }
+    } else {
+      // Individual waypoint - increment order if not already at this position
+      if (lastAssignedOrder == null || wp.order != lastAssignedOrder) {
+        order++;
+      }
+      final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
+      if (index >= 0) {
+        _poiWaypoints[index] = _poiWaypoints[index].copyWith(order: order);
+      }
+      lastAssignedOrder = order;
+      lastChoiceGroupId = null;
+    }
+  }
+}
+
+/// Calculate travel times and distances between consecutive waypoints
+/// Handles OR conditions by calculating distances from all previous waypoint options
+Future<void> _calculateTravelTimes() async {
+  if (_poiWaypoints.length < 2) return;
+
+  final sortedWaypoints = List<RouteWaypoint>.from(_poiWaypoints)
+    ..sort((a, b) => a.order.compareTo(b.order));
+
+  final travelService = TravelCalculatorService();
+
+  // Calculate travel for each waypoint from its previous waypoint(s)
+  for (int i = 1; i < sortedWaypoints.length; i++) {
+    final toWaypoint = sortedWaypoints[i];
+    final currentOrder = toWaypoint.order;
+    
+    // Find all previous waypoints at the highest order before this one
+    final previousWaypoints = sortedWaypoints
+        .where((w) => w.order < currentOrder)
+        .toList()
+      ..sort((a, b) => b.order.compareTo(a.order));
+    
+    if (previousWaypoints.isEmpty) continue;
+    
+    // Get the most recent waypoint group (could be OR conditions)
+    final maxOrder = previousWaypoints.first.order;
+    final previousGroup = previousWaypoints
+        .where((w) => w.order == maxOrder)
+        .toList();
+    
+    // Calculate distance from each option in the previous group
+    // For OR conditions, we need to calculate from all options
+    // For now, calculate from the first one (user can change mode later)
+    final fromWaypoint = previousGroup.first;
+    
+    // Use existing travel mode if set, otherwise let service choose
+    final travelMode = toWaypoint.travelMode != null
+        ? TravelMode.values.firstWhere(
+            (tm) => tm.name == toWaypoint.travelMode,
+            orElse: () => TravelMode.walking,
+          )
+        : null;
+    
+    final travelInfo = await travelService.calculateTravel(
+      from: fromWaypoint.position,
+      to: toWaypoint.position,
+      travelMode: travelMode,
+    );
+    
+    if (travelInfo != null && mounted) {
+                        setState(() {
+        final index = _poiWaypoints.indexWhere((w) => w.id == toWaypoint.id);
+        if (index >= 0) {
+          _poiWaypoints[index] = _poiWaypoints[index].copyWith(
+            travelMode: travelMode?.name ?? travelInfo.travelMode.name,
+            travelTime: travelInfo.durationSeconds,
+            travelDistance: travelInfo.distanceMeters.toDouble(),
+          );
+        }
+      });
+    }
+  }
+}
+
+/// Recalculate travel for a specific waypoint when transportation mode changes
+Future<void> _recalculateTravelForWaypoint(RouteWaypoint waypoint, String newMode) async {
+  final sortedWaypoints = List<RouteWaypoint>.from(_poiWaypoints)
+    ..sort((a, b) => a.order.compareTo(b.order));
+  
+  final waypointIndex = sortedWaypoints.indexWhere((w) => w.id == waypoint.id);
+  if (waypointIndex < 1) return; // No previous waypoint
+  
+  final currentOrder = waypoint.order;
+  final previousWaypoints = sortedWaypoints
+      .where((w) => w.order < currentOrder)
+      .toList()
+    ..sort((a, b) => b.order.compareTo(a.order));
+  
+  if (previousWaypoints.isEmpty) return;
+  
+  final maxOrder = previousWaypoints.first.order;
+  final previousGroup = previousWaypoints
+      .where((w) => w.order == maxOrder)
+      .toList();
+  
+  final fromWaypoint = previousGroup.first;
+  final travelMode = TravelMode.values.firstWhere(
+    (tm) => tm.name == newMode,
+    orElse: () => TravelMode.walking,
+  );
+  
+  final travelService = TravelCalculatorService();
+  final travelInfo = await travelService.calculateTravel(
+    from: fromWaypoint.position,
+    to: waypoint.position,
+    travelMode: travelMode,
+  );
+  
+  if (travelInfo != null && mounted) {
+    setState(() {
+      final index = _poiWaypoints.indexWhere((w) => w.id == waypoint.id);
+      if (index >= 0) {
+        _poiWaypoints[index] = _poiWaypoints[index].copyWith(
+          travelMode: newMode,
+          travelTime: travelInfo.durationSeconds,
+          travelDistance: travelInfo.distanceMeters.toDouble(),
+        );
+      }
+    });
+  }
+}
+
+/// Handle new waypoint addition with auto-grouping detection
+Future<void> _handleNewWaypoint(RouteWaypoint newWaypoint) async {
+  // Assign sequential order number
+  final nextOrder = _poiWaypoints.isEmpty ? 1 : (_poiWaypoints.map((w) => w.order ?? 0).reduce((a, b) => a > b ? a : b) + 1);
+  var waypointWithOrder = newWaypoint.copyWith(order: nextOrder);
+
+  // Check for auto-grouping
+  final groupingService = WaypointGroupingService();
+  final existingMatch = groupingService.shouldAutoGroup(_poiWaypoints, waypointWithOrder);
+
+  if (existingMatch != null) {
+    // Show auto-grouping prompt
+    final shouldGroup = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Group as Choice?'),
+        content: Text(
+          'This looks like an alternative to "${existingMatch.name}". '
+          'Group as choice?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No, keep separate'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Yes'),
+          ),
+      ],
+    ),
+    );
+
+    if (shouldGroup == true && mounted) {
+      // Group as choice
+      final choiceGroupId = existingMatch.choiceGroupId ?? const Uuid().v4();
+      final choiceLabel = existingMatch.choiceLabel ?? 
+          groupingService.generateAutoChoiceLabel(
+            waypointWithOrder.type,
+            waypointWithOrder.suggestedStartTime,
+            waypointWithOrder.mealTime,
+            waypointWithOrder.activityTime,
+          );
+
+      // Update existing waypoint if it doesn't have choiceGroupId yet
+      if (existingMatch.choiceGroupId == null) {
+        final existingIndex = _poiWaypoints.indexWhere((w) => w.id == existingMatch.id);
+        if (existingIndex >= 0) {
+          _poiWaypoints[existingIndex] = existingMatch.copyWith(
+            choiceGroupId: choiceGroupId,
+            choiceLabel: choiceLabel,
+          );
+        }
+      }
+
+      // Set choice group for new waypoint
+      waypointWithOrder = waypointWithOrder.copyWith(
+        order: existingMatch.order,
+        choiceGroupId: choiceGroupId,
+        choiceLabel: choiceLabel,
+      );
+    } else if (shouldGroup == false && mounted) {
+      // Keep separate - order is already set to nextOrder
+      // No changes needed
+    }
+  }
+
+  // Add waypoint
+  if (mounted) {
+    setState(() {
+      _poiWaypoints.add(waypointWithOrder);
+      _renumberWaypoints(); // Ensure sequential ordering
+    });
+    
+    // Fit map to show all waypoints after adding
+    _fitToWaypoints();
+    
+    // Calculate travel times after adding waypoint
+    _calculateTravelTimes();
+  }
+}
 
 Future<void> _showAddWaypointDialogForCategory(TimeSlotCategory category) async {
 WaypointType? preselectedType;
@@ -2592,28 +2735,7 @@ if (mounted) {
 }
 
 if (result != null && mounted) {
-setState(() {
-// Auto-assign category if not already set
-final finalCategory = result.timeSlotCategory ?? category;
-// Set logistics category if it's a logistics category
-LogisticsCategory? logisticsCategory;
-if (finalCategory == TimeSlotCategory.logisticsGear) {
-logisticsCategory = LogisticsCategory.gear;
-} else if (finalCategory == TimeSlotCategory.logisticsTransportation) {
-logisticsCategory = LogisticsCategory.transportation;
-} else if (finalCategory == TimeSlotCategory.logisticsFood) {
-logisticsCategory = LogisticsCategory.food;
-}
-final waypointWithCategory = result.copyWith(
-timeSlotCategory: finalCategory,
-logisticsCategory: logisticsCategory ?? result.logisticsCategory,
-);
-_poiWaypoints.add(waypointWithCategory);
-
-// Reinitialize ordering after adding waypoint
-_initializeRouteOrdering();
-_moveCamera(result.position); // Use helper method
-});
+  await _handleNewWaypoint(result);
 }
 }
 
@@ -2644,16 +2766,7 @@ if (mounted) {
 }
 
 if (result != null && mounted) {
-setState(() {
-// Auto-assign time slot category if not set
-final finalCategory = result.timeSlotCategory ?? autoAssignTimeSlotCategory(result);
-final waypointWithCategory = result.copyWith(timeSlotCategory: finalCategory);
-_poiWaypoints.add(waypointWithCategory);
-
-// Reinitialize ordering after adding waypoint
-_initializeRouteOrdering();
-_moveCamera(result.position); // Use helper method
-});
+  await _handleNewWaypoint(result);
 }
 }
 }

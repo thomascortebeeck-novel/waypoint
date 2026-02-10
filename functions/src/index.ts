@@ -6,6 +6,8 @@ initializeApp();
 import {onCall} from "firebase-functions/v2/https";
 export {getDirections, matchRoute, getElevationProfile, geocodeAddressMapbox} from "./mapbox";
 export {placesSearch, placeDetails, geocodeAddress, placePhoto} from "./google-places";
+export {googleDirections} from "./google-directions";
+export {googleDistanceMatrix} from "./google-distance-matrix";
 export {getOutdoorPOIs} from "./osm-pois";
 
 // Simple callable function to fetch OpenGraph/Twitter meta tags for a given URL.

@@ -23,6 +23,7 @@ import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
+import 'package:waypoint/components/itinerary/timeline_itinerary_widget.dart';
 import 'package:waypoint/utils/route_calculations.dart';
 import 'package:waypoint/core/theme/colors.dart';
 
@@ -2522,14 +2523,31 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       );
     }
 
-    // Sort waypoints chronologically
-    allWaypoints.sort((a, b) {
-      final aOrder = getWaypointChronologicalOrder(a);
-      final bOrder = getWaypointChronologicalOrder(b);
-      return aOrder.compareTo(bOrder);
-    });
+    // Sort waypoints by order (sequential)
+    allWaypoints.sort((a, b) => (a.order ?? 0).compareTo(b.order ?? 0));
 
-    // Build widgets with timeline using organized categories
+    // Build booking status map from selection
+    final bookingStatus = <String, bool>{};
+    if (selection != null) {
+      if (selection.selectedAccommodation != null) {
+        bookingStatus[selection.selectedAccommodation!.id] = 
+            selection.selectedAccommodation!.bookingStatus == WaypointBookingStatus.booked;
+      }
+      for (final restaurant in selection.selectedRestaurants.values) {
+        bookingStatus[restaurant.id] = restaurant.bookingStatus == WaypointBookingStatus.booked;
+      }
+      for (final activity in selection.selectedActivities) {
+        bookingStatus[activity.id] = activity.bookingStatus == WaypointBookingStatus.booked;
+      }
+    }
+
+    // Get selected waypoint IDs
+    final selectedIds = allWaypoints
+        .where((wp) => _isWaypointSelected(wp, selection))
+        .map((wp) => wp.id)
+        .toSet();
+
+    // Build widgets with sequential timeline
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2590,86 +2608,54 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
             ),
           ),
         
-        // Organized timeline with categories
-        ..._buildCategoryTimeline(allWaypoints, dayNumber, selection),
+        // Sequential timeline widget
+        TimelineItineraryWidget(
+          waypoints: allWaypoints,
+          dayNumber: dayNumber,
+          isBuilderView: false,
+          onChoiceSelected: _isOwner ? (waypoint, choiceGroupId) {
+            // Handle choice selection for trip owners
+            // When a choice is selected, deselect other choices in the same group
+            _handleChoiceSelection(dayNumber, waypoint, choiceGroupId);
+          } : null,
+        ),
       ],
     );
   }
   
-  /// Build organized timeline grouped by time slot categories
-  List<Widget> _buildCategoryTimeline(List<RouteWaypoint> waypoints, int dayNumber, TripDaySelection? selection) {
-    // Group waypoints by time slot category
-    final categoryMap = <TimeSlotCategory, List<RouteWaypoint>>{};
-    
-    for (final category in TimeSlotCategory.values) {
-      categoryMap[category] = [];
+  /// Handle choice group selection - selects one and deselects others in the group
+  Future<void> _handleChoiceSelection(
+    int dayNumber,
+    RouteWaypoint selectedWaypoint,
+    String choiceGroupId,
+  ) async {
+    // First, deselect all other waypoints in the same choice group
+    final allWaypoints = <RouteWaypoint>[];
+    final day = _selectedVersion?.days[dayNumber - 1];
+    if (day?.route != null && day!.route!.poiWaypoints.isNotEmpty) {
+      final result = _parseWaypoints(day.route!.poiWaypoints);
+      allWaypoints.addAll(result.waypoints);
     }
-    
-    for (final waypoint in waypoints) {
-      final category = waypoint.timeSlotCategory ?? 
-          autoAssignTimeSlotCategory(waypoint) ??
-          TimeSlotCategory.afternoonActivity;
-      categoryMap[category]!.add(waypoint);
-    }
-    
-    // Get ordered categories (only show categories with waypoints)
-    final orderedCategories = TimeSlotCategory.values
-        .where((cat) => categoryMap[cat]?.isNotEmpty ?? false)
-        .toList();
-    
-    // Build booking status map from selection
-    final bookingStatus = <String, bool>{};
-    if (selection != null) {
-      if (selection.selectedAccommodation != null) {
-        bookingStatus[selection.selectedAccommodation!.id] = 
-            selection.selectedAccommodation!.bookingStatus == WaypointBookingStatus.booked;
-      }
-      for (final restaurant in selection.selectedRestaurants.values) {
-        bookingStatus[restaurant.id] = restaurant.bookingStatus == WaypointBookingStatus.booked;
-      }
-      for (final activity in selection.selectedActivities) {
-        bookingStatus[activity.id] = activity.bookingStatus == WaypointBookingStatus.booked;
+
+    // Deselect all waypoints in the same choice group
+    for (final wp in allWaypoints) {
+      if (wp.choiceGroupId == choiceGroupId && wp.id != selectedWaypoint.id) {
+        await _toggleWaypointSelection(
+          dayNumber: dayNumber,
+          waypoint: wp,
+          selected: false,
+        );
       }
     }
-    
-    // Build timeline sections
-    return orderedCategories.map((category) {
-      final categoryWaypoints = categoryMap[category]!;
-      final selectedIds = categoryWaypoints
-          .where((wp) => _isWaypointSelected(wp, selection))
-          .map((wp) => wp.id)
-          .toSet();
-      
-      return DayTimelineSection(
-        key: ValueKey('${dayNumber}_$category'),
-        category: category,
-        waypoints: categoryWaypoints,
-        isExpanded: true,
-        onEditWaypoint: (_) {},
-        onDeleteWaypoint: (_) {},
-        onTimeChange: _isOwner ? (waypoint, time) {
-          _updateWaypointTime(dayNumber, waypoint, time);
-        } : null,
-        onBookingChange: _isOwner ? (waypoint, booked) {
-          _updateWaypointBookingStatus(dayNumber, waypoint, booked);
-        } : null,
-        isSelectable: _isOwner,
-        selectedWaypointIds: selectedIds,
-        onToggleSelection: (waypoint, selected) {
-          _toggleWaypointSelection(
-            dayNumber: dayNumber,
-            waypoint: waypoint,
-            selected: selected,
-          );
-        },
-        waypointBookingStatus: bookingStatus,
-        useActualTime: _isOwner, // Trip owners use actual time, participants see suggested time
-        showActions: false, // No edit/delete in trip view
-        isViewOnly: !_isOwner,
-      );
-    }).toList();
+
+    // Then select the chosen waypoint
+    await _toggleWaypointSelection(
+      dayNumber: dayNumber,
+      waypoint: selectedWaypoint,
+      selected: true,
+    );
   }
-  
+
   /// Toggle waypoint selection (for POI waypoints)
   Future<void> _toggleWaypointSelection({
     required int dayNumber,

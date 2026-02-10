@@ -192,7 +192,16 @@ class DayPlanOrderBuilder {
           );
           break;
           
+        case WaypointType.bar:
+          final mealTime = wp.mealTime?.name ?? 'dinner';
+          sectionId = OrderableItem.createSectionId(
+            OrderableItemType.restaurantSection, 
+            mealTime,
+          );
+          break;
+          
         case WaypointType.activity:
+        case WaypointType.attraction:
           final activityTime = wp.activityTime?.name ?? 'afternoon';
           sectionId = OrderableItem.createSectionId(
             OrderableItemType.activitySection,
@@ -208,6 +217,7 @@ class DayPlanOrderBuilder {
           break;
           
         case WaypointType.servicePoint: // Logistics - each waypoint is individual
+        case WaypointType.service:
           items.add(OrderableItem(
             id: OrderableItem.createWaypointItemId(
               OrderableItemType.logisticsWaypoint,
@@ -259,7 +269,18 @@ class DayPlanOrderBuilder {
           sectionType = mealTime;
           break;
           
+        case WaypointType.bar:
+          final mealTime = wp.mealTime?.name ?? 'dinner';
+          sectionId = OrderableItem.createSectionId(
+            OrderableItemType.restaurantSection, 
+            mealTime,
+          );
+          itemType = OrderableItemType.restaurantSection;
+          sectionType = mealTime;
+          break;
+          
         case WaypointType.activity:
+        case WaypointType.attraction:
           final activityTime = wp.activityTime?.name ?? 'afternoon';
           sectionId = OrderableItem.createSectionId(
             OrderableItemType.activitySection,

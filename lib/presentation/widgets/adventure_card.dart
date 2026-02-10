@@ -28,6 +28,7 @@ class AdventureCard extends StatefulWidget {
   final bool showFavoriteButton;
   final String? statusLabel; // For My Trips: "Upcoming", "Completed", etc.
   final AdventureCardTheme? theme;
+  final bool isDeleting; // Whether this card is currently being deleted
 
   const AdventureCard({
     super.key,
@@ -38,6 +39,7 @@ class AdventureCard extends StatefulWidget {
     this.showFavoriteButton = false,
     this.statusLabel,
     this.theme,
+    this.isDeleting = false,
   });
 
   @override
@@ -92,7 +94,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
       onExit: (_) => _onHoverChanged(false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: widget.onTap,
+        onTap: widget.isDeleting ? null : widget.onTap,
         child: AnimatedBuilder(
           animation: _scaleAnimation,
           builder: (context, child) => Transform.scale(
@@ -121,16 +123,21 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(24),
-              child: Column(
+              child: Stack(
                 children: [
-                  Expanded(
-                    flex: 60,
-                    child: _buildImageSection(context, isDark),
+                  Column(
+                    children: [
+                      Expanded(
+                        flex: 60,
+                        child: _buildImageSection(context, isDark),
+                      ),
+                      Expanded(
+                        flex: 40,
+                        child: _buildBottomSection(context, isDark),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    flex: 40,
-                    child: _buildBottomSection(context, isDark),
-                  ),
+                  if (widget.isDeleting) _buildDeletingOverlay(context),
                 ],
               ),
             ),
@@ -410,11 +417,11 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
       top: 16,
       right: 72,
       child: GestureDetector(
-        onTap: widget.onDelete,
+        onTap: widget.isDeleting ? null : widget.onDelete,
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.red.withValues(alpha: 0.9),
+            color: Colors.red.withValues(alpha: widget.isDeleting ? 0.5 : 0.9),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
@@ -425,6 +432,42 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             ],
           ),
           child: const Icon(Icons.delete_outline, size: 18, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeletingOverlay(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(
+              strokeWidth: 3,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Deleting...',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

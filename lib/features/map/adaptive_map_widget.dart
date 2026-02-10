@@ -8,6 +8,7 @@ import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/vector_map_controller.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/features/map/web/mapbox_web_widget_export.dart';
+import 'package:waypoint/features/map/google_map_widget_export.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/utils/logger.dart';
 import 'package:waypoint/models/route_waypoint.dart';
@@ -257,6 +258,9 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
       case MapEngineType.flutterMapRaster:
         return _buildFlutterMap(config);
       
+      case MapEngineType.googleMaps:
+        return _buildGoogleMap(config);
+      
       case MapEngineType.mapboxNative:
         if (kIsWeb) {
           Log.w('map', '⚠️ Mapbox Native requested on web, using flutter_map');
@@ -315,6 +319,40 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
         _controller?.handleCameraChange();
       },
     );
+  }
+
+  /// Build Google Maps (works on both mobile and web)
+  Widget _buildGoogleMap(MapConfiguration config) {
+    try {
+      return GoogleMapWidget(
+        key: const ValueKey('google_map'),
+        initialCenter: widget.initialCenter,
+        configuration: config,
+        annotations: widget.annotations,
+        polylines: widget.polylines,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        onCameraChanged: widget.onCameraChanged,
+        overlays: widget.overlays,
+        onMapCreated: (controller) {
+          widget.onMapCreated?.call(controller);
+          Log.i('map', '✅ Google Maps created successfully');
+        },
+      );
+    } catch (e) {
+      Log.e('map', '❌ Google Maps failed to load', e);
+      if (config.allowFallback) {
+        // Trigger fallback on next rebuild
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _mapboxFailed = true;
+            });
+          }
+        });
+      }
+      return _buildFlutterMap(config);
+    }
   }
 
   /// Build web map using Mapbox GL JS

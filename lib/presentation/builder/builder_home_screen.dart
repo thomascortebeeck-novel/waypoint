@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/models/plan_model.dart';
@@ -18,7 +19,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
   final _auth = FirebaseAuthManager();
   final _plans = PlanService();
   final _users = UserService();
-  bool _deleting = false;
+  String? _deletingPlanId;
 
   @override
   Widget build(BuildContext context) {
@@ -169,10 +170,14 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           );
         }
         final plans = snapshot.data ?? [];
-        if (plans.isEmpty) {
+        // Optimistically filter out the plan being deleted
+        final filteredPlans = _deletingPlanId != null
+            ? plans.where((plan) => plan.id != _deletingPlanId).toList()
+            : plans;
+        if (filteredPlans.isEmpty) {
           return SliverToBoxAdapter(child: _EmptyBuilderState());
         }
-        return _buildPlansGrid(context, plans, isDesktop);
+        return _buildPlansGrid(context, filteredPlans, isDesktop);
       },
     );
   }
@@ -199,6 +204,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
                 variant: AdventureCardVariant.builder,
                 onTap: () => context.go('/builder/${plan.id}'),
                 onDelete: () => _confirmDelete(context, plan),
+                isDeleting: _deletingPlanId == plan.id,
               );
             },
             childCount: plans.length,
@@ -213,10 +219,11 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
     final uid = _auth.currentUserId;
     if (uid == null) return;
 
+    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => Center(
+      builder: (dialogContext) => Center(
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
@@ -262,24 +269,37 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
 
       if (!mounted) return;
 
-      Navigator.of(context).pop();
-      context.go('/builder/$planId');
+      // Close the dialog first
+      Navigator.of(context, rootNavigator: true).pop();
+      
+      // Use SchedulerBinding to ensure dialog is dismissed before navigating
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // Navigate to the builder screen
+        context.go('/builder/$planId');
+      });
     } catch (e) {
       debugPrint('Failed to create draft: $e');
       if (!mounted) return;
 
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Failed to create draft. Try again.'),
-          backgroundColor: context.colors.error,
-        ),
-      );
+      // Close the dialog on error
+      Navigator.of(context, rootNavigator: true).pop();
+      
+      // Use SchedulerBinding to ensure dialog is dismissed before showing snackbar
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to create draft. Try again.'),
+            backgroundColor: context.colors.error,
+          ),
+        );
+      });
     }
   }
 
   Future<void> _confirmDelete(BuildContext context, Plan plan) async {
-    if (_deleting) return;
+    if (_deletingPlanId != null) return;
     final uid = _auth.currentUserId;
     if (uid == null) return;
 
@@ -374,7 +394,8 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
     );
 
     if (confirmed == true) {
-      setState(() => _deleting = true);
+      // Optimistically update UI immediately
+      setState(() => _deletingPlanId = plan.id);
       try {
         await _plans.deletePlan(plan.id);
         await _users.removeCreatedPlan(uid, plan.id);
@@ -388,6 +409,8 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       } catch (e) {
         debugPrint('Delete failed: $e');
         if (!mounted) return;
+        // Revert optimistic update on error
+        setState(() => _deletingPlanId = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Failed to delete. Try again.'),
@@ -395,7 +418,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           ),
         );
       } finally {
-        if (mounted) setState(() => _deleting = false);
+        if (mounted) setState(() => _deletingPlanId = null);
       }
     }
   }

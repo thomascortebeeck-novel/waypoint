@@ -121,6 +121,7 @@ class AppRouter {
             end: extra?['end'],
             initial: extra?['initial'],
             activityCategory: extra?['activityCategory'],
+            location: extra?['location'],
           );
         },
       ),

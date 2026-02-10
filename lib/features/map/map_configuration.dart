@@ -13,13 +13,21 @@ enum MapEngineType {
   /// Use for: Main Map, Discovery screens
   /// Pros: Vector tiles, 3D terrain, smooth performance, offline support
   /// Cons: Mobile only, larger app size
+  @Deprecated('Use googleMaps instead')
   mapboxNative,
   
   /// Mapbox GL JS (Web only)
   /// Use for: Main Map on web
   /// Pros: Vector tiles, custom styling, interactive
   /// Cons: Web only, requires GL JS loading
+  @Deprecated('Use googleMaps instead')
   mapboxWebGL,
+  
+  /// Google Maps (iOS/Android/Web)
+  /// Use for: All map screens
+  /// Pros: Native Google Maps experience, consistent across platforms, excellent POI data
+  /// Cons: Requires Google Maps API key
+  googleMaps,
 }
 
 /// Configuration for map rendering
@@ -65,37 +73,22 @@ class MapConfiguration {
 
   /// Configuration for Route Builder
   /// 
-  /// Uses Mapbox if feature flag enabled (useMapboxEverywhere), otherwise flutter_map
-  /// When using Mapbox: enables marker dragging for interactive editing
+  /// Uses Google Maps for all platforms
   factory MapConfiguration.routeBuilder({
     String? rasterTileUrl,
     String? styleUri,
     double initialZoom = 12.0,
   }) {
-    if (MapFeatureFlags.useMapboxEverywhere) {
-      // Mapbox mode for editing (AllTrails-style)
-      return MapConfiguration(
-        engineType: kIsWeb ? MapEngineType.mapboxWebGL : MapEngineType.mapboxNative,
-        styleUri: styleUri,
-        rasterTileUrl: rasterTileUrl,
-        enable3DTerrain: false, // Keep flat for editing clarity
-        allowFallback: MapFeatureFlags.allowMapboxFallback,
-        initialZoom: initialZoom,
-        enableInteractiveMarkers: true, // Enable marker drag for editing
-      );
-    } else {
-      // Stable flutter_map mode (current proven behavior)
-      return MapConfiguration(
-        engineType: MapEngineType.flutterMapRaster,
-        rasterTileUrl: rasterTileUrl,
-        allowFallback: false,
-        initialZoom: initialZoom,
-        enableInteractiveMarkers: false,
-      );
-    }
+    return MapConfiguration(
+      engineType: MapEngineType.googleMaps,
+      rasterTileUrl: rasterTileUrl,
+      allowFallback: true,
+      initialZoom: initialZoom,
+      enableInteractiveMarkers: true, // Enable marker drag for editing
+    );
   }
 
-  /// Configuration for Main Map/Discovery (Mapbox vector with fallback)
+  /// Configuration for Main Map/Discovery (Google Maps)
   factory MapConfiguration.mainMap({
     String? styleUri,
     String? rasterTileUrl,
@@ -104,7 +97,7 @@ class MapConfiguration {
     double initialTilt = 0.0,
   }) {
     return MapConfiguration(
-      engineType: kIsWeb ? MapEngineType.mapboxWebGL : MapEngineType.mapboxNative,
+      engineType: MapEngineType.googleMaps,
       styleUri: styleUri,
       rasterTileUrl: rasterTileUrl,
       enable3DTerrain: enable3DTerrain,
@@ -128,9 +121,13 @@ class MapConfiguration {
   }
 
   /// Whether this configuration uses Mapbox vector tiles
+  @Deprecated('Mapbox is deprecated, use googleMaps instead')
   bool get usesMapboxVector => 
       engineType == MapEngineType.mapboxNative || 
       engineType == MapEngineType.mapboxWebGL;
+  
+  /// Whether this configuration uses Google Maps
+  bool get usesGoogleMaps => engineType == MapEngineType.googleMaps;
 
   /// Whether this configuration uses flutter_map raster tiles
   bool get usesFlutterMapRaster => 

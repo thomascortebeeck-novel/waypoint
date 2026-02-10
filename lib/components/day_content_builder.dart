@@ -376,26 +376,29 @@ class DayContentBuilder extends StatelessWidget {
     switch (item.type) {
       case OrderableItemType.logisticsWaypoint:
         // Use logistics category icon
-        if (waypoint.logisticsCategory != null) {
-          switch (waypoint.logisticsCategory!) {
-            case LogisticsCategory.gear:
+        final logisticsCat = waypoint.serviceCategory ?? waypoint.logisticsCategory;
+        if (logisticsCat != null) {
+          switch (logisticsCat) {
+            case ServiceCategory.gear:
               return _DisplayInfo(
                 icon: Icons.backpack,
                 color: const Color(0xFF4CAF50), // Green
                 label: 'Logistics - Gear',
               );
-            case LogisticsCategory.transportation:
+            case ServiceCategory.transportation:
               return _DisplayInfo(
                 icon: Icons.directions_car,
                 color: const Color(0xFF4CAF50), // Green
                 label: 'Logistics - Transportation',
               );
-            case LogisticsCategory.food:
+            case ServiceCategory.food:
               return _DisplayInfo(
                 icon: Icons.shopping_bag,
                 color: const Color(0xFF4CAF50), // Green
                 label: 'Logistics - Food',
               );
+            default:
+              break;
           }
         }
         return _DisplayInfo(

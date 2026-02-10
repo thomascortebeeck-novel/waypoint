@@ -20,6 +20,7 @@ import 'package:waypoint/presentation/widgets/like_button.dart';
 import 'package:waypoint/presentation/widgets/sign_in_bottom_sheet.dart';
 import 'package:waypoint/components/waypoint/unified_waypoint_card.dart';
 import 'package:waypoint/components/builder/day_timeline_section.dart';
+import 'package:waypoint/components/itinerary/timeline_itinerary_widget.dart';
 import 'package:waypoint/utils/route_calculations.dart';
 import 'package:waypoint/services/favorite_service.dart';
 import 'package:waypoint/core/theme/colors.dart';
@@ -2947,49 +2948,16 @@ fontWeight: FontWeight.w500,
 ],
 ),
 ),
-// Organized timeline with categories
-..._buildPlanCategoryTimeline(allWaypoints),
+// Sequential timeline widget
+TimelineItineraryWidget(
+  waypoints: allWaypoints,
+  dayNumber: null, // Plan details don't have day numbers
+  isBuilderView: false,
+),
 ],
 );
 }
 
-/// Build organized timeline grouped by time slot categories (for plan details)
-List<Widget> _buildPlanCategoryTimeline(List<RouteWaypoint> waypoints) {
-// Group waypoints by time slot category
-final categoryMap = <TimeSlotCategory, List<RouteWaypoint>>{};
-
-for (final category in TimeSlotCategory.values) {
-categoryMap[category] = [];
-}
-
-for (final waypoint in waypoints) {
-final category = waypoint.timeSlotCategory ?? 
-autoAssignTimeSlotCategory(waypoint) ??
-TimeSlotCategory.afternoonActivity;
-categoryMap[category]!.add(waypoint);
-}
-
-// Get ordered categories (only show categories with waypoints)
-final orderedCategories = TimeSlotCategory.values
-.where((cat) => categoryMap[cat]?.isNotEmpty ?? false)
-.toList();
-
-// Build timeline sections
-return orderedCategories.map((category) {
-final categoryWaypoints = categoryMap[category]!;
-
-return DayTimelineSection(
-key: ValueKey('plan_$category'),
-category: category,
-waypoints: categoryWaypoints,
-isExpanded: true,
-onEditWaypoint: (_) {},
-onDeleteWaypoint: (_) {},
-showActions: false, // No edit/delete in plan view
-isViewOnly: true, // Read-only for plan details
-);
-}).toList();
-}
 
 Widget _buildBottomBar(BuildContext context) {
 if (selectedVersion == null) return const SizedBox.shrink();
