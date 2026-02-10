@@ -105,9 +105,9 @@ async function checkRateLimit(
       // Update rate limit data
       transaction.set(rateLimitRef, {
         count: currentCount,
-        timestamp: windowExpired ? now : data!.timestamp,
+        timestamp: windowExpired ? now : (data?.timestamp ?? now),
         burstCount: currentBurstCount,
-        burstTimestamp: burstExpired ? now : data!.burstTimestamp,
+        burstTimestamp: burstExpired ? now : (data?.burstTimestamp ?? now),
       });
 
       return true;
