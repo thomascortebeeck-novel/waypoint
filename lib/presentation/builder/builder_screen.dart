@@ -39,7 +39,11 @@ import 'package:waypoint/components/widgets/scroll_blocking_dialog.dart';
 import 'package:waypoint/integrations/google_directions_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:waypoint/models/route_info_model.dart';
-import 'package:waypoint/components/route_info_card.dart';
+import 'package:waypoint/components/builder/route_info_section.dart';
+import 'package:waypoint/services/route_info_calculator_service.dart';
+import 'package:waypoint/services/adventure_context_service.dart';
+import 'package:waypoint/models/adventure_context_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BuilderScreen extends StatefulWidget {
 final String? editPlanId;
@@ -164,6 +168,11 @@ List<SeasonRange> _bestSeasons = []; // List of season ranges
 bool _isEntireYear = false; // Whether available year-round
 // Show prices toggle (plan-level)
 bool _showPrices = false;
+
+// AI generation state
+bool _isGeneratingInfo = false;
+Prepare? _generatedPrepare;
+LocalTips? _generatedLocalTips;
   
   // Current day being edited in Step 5
   int _currentDayIndex = 0;
@@ -241,6 +250,13 @@ try {
 final plan = await _planService.loadFullPlan(planId);
 if (plan != null) {
 _editingPlan = plan;
+// Load AI-generated data if it exists
+if (plan.prepare != null) {
+  _generatedPrepare = plan.prepare;
+}
+if (plan.localTips != null) {
+  _generatedLocalTips = plan.localTips;
+}
 _nameCtrl.text = plan.name;
 _locationCtrl.text = plan.location;
 // Geocode location to get coordinates for map preview
@@ -595,7 +611,7 @@ Icon(_currentStep == 5 ? Icons.check : Icons.arrow_forward, size: 18),
 }
 
 Widget _buildStepProgressIndicator() {
-final steps = ['General Info', 'Versions', 'What to Pack', 'How to Get There', 'Days', 'Overview'];
+final steps = ['General Info', 'Versions', 'Prepare', 'Local Tips', 'Days', 'Overview'];
 
 return Container(
 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -1051,6 +1067,10 @@ const SizedBox(height: 8),
 Text("Add helpful information for travelers", style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700)),
 const SizedBox(height: 16),
 _buildGeneralInfoFAQSection(),
+const SizedBox(height: 32),
+
+// Generate Info Button
+_buildGenerateInfoButton(),
 ],
 ),
 ),
@@ -1255,6 +1275,12 @@ padding: AppSpacing.paddingLg,
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
 children: [
+// Packing List Section
+Text(
+'Packing List',
+style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+),
+const SizedBox(height: 8),
 Text(
 'Organize packing items by category',
 style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
@@ -1289,59 +1315,60 @@ side: BorderSide(color: context.colors.primary, style: BorderStyle.solid),
 ),
 ),
 
-const SizedBox(height: 16),
-Container(
-padding: AppSpacing.paddingMd,
-decoration: BoxDecoration(
-color: Colors.blue.shade50,
-borderRadius: BorderRadius.circular(8),
-border: Border.all(color: Colors.blue.shade200),
-),
-child: Row(
-children: [
-Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-const SizedBox(width: 12),
-Expanded(
-child: Text(
-'Tip: Create categories like "Insurance", "Clothing", "Equipment" to organize your packing list',
-style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
-),
-),
+const SizedBox(height: 32),
+
+// AI-Generated Prepare Section
+if (_generatedPrepare != null) ...[
+  Divider(),
+  const SizedBox(height: 16),
+  Text(
+    'AI-Generated Travel Preparation',
+    style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+  ),
+  const SizedBox(height: 8),
+  Text(
+    'Review and edit the AI-generated travel information',
+    style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
+  ),
+  const SizedBox(height: 24),
+  _buildPrepareSection(_generatedPrepare!),
+] else ...[
+  Divider(),
+  const SizedBox(height: 16),
+  Container(
+    padding: AppSpacing.paddingMd,
+    decoration: BoxDecoration(
+      color: Colors.grey.shade100,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
+    child: Column(
+      children: [
+        Icon(Icons.auto_awesome_outlined, size: 48, color: Colors.grey.shade400),
+        const SizedBox(height: 12),
+        Text(
+          'No travel info generated yet',
+          style: context.textStyles.titleMedium?.copyWith(color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Go to Step 1 and click "Generate Info" to auto-fill this section',
+          style: context.textStyles.bodySmall?.copyWith(color: Colors.grey.shade500),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ),
+  ),
 ],
-),
-),
-],
-),
-),
-),
-),
-);
-}
 
-Widget _buildPackingCategoryCard(_VersionFormData vf, int index, _PackingCategory category) {
-return _PackingCategoryCardWidget(
-key: ValueKey(index),
-versionFormData: vf,
-categoryIndex: index,
-category: category,
-onUpdate: () {
-setState(() {});
-},
-);
-}
+const SizedBox(height: 32),
 
-Widget _buildTransportationTab() {
-final vf = _versions[_activeVersionIndex];
-
-return SingleChildScrollView(
-child: Center(
-child: ConstrainedBox(
-constraints: const BoxConstraints(maxWidth: 900),
-child: Padding(
-padding: AppSpacing.paddingLg,
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
+// How to Get There Section (relocated from Step 4)
+Text(
+'How to Get There',
+style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+),
+const SizedBox(height: 8),
 Text(
 'Add different ways to reach the starting point',
 style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
@@ -1394,6 +1421,83 @@ style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
 ],
 ),
 ),
+],
+),
+),
+),
+),
+);
+}
+
+Widget _buildPackingCategoryCard(_VersionFormData vf, int index, _PackingCategory category) {
+return _PackingCategoryCardWidget(
+key: ValueKey(index),
+versionFormData: vf,
+categoryIndex: index,
+category: category,
+onUpdate: () {
+setState(() {});
+},
+);
+}
+
+Widget _buildTransportationTab() {
+final vf = _versions[_activeVersionIndex];
+
+return SingleChildScrollView(
+child: Center(
+child: ConstrainedBox(
+constraints: const BoxConstraints(maxWidth: 900),
+child: Padding(
+padding: AppSpacing.paddingLg,
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+// AI-Generated Local Tips Section
+if (_generatedLocalTips != null) ...[
+  Text(
+    'AI-Generated Local Tips',
+    style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+  ),
+  const SizedBox(height: 8),
+  Text(
+    'Review and edit the AI-generated local information',
+    style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
+  ),
+  const SizedBox(height: 24),
+  _buildLocalTipsSection(_generatedLocalTips!),
+  const SizedBox(height: 32),
+  Divider(),
+  const SizedBox(height: 16),
+] else ...[
+  Container(
+    padding: AppSpacing.paddingMd,
+    decoration: BoxDecoration(
+      color: Colors.grey.shade100,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
+    child: Column(
+      children: [
+        Icon(Icons.auto_awesome_outlined, size: 48, color: Colors.grey.shade400),
+        const SizedBox(height: 12),
+        Text(
+          'No local tips generated yet',
+          style: context.textStyles.titleMedium?.copyWith(color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Go to Step 1 and click "Generate Info" to auto-fill this section',
+          style: context.textStyles.bodySmall?.copyWith(color: Colors.grey.shade500),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ),
+  ),
+  const SizedBox(height: 32),
+  Divider(),
+  const SizedBox(height: 16),
+],
 ],
 ),
 ),
@@ -1531,6 +1635,766 @@ return 'Bus';
 case TransportationType.taxi:
 return 'Taxi';
 }
+}
+
+Widget _buildPrepareSection(Prepare prepare) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // Travel Insurance
+      if (prepare.travelInsurance != null)
+        _buildInfoCard(
+          icon: Icons.shield_outlined,
+          title: 'Travel Insurance',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEditableField(
+                label: 'Recommended',
+                value: prepare.travelInsurance!.recommendation,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedPrepare = Prepare(
+                      travelInsurance: TravelInsurance(
+                        recommendation: value,
+                        url: prepare.travelInsurance!.url,
+                        note: prepare.travelInsurance!.note,
+                      ),
+                      visa: prepare.visa,
+                      passport: prepare.passport,
+                      permits: prepare.permits,
+                      vaccines: prepare.vaccines,
+                      climate: prepare.climate,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              _buildEditableField(
+                label: 'Why',
+                value: prepare.travelInsurance!.note,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedPrepare = Prepare(
+                      travelInsurance: TravelInsurance(
+                        recommendation: prepare.travelInsurance!.recommendation,
+                        url: prepare.travelInsurance!.url,
+                        note: value,
+                      ),
+                      visa: prepare.visa,
+                      passport: prepare.passport,
+                      permits: prepare.permits,
+                      vaccines: prepare.vaccines,
+                      climate: prepare.climate,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+              if (prepare.travelInsurance!.url.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () => launchUrl(Uri.parse(prepare.travelInsurance!.url)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.link, size: 16, color: context.colors.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Visit website',
+                        style: TextStyle(color: context.colors.primary, decoration: TextDecoration.underline),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+
+      // Visa
+      if (prepare.visa != null)
+        _buildInfoCard(
+          icon: Icons.airplane_ticket_outlined,
+          title: 'Visa & Entry Requirements',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEditableField(
+                label: 'Visa',
+                value: prepare.visa!.requirement,
+                maxLines: 3,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedPrepare = Prepare(
+                      travelInsurance: prepare.travelInsurance,
+                      visa: VisaInfo(
+                        requirement: value,
+                        medicalInsuranceRequiredForVisa: prepare.visa!.medicalInsuranceRequiredForVisa,
+                        note: prepare.visa!.note,
+                      ),
+                      passport: prepare.passport,
+                      permits: prepare.permits,
+                      vaccines: prepare.vaccines,
+                      climate: prepare.climate,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Medical insurance for visa: ${prepare.visa!.medicalInsuranceRequiredForVisa ? "Yes" : "No"}',
+                style: context.textStyles.bodySmall,
+              ),
+              if (prepare.visa!.note != null && prepare.visa!.note!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _buildEditableField(
+                  label: 'Note',
+                  value: prepare.visa!.note!,
+                  onChanged: (value) {
+                    setState(() {
+                      _generatedPrepare = Prepare(
+                        travelInsurance: prepare.travelInsurance,
+                        visa: VisaInfo(
+                          requirement: prepare.visa!.requirement,
+                          medicalInsuranceRequiredForVisa: prepare.visa!.medicalInsuranceRequiredForVisa,
+                          note: value,
+                        ),
+                        passport: prepare.passport,
+                        permits: prepare.permits,
+                        vaccines: prepare.vaccines,
+                        climate: prepare.climate,
+                      );
+                    });
+                    if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+
+      // Passport
+      if (prepare.passport != null)
+        _buildInfoCard(
+          icon: Icons.badge_outlined,
+          title: 'Passport',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEditableField(
+                label: 'Validity',
+                value: prepare.passport!.validityRequirement,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedPrepare = Prepare(
+                      travelInsurance: prepare.travelInsurance,
+                      visa: prepare.visa,
+                      passport: PassportInfo(
+                        validityRequirement: value,
+                        blankPagesRequired: prepare.passport!.blankPagesRequired,
+                      ),
+                      permits: prepare.permits,
+                      vaccines: prepare.vaccines,
+                      climate: prepare.climate,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              _buildEditableField(
+                label: 'Blank pages',
+                value: prepare.passport!.blankPagesRequired,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedPrepare = Prepare(
+                      travelInsurance: prepare.travelInsurance,
+                      visa: prepare.visa,
+                      passport: PassportInfo(
+                        validityRequirement: prepare.passport!.validityRequirement,
+                        blankPagesRequired: value,
+                      ),
+                      permits: prepare.permits,
+                      vaccines: prepare.vaccines,
+                      climate: prepare.climate,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+
+      // Permits
+      if (prepare.permits.isNotEmpty)
+        _buildInfoCard(
+          icon: Icons.description_outlined,
+          title: 'Permits',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: prepare.permits.asMap().entries.map((entry) {
+              final index = entry.key;
+              final permit = entry.value;
+              return Padding(
+                padding: EdgeInsets.only(bottom: index < prepare.permits.length - 1 ? 16 : 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildEditableField(
+                      label: 'Type',
+                      value: permit.type,
+                      onChanged: (value) {
+                        final updatedPermits = List<Permit>.from(prepare.permits);
+                        updatedPermits[index] = Permit(
+                          type: value,
+                          details: permit.details,
+                          howToObtain: permit.howToObtain,
+                          cost: permit.cost,
+                        );
+                        setState(() {
+                          _generatedPrepare = Prepare(
+                            travelInsurance: prepare.travelInsurance,
+                            visa: prepare.visa,
+                            passport: prepare.passport,
+                            permits: updatedPermits,
+                            vaccines: prepare.vaccines,
+                            climate: prepare.climate,
+                          );
+                        });
+                        if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _buildEditableField(
+                      label: 'Details',
+                      value: permit.details,
+                      maxLines: 2,
+                      onChanged: (value) {
+                        final updatedPermits = List<Permit>.from(prepare.permits);
+                        updatedPermits[index] = Permit(
+                          type: permit.type,
+                          details: value,
+                          howToObtain: permit.howToObtain,
+                          cost: permit.cost,
+                        );
+                        setState(() {
+                          _generatedPrepare = Prepare(
+                            travelInsurance: prepare.travelInsurance,
+                            visa: prepare.visa,
+                            passport: prepare.passport,
+                            permits: updatedPermits,
+                            vaccines: prepare.vaccines,
+                            climate: prepare.climate,
+                          );
+                        });
+                        if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _buildEditableField(
+                      label: 'How to obtain',
+                      value: permit.howToObtain,
+                      maxLines: 2,
+                      onChanged: (value) {
+                        final updatedPermits = List<Permit>.from(prepare.permits);
+                        updatedPermits[index] = Permit(
+                          type: permit.type,
+                          details: permit.details,
+                          howToObtain: value,
+                          cost: permit.cost,
+                        );
+                        setState(() {
+                          _generatedPrepare = Prepare(
+                            travelInsurance: prepare.travelInsurance,
+                            visa: prepare.visa,
+                            passport: prepare.passport,
+                            permits: updatedPermits,
+                            vaccines: prepare.vaccines,
+                            climate: prepare.climate,
+                          );
+                        });
+                        if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                      },
+                    ),
+                    if (permit.cost != null && permit.cost!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Cost: ${permit.cost}',
+                        style: context.textStyles.bodyMedium,
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+      // Vaccines
+      if (prepare.vaccines != null)
+        _buildInfoCard(
+          icon: Icons.medical_services_outlined,
+          title: 'Vaccines',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (prepare.vaccines!.required.isNotEmpty) ...[
+                Text('Required:', style: context.textStyles.titleSmall),
+                const SizedBox(height: 4),
+                ...prepare.vaccines!.required.map((v) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• $v', style: context.textStyles.bodyMedium),
+                )),
+                const SizedBox(height: 12),
+              ],
+              if (prepare.vaccines!.recommended.isNotEmpty) ...[
+                Text('Recommended:', style: context.textStyles.titleSmall),
+                const SizedBox(height: 4),
+                ...prepare.vaccines!.recommended.map((v) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• $v', style: context.textStyles.bodyMedium),
+                )),
+                const SizedBox(height: 12),
+              ],
+              if (prepare.vaccines!.note != null && prepare.vaccines!.note!.isNotEmpty)
+                _buildEditableField(
+                  label: 'Note',
+                  value: prepare.vaccines!.note!,
+                  onChanged: (value) {
+                    setState(() {
+                      _generatedPrepare = Prepare(
+                        travelInsurance: prepare.travelInsurance,
+                        visa: prepare.visa,
+                        passport: prepare.passport,
+                        permits: prepare.permits,
+                        vaccines: VaccineInfo(
+                          required: prepare.vaccines!.required,
+                          recommended: prepare.vaccines!.recommended,
+                          note: value,
+                        ),
+                        climate: prepare.climate,
+                      );
+                    });
+                    if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                  },
+                ),
+            ],
+          ),
+        ),
+
+      // Climate
+      if (prepare.climate != null && prepare.climate!.data.isNotEmpty)
+        _buildInfoCard(
+          icon: Icons.thermostat_outlined,
+          title: 'Climate Data',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                prepare.climate!.location,
+                style: context.textStyles.titleSmall,
+              ),
+              const SizedBox(height: 16),
+              // Simple table view of climate data
+              ...prepare.climate!.data.map((month) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          month.month,
+                          style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Temp: ${month.avgTempLowC.toStringAsFixed(0)}°C - ${month.avgTempHighC.toStringAsFixed(0)}°C'),
+                            Text('Rain: ${month.avgRainMm.toStringAsFixed(0)}mm'),
+                            Text('Days: ${month.avgDaylightHours.toStringAsFixed(1)}h'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+Widget _buildLocalTipsSection(LocalTips localTips) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // Emergency
+      if (localTips.emergency != null)
+        _buildInfoCard(
+          icon: Icons.emergency_outlined,
+          title: 'Emergency Numbers',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildInfoRow('General', localTips.emergency!.generalEmergency),
+              _buildInfoRow('Police', localTips.emergency!.police),
+              _buildInfoRow('Ambulance', localTips.emergency!.ambulance),
+              _buildInfoRow('Fire', localTips.emergency!.fire),
+              if (localTips.emergency!.mountainRescue != null)
+                _buildInfoRow('Mountain Rescue', localTips.emergency!.mountainRescue!),
+            ],
+          ),
+        ),
+
+      // Messaging App
+      if (localTips.messagingApp != null)
+        _buildInfoCard(
+          icon: Icons.chat_bubble_outline,
+          title: 'Communication',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEditableField(
+                label: 'Most used app',
+                value: localTips.messagingApp!.name,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedLocalTips = LocalTips(
+                      emergency: localTips.emergency,
+                      messagingApp: MessagingApp(name: value, note: localTips.messagingApp!.note),
+                      etiquette: localTips.etiquette,
+                      tipping: localTips.tipping,
+                      basicPhrases: localTips.basicPhrases,
+                      foodSpecialties: localTips.foodSpecialties,
+                      foodWarnings: localTips.foodWarnings,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              _buildEditableField(
+                label: 'Note',
+                value: localTips.messagingApp!.note,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedLocalTips = LocalTips(
+                      emergency: localTips.emergency,
+                      messagingApp: MessagingApp(name: localTips.messagingApp!.name, note: value),
+                      etiquette: localTips.etiquette,
+                      tipping: localTips.tipping,
+                      basicPhrases: localTips.basicPhrases,
+                      foodSpecialties: localTips.foodSpecialties,
+                      foodWarnings: localTips.foodWarnings,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+
+      // Etiquette
+      if (localTips.etiquette.isNotEmpty)
+        _buildInfoCard(
+          icon: Icons.handshake_outlined,
+          title: 'Etiquette',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: localTips.etiquette.asMap().entries.map((entry) {
+              final index = entry.key;
+              return Padding(
+                padding: EdgeInsets.only(bottom: index < localTips.etiquette.length - 1 ? 8 : 0),
+                child: _buildEditableField(
+                  label: null,
+                  value: entry.value,
+                  onChanged: (value) {
+                    final updated = List<String>.from(localTips.etiquette);
+                    updated[index] = value;
+                    setState(() {
+                      _generatedLocalTips = LocalTips(
+                        emergency: localTips.emergency,
+                        messagingApp: localTips.messagingApp,
+                        etiquette: updated,
+                        tipping: localTips.tipping,
+                        basicPhrases: localTips.basicPhrases,
+                        foodSpecialties: localTips.foodSpecialties,
+                        foodWarnings: localTips.foodWarnings,
+                      );
+                    });
+                    if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+      // Tipping
+      if (localTips.tipping != null)
+        _buildInfoCard(
+          icon: Icons.attach_money_outlined,
+          title: 'Tipping',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEditableField(
+                label: 'General',
+                value: localTips.tipping!.practice,
+                onChanged: (value) {
+                  setState(() {
+                    _generatedLocalTips = LocalTips(
+                      emergency: localTips.emergency,
+                      messagingApp: localTips.messagingApp,
+                      etiquette: localTips.etiquette,
+                      tipping: TippingInfo(
+                        practice: value,
+                        restaurant: localTips.tipping!.restaurant,
+                        taxi: localTips.tipping!.taxi,
+                        hotel: localTips.tipping!.hotel,
+                      ),
+                      basicPhrases: localTips.basicPhrases,
+                      foodSpecialties: localTips.foodSpecialties,
+                      foodWarnings: localTips.foodWarnings,
+                    );
+                  });
+                  if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              _buildInfoRow('Restaurant', localTips.tipping!.restaurant),
+              _buildInfoRow('Taxi', localTips.tipping!.taxi),
+              _buildInfoRow('Hotel', localTips.tipping!.hotel),
+            ],
+          ),
+        ),
+
+      // Basic Phrases
+      if (localTips.basicPhrases.isNotEmpty)
+        _buildInfoCard(
+          icon: Icons.translate_outlined,
+          title: 'Basic Phrases',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: localTips.basicPhrases.map((phrase) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        phrase.english,
+                        style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${phrase.local} (${phrase.pronunciation})',
+                        style: context.textStyles.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+      // Food Specialties
+      if (localTips.foodSpecialties.isNotEmpty)
+        _buildInfoCard(
+          icon: Icons.restaurant_outlined,
+          title: 'Food Specialties',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: localTips.foodSpecialties.map((food) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '• ${food.name}',
+                      style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    _buildEditableField(
+                      label: null,
+                      value: food.description,
+                      onChanged: (value) {
+                        final updated = localTips.foodSpecialties.map((f) {
+                          if (f.name == food.name) {
+                            return FoodSpecialty(name: f.name, description: value);
+                          }
+                          return f;
+                        }).toList();
+                        setState(() {
+                          _generatedLocalTips = LocalTips(
+                            emergency: localTips.emergency,
+                            messagingApp: localTips.messagingApp,
+                            etiquette: localTips.etiquette,
+                            tipping: localTips.tipping,
+                            basicPhrases: localTips.basicPhrases,
+                            foodSpecialties: updated,
+                            foodWarnings: localTips.foodWarnings,
+                          );
+                        });
+                        if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+      // Food Warnings
+      if (localTips.foodWarnings.isNotEmpty)
+        _buildInfoCard(
+          icon: Icons.warning_amber_outlined,
+          title: 'Food Warnings',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: localTips.foodWarnings.asMap().entries.map((entry) {
+              final index = entry.key;
+              return Padding(
+                padding: EdgeInsets.only(bottom: index < localTips.foodWarnings.length - 1 ? 8 : 0),
+                child: _buildEditableField(
+                  label: null,
+                  value: entry.value,
+                  onChanged: (value) {
+                    final updated = List<String>.from(localTips.foodWarnings);
+                    updated[index] = value;
+                    setState(() {
+                      _generatedLocalTips = LocalTips(
+                        emergency: localTips.emergency,
+                        messagingApp: localTips.messagingApp,
+                        etiquette: localTips.etiquette,
+                        tipping: localTips.tipping,
+                        basicPhrases: localTips.basicPhrases,
+                        foodSpecialties: localTips.foodSpecialties,
+                        foodWarnings: updated,
+                      );
+                    });
+                    if (_generatedPrepare != null && _generatedLocalTips != null) {
+                    _saveAIGeneratedData(_generatedPrepare!, _generatedLocalTips!);
+                  }
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+    ],
+  );
+}
+
+Widget _buildInfoCard({required IconData icon, required String title, required Widget child}) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    decoration: BoxDecoration(
+      color: context.colors.surface,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: context.colors.outline.withValues(alpha: 0.3)),
+    ),
+    child: ExpansionTile(
+      leading: Icon(icon, color: context.colors.primary),
+      title: Text(title, style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+      childrenPadding: AppSpacing.paddingMd,
+      children: [child],
+    ),
+  );
+}
+
+Widget _buildInfoRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(
+            '$label:',
+            style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ),
+        Expanded(
+          child: Text(value, style: context.textStyles.bodyMedium),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildEditableField({
+  String? label,
+  required String value,
+  int maxLines = 1,
+  required Function(String) onChanged,
+}) {
+  return TextFormField(
+    initialValue: value,
+    maxLines: maxLines,
+    onChanged: onChanged,
+    decoration: InputDecoration(
+      labelText: label,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    ),
+    style: context.textStyles.bodyMedium,
+  );
 }
 
 Widget _buildFAQTab() {
@@ -1728,6 +2592,194 @@ style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
 ),
 ],
 );
+}
+
+Widget _buildGenerateInfoButton() {
+  final hasRequiredFields = _nameCtrl.text.trim().isNotEmpty &&
+      _locationCtrl.text.trim().isNotEmpty &&
+      _descCtrl.text.trim().isNotEmpty;
+  
+  final hasExistingData = _generatedPrepare != null || _generatedLocalTips != null;
+  
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.purple.shade50,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.purple.shade200),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.auto_awesome, color: Colors.purple.shade700, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'AI-Powered Travel Info',
+                style: context.textStyles.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.purple.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Generate travel preparation info and local tips based on your adventure details.',
+          style: context.textStyles.bodySmall?.copyWith(color: Colors.purple.shade800),
+        ),
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          onPressed: (!hasRequiredFields || _isGeneratingInfo) ? null : () async {
+            // Check if data already exists and show confirmation
+            if (hasExistingData) {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Regenerate Info?'),
+                  content: const Text('This will overwrite existing AI-generated information. Continue?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('Regenerate'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed != true) return;
+            }
+            
+            await _generateAdventureInfo();
+          },
+          icon: _isGeneratingInfo
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : Icon(hasExistingData ? Icons.refresh : Icons.auto_awesome),
+          label: Text(_isGeneratingInfo
+              ? 'Generating...'
+              : hasExistingData
+                  ? '🔄 Regenerate Info'
+                  : '✨ Generate Info'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.purple.shade700,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 50),
+            disabledBackgroundColor: Colors.grey.shade300,
+          ),
+        ),
+        if (!hasRequiredFields) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Fill in name, location, and description to enable generation',
+            style: context.textStyles.bodySmall?.copyWith(
+              color: Colors.grey.shade600,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+Future<void> _generateAdventureInfo() async {
+  setState(() {
+    _isGeneratingInfo = true;
+  });
+
+  try {
+    // Get activity type and accommodation type
+    final activityType = _activityCategory?.name ?? 'multi_activity';
+    final accommodationType = _accommodationType?.name ?? 'mixed';
+
+    final result = await AdventureContextService.generateAdventureContext(
+      location: _locationCtrl.text.trim(),
+      title: _nameCtrl.text.trim(),
+      description: _descCtrl.text.trim(),
+      activityType: activityType,
+      accommodationType: accommodationType,
+    );
+
+    if (result == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to generate info. Please try again.'),
+            action: SnackBarAction(label: 'Retry', onPressed: null),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Parse the result
+    final prepare = Prepare.fromJson(result['prepare'] as Map<String, dynamic>?);
+    final localTips = LocalTips.fromJson(result['local_tips'] as Map<String, dynamic>?);
+
+    setState(() {
+      _generatedPrepare = prepare;
+      _generatedLocalTips = localTips;
+    });
+
+    // Save to Firestore if we have a plan ID
+    if (_editingPlan != null) {
+      await _saveAIGeneratedData(prepare, localTips);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✨ Travel info generated successfully! Check Steps 3 & 4.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('Error generating adventure info: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: () => _generateAdventureInfo(),
+          ),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isGeneratingInfo = false;
+      });
+    }
+  }
+}
+
+Future<void> _saveAIGeneratedData(Prepare prepare, LocalTips localTips) async {
+  if (_editingPlan == null) return;
+
+  try {
+    final planRef = FirebaseFirestore.instance.collection('plans').doc(_editingPlan!.id);
+    await planRef.update({
+      'prepare': prepare.toJson(),
+      'local_tips': localTips.toJson(),
+      'ai_generated_at': FieldValue.serverTimestamp(),
+    });
+    debugPrint('AI-generated data saved to Firestore');
+  } catch (e) {
+    debugPrint('Error saving AI-generated data: $e');
+  }
 }
 
 Widget _buildDaysTab() {
@@ -1992,12 +3044,22 @@ _buildTextField("Title", "e.g., Crossing the Pass", controller: titleCtrl, requi
 const SizedBox(height: 12),
 _buildTextField("Description", "What happens today...", maxLines: 5, controller: descCtrl, required: false),
 const SizedBox(height: 12),
+// Route Info Section (activity-type dependent)
+RouteInfoSection(
+  activityCategory: _activityCategory,
+  route: existingRoute,
+  routeInfo: vf.routeInfoByDay[dayNum],
+  onRouteInfoChanged: (routeInfo) {
+    setState(() {
+      vf.routeInfoByDay[dayNum] = routeInfo;
+    });
+    _saveCurrentStep();
+  },
+),
+const SizedBox(height: 12),
 _buildTextField("Komoot Link", "https://www.komoot.com/...", controller: vf.komootLinkCtrl(dayNum), required: false),
 const SizedBox(height: 12),
 _buildTextField("AllTrails Link", "https://www.alltrails.com/...", controller: vf.allTrailsLinkCtrl(dayNum), required: false),
-const SizedBox(height: 12),
-// Fetch Route Info button
-_buildFetchRouteInfoButton(dayNum, vf),
 const SizedBox(height: 16),
 
 // MAP SECTION - Always show map preview (shows route/waypoints if available, otherwise shows location from step 1)
@@ -2005,21 +3067,6 @@ if (_locationLat != null && _locationLng != null) ...[
 _buildDayRouteMap(existingRoute, dayNum, vf),
 const SizedBox(height: 12),
 ],
-// Route Info Card (if fetched)
-Builder(
-  builder: (context) {
-    final routeInfo = vf.routeInfoByDay[dayNum];
-    if (routeInfo != null) {
-      return Column(
-        children: [
-          RouteInfoCard(routeInfo: routeInfo),
-          const SizedBox(height: 12),
-        ],
-      );
-    }
-    return const SizedBox.shrink();
-  },
-),
 
 // Route controls below the map
 Align(
@@ -2131,206 +3178,6 @@ textAlign: TextAlign.center,
 }
 }
 
-Widget _buildFetchRouteInfoButton(int dayNum, _VersionFormData vf) {
-  try {
-    final komootCtrl = vf.komootLinkCtrl(dayNum);
-    final allTrailsCtrl = vf.allTrailsLinkCtrl(dayNum);
-  
-    return StatefulBuilder(
-      builder: (builderContext, setState) {
-        final isFetching = _fetchingRouteInfoDay == dayNum;
-        
-        // Use ValueListenableBuilder to react to text changes
-        return ValueListenableBuilder<TextEditingValue>(
-          valueListenable: komootCtrl,
-          builder: (context, komootValue, _) {
-            return ValueListenableBuilder<TextEditingValue>(
-              valueListenable: allTrailsCtrl,
-              builder: (context, allTrailsValue, _) {
-                final komootLink = komootValue.text.trim();
-                final allTrailsLink = allTrailsValue.text.trim();
-                final hasKomoot = komootLink.isNotEmpty;
-                final hasAllTrails = allTrailsLink.isNotEmpty;
-                final isEnabled = hasKomoot || hasAllTrails;
-                
-                return FilledButton.icon(
-                  onPressed: isEnabled && !isFetching
-                      ? () => _fetchRouteInfo(dayNum, vf, komootLink, allTrailsLink, builderContext, setState)
-                      : null,
-                  icon: isFetching
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.download, size: 18),
-                  label: Text(isFetching ? 'Fetching...' : 'Fetch Route Info'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: builderContext.colors.primary,
-                    foregroundColor: Colors.white,
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  } catch (e) {
-    Log.e('builder', 'Error building fetch route info button', e);
-    return const SizedBox.shrink();
-  }
-}
-
-int? _fetchingRouteInfoDay; // Track which day is currently fetching
-
-Future<void> _fetchRouteInfo(
-  int dayNum,
-  _VersionFormData vf,
-  String komootLink,
-  String allTrailsLink,
-  BuildContext builderContext,
-  StateSetter buttonSetState,
-) async {
-  // Determine which URL to use
-  String? urlToFetch;
-  if (komootLink.isNotEmpty && allTrailsLink.isNotEmpty) {
-    // Both URLs present - show bottom sheet to pick
-    final source = await showModalBottomSheet<String>(
-      context: builderContext,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Select source',
-              style: context.textStyles.titleMedium,
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.route),
-              title: const Text('Komoot'),
-              onTap: () => Navigator.pop(context, 'komoot'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.hiking),
-              title: const Text('AllTrails'),
-              onTap: () => Navigator.pop(context, 'alltrails'),
-            ),
-          ],
-        ),
-      ),
-    );
-    
-    if (source == null) return; // User cancelled
-    
-    urlToFetch = source == 'komoot' ? komootLink : allTrailsLink;
-  } else if (komootLink.isNotEmpty) {
-    urlToFetch = komootLink;
-  } else if (allTrailsLink.isNotEmpty) {
-    urlToFetch = allTrailsLink;
-  }
-  
-  if (urlToFetch == null || urlToFetch.isEmpty) {
-    ScaffoldMessenger.of(builderContext).showSnackBar(
-      const SnackBar(content: Text('Please enter a Komoot or AllTrails link')),
-    );
-    return;
-  }
-  
-  // Update loading state in both button and parent
-  buttonSetState(() => _fetchingRouteInfoDay = dayNum);
-  if (mounted) {
-    setState(() => _fetchingRouteInfoDay = dayNum);
-  }
-  
-  try {
-    Log.i('builder', 'Fetching route info from: $urlToFetch');
-    
-    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
-    final callable = functions.httpsCallable('extractRouteMetadata');
-    
-    final result = await callable.call({'url': urlToFetch});
-    final data = result.data as Map<String, dynamic>?;
-    
-    if (data == null) {
-      throw Exception('No data returned from function');
-    }
-    
-    // Check for error
-    if (data['error'] != null) {
-      throw Exception(data['error'] as String);
-    }
-    
-    // Parse RouteInfo from response
-    final routeInfo = RouteInfo.fromJson(data);
-    
-    if (mounted) {
-      // Update the main widget state
-      setState(() {
-        vf.routeInfoByDay[dayNum] = routeInfo;
-        _fetchingRouteInfoDay = null;
-      });
-      
-      // Update button state
-      buttonSetState(() => _fetchingRouteInfoDay = null);
-      
-      // Optionally auto-fill distance and time if available
-      if (routeInfo.distanceKm != null) {
-        vf.distanceCtrl(dayNum).text = routeInfo.distanceKm!.toStringAsFixed(2);
-      }
-      if (routeInfo.estimatedTime != null) {
-        // Try to parse estimated time (could be "06:43" or "6h 43m")
-        final timeStr = routeInfo.estimatedTime!;
-        if (timeStr.contains('h') || timeStr.contains('hr')) {
-          // Format like "6h 43m" - extract hours
-          final hoursMatch = RegExp(r'(\d+(?:\.\d+)?)\s*h').firstMatch(timeStr);
-          if (hoursMatch != null) {
-            final hours = double.tryParse(hoursMatch.group(1) ?? '');
-            if (hours != null) {
-              vf.timeCtrl(dayNum).text = hours.toStringAsFixed(1);
-            }
-          }
-        }
-      }
-      
-      ScaffoldMessenger.of(builderContext).showSnackBar(
-        SnackBar(
-          content: Text('Route info fetched from ${routeInfo.sourceDisplayName}'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      
-      // Trigger auto-save
-      _saveCurrentStep();
-    }
-  } on FirebaseFunctionsException catch (e) {
-    Log.e('builder', 'Failed to fetch route info', e);
-    if (mounted) {
-      setState(() => _fetchingRouteInfoDay = null);
-      buttonSetState(() => _fetchingRouteInfoDay = null);
-      ScaffoldMessenger.of(builderContext).showSnackBar(
-        SnackBar(
-          content: Text(e.message ?? 'Failed to fetch route info. You can enter it manually.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  } catch (e, stack) {
-    Log.e('builder', 'Failed to fetch route info', e, stack);
-    if (mounted) {
-      setState(() => _fetchingRouteInfoDay = null);
-      buttonSetState(() => _fetchingRouteInfoDay = null);
-      ScaffoldMessenger.of(builderContext).showSnackBar(
-        SnackBar(
-          content: Text('Failed to fetch route info. You can enter it manually.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  }
-}
 
 Widget _buildAccommodationCard(_AccommodationFormData acc, int dayNum, int idx, _VersionFormData vf) {
 return Container(

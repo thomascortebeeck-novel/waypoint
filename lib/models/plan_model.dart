@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/review_model.dart';
 import 'package:waypoint/models/route_info_model.dart';
+import 'package:waypoint/models/adventure_context_model.dart';
 
 enum Difficulty { none, easy, moderate, hard, extreme }
 enum ComfortType { none, comfort, extreme }
@@ -84,6 +85,12 @@ class Plan {
   final bool isEntireYear;
   /// Whether to show price estimates from waypoints on detail pages
   final bool showPrices;
+  /// AI-generated travel preparation information
+  final Prepare? prepare;
+  /// AI-generated local tips and cultural information
+  final LocalTips? localTips;
+  /// Timestamp when AI info was last generated
+  final DateTime? aiGeneratedAt;
 
   Plan({
     required this.id,
@@ -112,6 +119,9 @@ class Plan {
     this.bestSeasons = const [],
     this.isEntireYear = false,
     this.showPrices = false,
+    this.prepare,
+    this.localTips,
+    this.aiGeneratedAt,
   });
 
   double get minPrice => versions.isEmpty 
@@ -184,6 +194,15 @@ class Plan {
               : []),
       isEntireYear: json['is_entire_year'] as bool? ?? false,
       showPrices: json['show_prices'] as bool? ?? false,
+      prepare: json['prepare'] != null
+          ? Prepare.fromJson(json['prepare'] as Map<String, dynamic>)
+          : null,
+      localTips: json['local_tips'] != null
+          ? LocalTips.fromJson(json['local_tips'] as Map<String, dynamic>)
+          : null,
+      aiGeneratedAt: json['ai_generated_at'] != null
+          ? (json['ai_generated_at'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -217,6 +236,9 @@ class Plan {
       if (bestSeasons.isNotEmpty) 'best_seasons': bestSeasons.map((s) => s.toJson()).toList(),
       if (isEntireYear) 'is_entire_year': isEntireYear,
       'show_prices': showPrices,
+      if (prepare != null) 'prepare': prepare!.toJson(),
+      if (localTips != null) 'local_tips': localTips!.toJson(),
+      if (aiGeneratedAt != null) 'ai_generated_at': Timestamp.fromDate(aiGeneratedAt!),
     };
   }
 
@@ -247,6 +269,9 @@ class Plan {
     List<SeasonRange>? bestSeasons,
     bool? isEntireYear,
     bool? showPrices,
+    Prepare? prepare,
+    LocalTips? localTips,
+    DateTime? aiGeneratedAt,
   }) {
     return Plan(
       id: id ?? this.id,
@@ -275,6 +300,9 @@ class Plan {
       bestSeasons: bestSeasons ?? this.bestSeasons,
       isEntireYear: isEntireYear ?? this.isEntireYear,
       showPrices: showPrices ?? this.showPrices,
+      prepare: prepare ?? this.prepare,
+      localTips: localTips ?? this.localTips,
+      aiGeneratedAt: aiGeneratedAt ?? this.aiGeneratedAt,
     );
   }
 }
