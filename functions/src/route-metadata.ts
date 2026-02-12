@@ -336,25 +336,39 @@ export const extractRouteMetadata = onCall(
       
       logger.info("[extractRouteMetadata] Fetching route metadata from", url);
       
-      // Fetch HTML with proper User-Agent
+      // Fetch HTML with proper User-Agent and browser-like headers
       let html: string;
       try {
         const response = await axios.get(url, {
-          timeout: 5000,
+          timeout: 10000, // Increased timeout
           headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+            "Referer": url.includes("alltrails.com") ? "https://www.alltrails.com/" : "https://www.komoot.com/",
           },
           maxRedirects: 5,
           validateStatus: (status) => status < 500, // Accept 403, 404, etc. and try to parse
         });
         
-        if (response.status === 403 || response.status === 401) {
-          return {error: "Could not retrieve route info. The site may be blocking automated requests."};
-        }
-        
         html = response.data;
+        
+        if (response.status === 403 || response.status === 401) {
+          logger.warn("[extractRouteMetadata] Got 403/401, but trying to parse response anyway");
+          // Try to parse anyway - sometimes sites return HTML even with 403
+          if (!html || html.length < 100) {
+            return {error: "Could not retrieve route info. The site may be blocking automated requests. You can enter it manually."};
+          }
+        }
       } catch (e: any) {
         logger.error("[extractRouteMetadata] Fetch failed", e);
         if (e.code === "ECONNABORTED" || e.message?.includes("timeout")) {

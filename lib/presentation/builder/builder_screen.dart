@@ -2133,35 +2133,49 @@ textAlign: TextAlign.center,
 
 Widget _buildFetchRouteInfoButton(int dayNum, _VersionFormData vf) {
   try {
-    final komootLink = vf.komootLinkCtrl(dayNum).text.trim();
-    final allTrailsLink = vf.allTrailsLinkCtrl(dayNum).text.trim();
-    final hasKomoot = komootLink.isNotEmpty;
-    final hasAllTrails = allTrailsLink.isNotEmpty;
-    final isEnabled = hasKomoot || hasAllTrails;
+    final komootCtrl = vf.komootLinkCtrl(dayNum);
+    final allTrailsCtrl = vf.allTrailsLinkCtrl(dayNum);
   
-  return StatefulBuilder(
-    builder: (builderContext, setState) {
-      final isFetching = _fetchingRouteInfoDay == dayNum;
-      
-      return FilledButton.icon(
-        onPressed: isEnabled && !isFetching
-            ? () => _fetchRouteInfo(dayNum, vf, komootLink, allTrailsLink, builderContext, setState)
-            : null,
-        icon: isFetching
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.download, size: 18),
-        label: Text(isFetching ? 'Fetching...' : 'Fetch Route Info'),
-        style: FilledButton.styleFrom(
-          backgroundColor: builderContext.colors.primary,
-          foregroundColor: Colors.white,
-        ),
-      );
-    },
-  );
+    return StatefulBuilder(
+      builder: (builderContext, setState) {
+        final isFetching = _fetchingRouteInfoDay == dayNum;
+        
+        // Use ValueListenableBuilder to react to text changes
+        return ValueListenableBuilder<TextEditingValue>(
+          valueListenable: komootCtrl,
+          builder: (context, komootValue, _) {
+            return ValueListenableBuilder<TextEditingValue>(
+              valueListenable: allTrailsCtrl,
+              builder: (context, allTrailsValue, _) {
+                final komootLink = komootValue.text.trim();
+                final allTrailsLink = allTrailsValue.text.trim();
+                final hasKomoot = komootLink.isNotEmpty;
+                final hasAllTrails = allTrailsLink.isNotEmpty;
+                final isEnabled = hasKomoot || hasAllTrails;
+                
+                return FilledButton.icon(
+                  onPressed: isEnabled && !isFetching
+                      ? () => _fetchRouteInfo(dayNum, vf, komootLink, allTrailsLink, builderContext, setState)
+                      : null,
+                  icon: isFetching
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.download, size: 18),
+                  label: Text(isFetching ? 'Fetching...' : 'Fetch Route Info'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: builderContext.colors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
   } catch (e) {
     Log.e('builder', 'Error building fetch route info button', e);
     return const SizedBox.shrink();
