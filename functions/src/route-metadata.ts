@@ -430,7 +430,11 @@ export const extractRouteMetadata = onCall(
       // If all strategies failed
       if (!html || html.length < 100) {
         logger.error("[extractRouteMetadata] All strategies failed. Last error:", lastError);
-        return {error: "Could not retrieve route info. AllTrails is blocking automated requests. Please enter the route details manually."};
+        // Provide helpful error message for AllTrails blocking
+        if (url.toLowerCase().includes("alltrails.com")) {
+          return {error: "AllTrails is blocking automated requests. Please enter the route details (distance, elevation, time, difficulty) manually in the form fields below."};
+        }
+        return {error: "Could not retrieve route info. The site may be blocking automated requests. Please enter the route details manually."};
       }
       
       // Try extraction methods in priority order
