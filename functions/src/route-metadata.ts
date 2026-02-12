@@ -337,10 +337,14 @@ export const extractRouteMetadata = onCall(
       logger.info("[extractRouteMetadata] Fetching route metadata from", url);
       
       // Fetch HTML with proper User-Agent and browser-like headers
-      let html: string;
-      try {
-        const response = await axios.get(url, {
-          timeout: 10000, // Increased timeout
+      // Try multiple strategies to bypass bot detection
+      let html: string | null = null;
+      let lastError: string | null = null;
+      
+      // Strategy 1: Standard browser headers
+      const strategies = [
+        {
+          name: "Standard Chrome",
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -355,15 +359,39 @@ export const extractRouteMetadata = onCall(
             "Sec-Fetch-User": "?1",
             "Cache-Control": "max-age=0",
             "Referer": url.includes("alltrails.com") ? "https://www.alltrails.com/" : "https://www.komoot.com/",
-          },
-          maxRedirects: 5,
-          validateStatus: (status) => status < 500, // Accept 403, 404, etc. and try to parse
-        });
-        
-        html = response.data;
-        
-        if (response.status === 403 || response.status === 401) {
-          logger.warn("[extractRouteMetadata] Got 403/401, but trying to parse response anyway");
+          }
+        },
+        {
+          name: "Mobile Safari",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": url.includes("alltrails.com") ? "https://www.alltrails.com/" : "https://www.komoot.com/",
+          }
+        },
+        {
+          name: "Google Bot",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+            "Accept": "text/html",
+            "Referer": url.includes("alltrails.com") ? "https://www.alltrails.com/" : "https://www.komoot.com/",
+          }
+        }
+      ];
+      
+      for (const strategy of strategies) {
+        try {
+          logger.info(`[extractRouteMetadata] Trying strategy: ${strategy.name}`);
+          const response = await axios.get(url, {
+            timeout: 10000,
+            headers: strategy.headers,
+            maxRedirects: 5,
+            validateStatus: (status) => status < 500, // Accept 403, 404, etc. and try to parse
+          });
+          
+          html = response.data;
+          
           // Check if this is a bot detection page
           const htmlLower = html?.toLowerCase() || "";
           const isBotPage = htmlLower.includes("access denied") || 
@@ -371,25 +399,38 @@ export const extractRouteMetadata = onCall(
                            htmlLower.includes("captcha") ||
                            htmlLower.includes("cloudflare") ||
                            htmlLower.includes("bot detection") ||
-                           htmlLower.includes("please verify you are human");
+                           htmlLower.includes("please verify you are human") ||
+                           htmlLower.includes("just a moment") ||
+                           htmlLower.includes("checking your browser");
           
-          if (isBotPage || !html || html.length < 100) {
-            logger.warn("[extractRouteMetadata] Response appears to be a bot detection page");
-            return {error: "Could not retrieve route info. The site may be blocking automated requests. You can enter it manually."};
+          if (response.status === 200 && !isBotPage && html && html.length > 1000) {
+            logger.info(`[extractRouteMetadata] Strategy "${strategy.name}" succeeded`);
+            break; // Success!
           }
-          // Log a sample of the HTML for debugging
-          logger.info("[extractRouteMetadata] HTML sample (first 500 chars):", html.substring(0, 500));
+          
+          if (response.status === 403 || response.status === 401 || isBotPage) {
+            logger.warn(`[extractRouteMetadata] Strategy "${strategy.name}" blocked (status: ${response.status}, botPage: ${isBotPage})`);
+            lastError = `Blocked by site (${response.status})`;
+            html = null; // Don't use this response
+            continue; // Try next strategy
+          }
+          
+          // If we got HTML but it's short, might still be useful
+          if (html && html.length > 100) {
+            logger.info(`[extractRouteMetadata] Strategy "${strategy.name}" returned HTML (${html.length} chars), will try to parse`);
+            break; // Try to parse what we got
+          }
+        } catch (e: any) {
+          logger.warn(`[extractRouteMetadata] Strategy "${strategy.name}" failed:`, e.message);
+          lastError = e.message;
+          continue; // Try next strategy
         }
-      } catch (e: any) {
-        logger.error("[extractRouteMetadata] Fetch failed", e);
-        if (e.code === "ECONNABORTED" || e.message?.includes("timeout")) {
-          return {error: "Request timed out. Please try again."};
-        }
-        return {error: "Could not retrieve route info. You can enter it manually."};
       }
       
+      // If all strategies failed
       if (!html || html.length < 100) {
-        return {error: "Could not retrieve route info. You can enter it manually."};
+        logger.error("[extractRouteMetadata] All strategies failed. Last error:", lastError);
+        return {error: "Could not retrieve route info. AllTrails is blocking automated requests. Please enter the route details manually."};
       }
       
       // Try extraction methods in priority order
