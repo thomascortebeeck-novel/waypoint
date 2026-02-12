@@ -1236,6 +1236,37 @@ String _formatSeasonRange(int startMonth, int endMonth) {
   return '';
 }
 
+/// Format seasons for display (handles multiple seasons and entire year)
+String _formatSeasons(Plan? plan, PlanMeta? planMeta) {
+  final bestSeasons = plan?.bestSeasons ?? planMeta?.bestSeasons ?? [];
+  final isEntireYear = plan?.isEntireYear ?? planMeta?.isEntireYear ?? false;
+  
+  if (isEntireYear) {
+    return 'Year-round';
+  }
+  
+  if (bestSeasons.isNotEmpty) {
+    return bestSeasons.map((s) => _formatSeasonRange(s.startMonth, s.endMonth)).join(', ');
+  }
+  
+  // Backward compatibility with old format
+  final startMonth = plan?.bestSeasonStartMonth ?? planMeta?.bestSeasonStartMonth;
+  final endMonth = plan?.bestSeasonEndMonth ?? planMeta?.bestSeasonEndMonth;
+  if (startMonth != null && endMonth != null) {
+    return _formatSeasonRange(startMonth, endMonth);
+  }
+  
+  return '';
+}
+
+/// Check if plan has season information
+bool _hasSeason(Plan? plan, PlanMeta? planMeta) {
+  return (plan?.isEntireYear ?? planMeta?.isEntireYear ?? false) ||
+         (plan?.bestSeasons.isNotEmpty ?? planMeta?.bestSeasons.isNotEmpty ?? false) ||
+         ((plan?.bestSeasonStartMonth != null && plan?.bestSeasonEndMonth != null) ||
+          (planMeta?.bestSeasonStartMonth != null && planMeta?.bestSeasonEndMonth != null));
+}
+
 /// Calculate estimated cost from all waypoints across all days
 PriceRange? _calculateEstimatedCost(PlanVersion? version) {
   if (version == null) return null;
@@ -1340,8 +1371,7 @@ Colors.transparent,
             ),
           ),
           // Best Season stat (4th item)
-          if ((plan?.bestSeasonStartMonth != null && plan?.bestSeasonEndMonth != null) ||
-              (_planMeta?.bestSeasonStartMonth != null && _planMeta?.bestSeasonEndMonth != null)) ...[
+          if (_hasSeason(plan, _planMeta)) ...[
             Container(
               width: 1,
               height: 40,
@@ -1360,10 +1390,7 @@ Colors.transparent,
             Expanded(
               child: _buildStatItem(
                 Icons.calendar_month,
-                _formatSeasonRange(
-                  plan?.bestSeasonStartMonth ?? _planMeta?.bestSeasonStartMonth ?? 1,
-                  plan?.bestSeasonEndMonth ?? _planMeta?.bestSeasonEndMonth ?? 1,
-                ),
+                _formatSeasons(plan, _planMeta),
                 '',
                 'Best Season',
               ),

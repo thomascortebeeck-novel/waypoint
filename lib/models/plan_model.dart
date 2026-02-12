@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/review_model.dart';
+import 'package:waypoint/models/route_info_model.dart';
 
 enum Difficulty { none, easy, moderate, hard, extreme }
 enum ComfortType { none, comfort, extreme }
@@ -71,10 +72,16 @@ class Plan {
   final List<FAQItem> faqItems;
   /// Review statistics for this plan
   final ReviewStats? reviewStats;
-  /// Best season start month (1-12, where 1 = January)
+  /// Best season start month (1-12, where 1 = January) - DEPRECATED: use bestSeasons instead
+  @Deprecated('Use bestSeasons instead')
   final int? bestSeasonStartMonth;
-  /// Best season end month (1-12, where 1 = January)
+  /// Best season end month (1-12, where 1 = January) - DEPRECATED: use bestSeasons instead
+  @Deprecated('Use bestSeasons instead')
   final int? bestSeasonEndMonth;
+  /// List of best season ranges (multiple seasons supported)
+  final List<SeasonRange> bestSeasons;
+  /// Whether the adventure is available year-round
+  final bool isEntireYear;
   /// Whether to show price estimates from waypoints on detail pages
   final bool showPrices;
 
@@ -102,6 +109,8 @@ class Plan {
     this.reviewStats,
     this.bestSeasonStartMonth,
     this.bestSeasonEndMonth,
+    this.bestSeasons = const [],
+    this.isEntireYear = false,
     this.showPrices = false,
   });
 
@@ -163,6 +172,17 @@ class Plan {
           : null,
       bestSeasonStartMonth: json['best_season_start_month'] as int?,
       bestSeasonEndMonth: json['best_season_end_month'] as int?,
+      bestSeasons: (json['best_seasons'] as List<dynamic>?)
+          ?.map((s) => SeasonRange.fromJson(s as Map<String, dynamic>))
+          .toList() ??
+          // Backward compatibility: convert old format to new format
+          (json['best_season_start_month'] != null && json['best_season_end_month'] != null
+              ? [SeasonRange(
+                  startMonth: json['best_season_start_month'] as int,
+                  endMonth: json['best_season_end_month'] as int,
+                )]
+              : []),
+      isEntireYear: json['is_entire_year'] as bool? ?? false,
       showPrices: json['show_prices'] as bool? ?? false,
     );
   }
@@ -190,8 +210,12 @@ class Plan {
       if (maxGroupSize != null) 'max_group_size': maxGroupSize,
       'faq_items': faqItems.map((f) => f.toJson()).toList(),
       if (reviewStats != null) 'review_stats': reviewStats!.toJson(),
+      // Keep old fields for backward compatibility
       if (bestSeasonStartMonth != null) 'best_season_start_month': bestSeasonStartMonth,
       if (bestSeasonEndMonth != null) 'best_season_end_month': bestSeasonEndMonth,
+      // New format
+      if (bestSeasons.isNotEmpty) 'best_seasons': bestSeasons.map((s) => s.toJson()).toList(),
+      if (isEntireYear) 'is_entire_year': isEntireYear,
       'show_prices': showPrices,
     };
   }
@@ -220,6 +244,8 @@ class Plan {
     ReviewStats? reviewStats,
     int? bestSeasonStartMonth,
     int? bestSeasonEndMonth,
+    List<SeasonRange>? bestSeasons,
+    bool? isEntireYear,
     bool? showPrices,
   }) {
     return Plan(
@@ -246,6 +272,8 @@ class Plan {
       reviewStats: reviewStats ?? this.reviewStats,
       bestSeasonStartMonth: bestSeasonStartMonth ?? this.bestSeasonStartMonth,
       bestSeasonEndMonth: bestSeasonEndMonth ?? this.bestSeasonEndMonth,
+      bestSeasons: bestSeasons ?? this.bestSeasons,
+      isEntireYear: isEntireYear ?? this.isEntireYear,
       showPrices: showPrices ?? this.showPrices,
     );
   }
@@ -280,6 +308,31 @@ class TransportationOption {
       'title': title,
       'description': description,
       'types': types.map((t) => t.name).toList(),
+    };
+  }
+}
+
+/// Represents a season range with start and end months
+class SeasonRange {
+  final int startMonth; // 1-12, where 1 = January
+  final int endMonth; // 1-12, where 1 = January
+
+  SeasonRange({
+    required this.startMonth,
+    required this.endMonth,
+  });
+
+  factory SeasonRange.fromJson(Map<String, dynamic> json) {
+    return SeasonRange(
+      startMonth: json['start_month'] as int,
+      endMonth: json['end_month'] as int,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'start_month': startMonth,
+      'end_month': endMonth,
     };
   }
 }
@@ -504,6 +557,11 @@ class DayItinerary {
   final double? endLng;
   // Optional route polyline and metrics for the day
   final DayRoute? route;
+  // Optional external links
+  final String? komootLink;
+  final String? allTrailsLink;
+  // Route metadata extracted from Komoot/AllTrails
+  final RouteInfo? routeInfo;
 
   DayItinerary({
     required this.dayNum,
@@ -521,6 +579,9 @@ class DayItinerary {
     this.endLat,
     this.endLng,
     this.route,
+    this.komootLink,
+    this.allTrailsLink,
+    this.routeInfo,
   });
 
   Duration get estimatedTime => Duration(minutes: estimatedTimeMinutes);
@@ -550,6 +611,11 @@ class DayItinerary {
       endLat: (json['end_lat'] as num?)?.toDouble(),
       endLng: (json['end_lng'] as num?)?.toDouble(),
       route: json['route'] != null ? DayRoute.fromJson(json['route'] as Map<String, dynamic>) : null,
+      komootLink: json['komoot_link'] as String?,
+      allTrailsLink: json['all_trails_link'] as String?,
+      routeInfo: json['route_info'] != null
+          ? RouteInfo.fromJson(json['route_info'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -570,6 +636,9 @@ class DayItinerary {
       if (endLat != null) 'end_lat': endLat,
       if (endLng != null) 'end_lng': endLng,
       if (route != null) 'route': route!.toJson(),
+      if (komootLink != null && komootLink!.isNotEmpty) 'komoot_link': komootLink,
+      if (allTrailsLink != null && allTrailsLink!.isNotEmpty) 'all_trails_link': allTrailsLink,
+      if (routeInfo != null) 'route_info': routeInfo!.toJson(),
     };
   }
 }

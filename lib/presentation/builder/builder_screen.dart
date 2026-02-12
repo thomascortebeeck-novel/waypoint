@@ -31,6 +31,15 @@ import 'package:waypoint/components/map/waypoint_map_card.dart';
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
+import 'package:waypoint/components/reorder_controls.dart';
+import 'package:waypoint/services/travel_calculator_service.dart';
+import 'package:waypoint/services/waypoint_grouping_service.dart';
+import 'package:waypoint/models/orderable_item.dart';
+import 'package:waypoint/components/widgets/scroll_blocking_dialog.dart';
+import 'package:waypoint/integrations/google_directions_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:waypoint/models/route_info_model.dart';
+import 'package:waypoint/components/route_info_card.dart';
 
 class BuilderScreen extends StatefulWidget {
 final String? editPlanId;
@@ -151,8 +160,8 @@ ActivityCategory? _activityCategory;
 AccommodationType? _accommodationType;
 
 // Best season (plan-level)
-int? _bestSeasonStartMonth; // 1-12, where 1 = January
-int? _bestSeasonEndMonth; // 1-12, where 1 = January
+List<SeasonRange> _bestSeasons = []; // List of season ranges
+bool _isEntireYear = false; // Whether available year-round
 // Show prices toggle (plan-level)
 bool _showPrices = false;
   
@@ -234,14 +243,40 @@ if (plan != null) {
 _editingPlan = plan;
 _nameCtrl.text = plan.name;
 _locationCtrl.text = plan.location;
+// Geocode location to get coordinates for map preview
+if (plan.location.isNotEmpty) {
+try {
+final placesService = GooglePlacesService();
+final location = await placesService.geocodeAddress(plan.location);
+if (location != null && mounted) {
+setState(() {
+_locationLat = location.latitude;
+_locationLng = location.longitude;
+});
+}
+} catch (e) {
+Log.w('builder', 'Failed to geocode location "${plan.location}": $e');
+// Continue without coordinates - map won't show but that's okay
+}
+}
 _descCtrl.text = plan.description;
 _heroCtrl.text = plan.heroImageUrl;
 _priceCtrl.text = plan.basePrice.toStringAsFixed(2);
       _isPublished = plan.isPublished;
       _activityCategory = plan.activityCategory;
       _accommodationType = plan.accommodationType;
-      _bestSeasonStartMonth = plan.bestSeasonStartMonth;
-      _bestSeasonEndMonth = plan.bestSeasonEndMonth;
+      // Load new format, fallback to old format for backward compatibility
+      if (plan.bestSeasons.isNotEmpty) {
+        _bestSeasons = List.from(plan.bestSeasons);
+      } else if (plan.bestSeasonStartMonth != null && plan.bestSeasonEndMonth != null) {
+        _bestSeasons = [SeasonRange(
+          startMonth: plan.bestSeasonStartMonth!,
+          endMonth: plan.bestSeasonEndMonth!,
+        )];
+      } else {
+        _bestSeasons = [];
+      }
+      _isEntireYear = plan.isEntireYear;
       _showPrices = plan.showPrices;
       _versions.clear();
 if (plan.versions.isNotEmpty) {
@@ -254,6 +289,17 @@ for (final d in v.days) {
 // Load title and description
 form.titleCtrl(d.dayNum).text = d.title;
 form.descCtrl(d.dayNum).text = d.description;
+// Load komoot and alltrails links
+if (d.komootLink != null && d.komootLink!.isNotEmpty) {
+form.komootLinkCtrl(d.dayNum).text = d.komootLink!;
+}
+if (d.allTrailsLink != null && d.allTrailsLink!.isNotEmpty) {
+form.allTrailsLinkCtrl(d.dayNum).text = d.allTrailsLink!;
+}
+// Load route info if it exists
+if (d.routeInfo != null) {
+form.routeInfoByDay[d.dayNum] = d.routeInfo;
+}
 
         // CRITICAL: Keep existing route in form state so POIs/sections show up
         if (d.route != null) {
@@ -877,45 +923,115 @@ Text("Best Season", style: context.textStyles.titleMedium),
 const SizedBox(height: 8),
 Text("When is the best time to visit this adventure?", style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700)),
 const SizedBox(height: 12),
-Row(
-children: [
-Expanded(
-child: DropdownButtonFormField<int>(
-value: _bestSeasonStartMonth,
-decoration: InputDecoration(
-labelText: "Start Month",
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+// Entire Year Checkbox
+CheckboxListTile(
+  title: Text("Available year-round", style: context.textStyles.bodyMedium),
+  value: _isEntireYear,
+  onChanged: (value) {
+    setState(() {
+      _isEntireYear = value ?? false;
+      if (_isEntireYear) {
+        _bestSeasons.clear(); // Clear seasons if entire year is selected
+      }
+    });
+  },
+  contentPadding: EdgeInsets.zero,
+  controlAffinity: ListTileControlAffinity.leading,
 ),
-items: List.generate(12, (index) {
-final monthNum = index + 1;
-return DropdownMenuItem(
-value: monthNum,
-child: Text(_getMonthName(monthNum)),
-);
-}),
-onChanged: (value) => setState(() => _bestSeasonStartMonth = value),
-),
-),
-const SizedBox(width: 12),
-Expanded(
-child: DropdownButtonFormField<int>(
-value: _bestSeasonEndMonth,
-decoration: InputDecoration(
-labelText: "End Month",
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-),
-items: List.generate(12, (index) {
-final monthNum = index + 1;
-return DropdownMenuItem(
-value: monthNum,
-child: Text(_getMonthName(monthNum)),
-);
-}),
-onChanged: (value) => setState(() => _bestSeasonEndMonth = value),
-),
-),
+if (!_isEntireYear) ...[
+  const SizedBox(height: 12),
+  // Season Ranges List
+  ...List.generate(_bestSeasons.length, (index) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              value: _bestSeasons[index].startMonth,
+              decoration: InputDecoration(
+                labelText: "Start Month",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              items: List.generate(12, (i) {
+                final monthNum = i + 1;
+                return DropdownMenuItem(
+                  value: monthNum,
+                  child: Text(_getMonthName(monthNum)),
+                );
+              }),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _bestSeasons[index] = SeasonRange(
+                      startMonth: value,
+                      endMonth: _bestSeasons[index].endMonth,
+                    );
+                  });
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              value: _bestSeasons[index].endMonth,
+              decoration: InputDecoration(
+                labelText: "End Month",
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              items: List.generate(12, (i) {
+                final monthNum = i + 1;
+                return DropdownMenuItem(
+                  value: monthNum,
+                  child: Text(_getMonthName(monthNum)),
+                );
+              }),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _bestSeasons[index] = SeasonRange(
+                      startMonth: _bestSeasons[index].startMonth,
+                      endMonth: value,
+                    );
+                  });
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            onPressed: () {
+              setState(() {
+                _bestSeasons.removeAt(index);
+              });
+            },
+            tooltip: "Remove season",
+          ),
+        ],
+      ),
+    );
+  }),
+  const SizedBox(height: 8),
+  // Add Season Button
+  OutlinedButton.icon(
+    onPressed: () {
+      setState(() {
+        _bestSeasons.add(SeasonRange(
+          startMonth: 1,
+          endMonth: 12,
+        ));
+      });
+    },
+    icon: const Icon(Icons.add, size: 18),
+    label: const Text("Add Season"),
+    style: OutlinedButton.styleFrom(
+      foregroundColor: Colors.green,
+      side: const BorderSide(color: Colors.green),
+    ),
+  ),
 ],
-),
 const SizedBox(height: 32),
 
 // Activity Categorization Section
@@ -1875,13 +1991,35 @@ const SizedBox(height: 16),
 _buildTextField("Title", "e.g., Crossing the Pass", controller: titleCtrl, required: false),
 const SizedBox(height: 12),
 _buildTextField("Description", "What happens today...", maxLines: 5, controller: descCtrl, required: false),
+const SizedBox(height: 12),
+_buildTextField("Komoot Link", "https://www.komoot.com/...", controller: vf.komootLinkCtrl(dayNum), required: false),
+const SizedBox(height: 12),
+_buildTextField("AllTrails Link", "https://www.alltrails.com/...", controller: vf.allTrailsLinkCtrl(dayNum), required: false),
+const SizedBox(height: 12),
+// Fetch Route Info button
+_buildFetchRouteInfoButton(dayNum, vf),
 const SizedBox(height: 16),
 
-// MAP SECTION - Show the route map if route exists or if there are waypoints
-if (existingRoute != null || _hasWaypoints(dayNum, vf)) ...[
+// MAP SECTION - Always show map preview (shows route/waypoints if available, otherwise shows location from step 1)
+if (_locationLat != null && _locationLng != null) ...[
 _buildDayRouteMap(existingRoute, dayNum, vf),
 const SizedBox(height: 12),
 ],
+// Route Info Card (if fetched)
+Builder(
+  builder: (context) {
+    final routeInfo = vf.routeInfoByDay[dayNum];
+    if (routeInfo != null) {
+      return Column(
+        children: [
+          RouteInfoCard(routeInfo: routeInfo),
+          const SizedBox(height: 12),
+        ],
+      );
+    }
+    return const SizedBox.shrink();
+  },
+),
 
 // Route controls below the map
 Align(
@@ -1991,6 +2129,193 @@ textAlign: TextAlign.center,
 ),
 );
 }
+}
+
+Widget _buildFetchRouteInfoButton(int dayNum, _VersionFormData vf) {
+  try {
+    final komootLink = vf.komootLinkCtrl(dayNum).text.trim();
+    final allTrailsLink = vf.allTrailsLinkCtrl(dayNum).text.trim();
+    final hasKomoot = komootLink.isNotEmpty;
+    final hasAllTrails = allTrailsLink.isNotEmpty;
+    final isEnabled = hasKomoot || hasAllTrails;
+  
+  return StatefulBuilder(
+    builder: (builderContext, setState) {
+      final isFetching = _fetchingRouteInfoDay == dayNum;
+      
+      return FilledButton.icon(
+        onPressed: isEnabled && !isFetching
+            ? () => _fetchRouteInfo(dayNum, vf, komootLink, allTrailsLink, builderContext, setState)
+            : null,
+        icon: isFetching
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.download, size: 18),
+        label: Text(isFetching ? 'Fetching...' : 'Fetch Route Info'),
+        style: FilledButton.styleFrom(
+          backgroundColor: builderContext.colors.primary,
+          foregroundColor: Colors.white,
+        ),
+      );
+    },
+  );
+  } catch (e) {
+    Log.e('builder', 'Error building fetch route info button', e);
+    return const SizedBox.shrink();
+  }
+}
+
+int? _fetchingRouteInfoDay; // Track which day is currently fetching
+
+Future<void> _fetchRouteInfo(
+  int dayNum,
+  _VersionFormData vf,
+  String komootLink,
+  String allTrailsLink,
+  BuildContext builderContext,
+  StateSetter buttonSetState,
+) async {
+  // Determine which URL to use
+  String? urlToFetch;
+  if (komootLink.isNotEmpty && allTrailsLink.isNotEmpty) {
+    // Both URLs present - show bottom sheet to pick
+    final source = await showModalBottomSheet<String>(
+      context: builderContext,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Select source',
+              style: context.textStyles.titleMedium,
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.route),
+              title: const Text('Komoot'),
+              onTap: () => Navigator.pop(context, 'komoot'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.hiking),
+              title: const Text('AllTrails'),
+              onTap: () => Navigator.pop(context, 'alltrails'),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    if (source == null) return; // User cancelled
+    
+    urlToFetch = source == 'komoot' ? komootLink : allTrailsLink;
+  } else if (komootLink.isNotEmpty) {
+    urlToFetch = komootLink;
+  } else if (allTrailsLink.isNotEmpty) {
+    urlToFetch = allTrailsLink;
+  }
+  
+  if (urlToFetch == null || urlToFetch.isEmpty) {
+    ScaffoldMessenger.of(builderContext).showSnackBar(
+      const SnackBar(content: Text('Please enter a Komoot or AllTrails link')),
+    );
+    return;
+  }
+  
+  // Update loading state in both button and parent
+  buttonSetState(() => _fetchingRouteInfoDay = dayNum);
+  if (mounted) {
+    setState(() => _fetchingRouteInfoDay = dayNum);
+  }
+  
+  try {
+    Log.i('builder', 'Fetching route info from: $urlToFetch');
+    
+    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
+    final callable = functions.httpsCallable('extractRouteMetadata');
+    
+    final result = await callable.call({'url': urlToFetch});
+    final data = result.data as Map<String, dynamic>?;
+    
+    if (data == null) {
+      throw Exception('No data returned from function');
+    }
+    
+    // Check for error
+    if (data['error'] != null) {
+      throw Exception(data['error'] as String);
+    }
+    
+    // Parse RouteInfo from response
+    final routeInfo = RouteInfo.fromJson(data);
+    
+    if (mounted) {
+      // Update the main widget state
+      setState(() {
+        vf.routeInfoByDay[dayNum] = routeInfo;
+        _fetchingRouteInfoDay = null;
+      });
+      
+      // Update button state
+      buttonSetState(() => _fetchingRouteInfoDay = null);
+      
+      // Optionally auto-fill distance and time if available
+      if (routeInfo.distanceKm != null) {
+        vf.distanceCtrl(dayNum).text = routeInfo.distanceKm!.toStringAsFixed(2);
+      }
+      if (routeInfo.estimatedTime != null) {
+        // Try to parse estimated time (could be "06:43" or "6h 43m")
+        final timeStr = routeInfo.estimatedTime!;
+        if (timeStr.contains('h') || timeStr.contains('hr')) {
+          // Format like "6h 43m" - extract hours
+          final hoursMatch = RegExp(r'(\d+(?:\.\d+)?)\s*h').firstMatch(timeStr);
+          if (hoursMatch != null) {
+            final hours = double.tryParse(hoursMatch.group(1) ?? '');
+            if (hours != null) {
+              vf.timeCtrl(dayNum).text = hours.toStringAsFixed(1);
+            }
+          }
+        }
+      }
+      
+      ScaffoldMessenger.of(builderContext).showSnackBar(
+        SnackBar(
+          content: Text('Route info fetched from ${routeInfo.sourceDisplayName}'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Trigger auto-save
+      _saveCurrentStep();
+    }
+  } on FirebaseFunctionsException catch (e) {
+    Log.e('builder', 'Failed to fetch route info', e);
+    if (mounted) {
+      setState(() => _fetchingRouteInfoDay = null);
+      buttonSetState(() => _fetchingRouteInfoDay = null);
+      ScaffoldMessenger.of(builderContext).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'Failed to fetch route info. You can enter it manually.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  } catch (e, stack) {
+    Log.e('builder', 'Failed to fetch route info', e, stack);
+    if (mounted) {
+      setState(() => _fetchingRouteInfoDay = null);
+      buttonSetState(() => _fetchingRouteInfoDay = null);
+      ScaffoldMessenger.of(builderContext).showSnackBar(
+        SnackBar(
+          content: Text('Failed to fetch route info. You can enter it manually.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
 }
 
 Widget _buildAccommodationCard(_AccommodationFormData acc, int dayNum, int idx, _VersionFormData vf) {
@@ -2202,9 +2527,14 @@ Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
     final avgLng = routeCoordinates.map((p) => p.longitude).reduce((a, b) => a + b) / routeCoordinates.length;
     center = ll.LatLng(avgLat, avgLng);
   } else {
-    // Fallback to start location or default
-    final startLocation = vf.startForDay[dayNum];
-    center = startLocation ?? const ll.LatLng(61.0, 8.5); // Norway default
+    // Fallback to location from step 1 (General Info)
+    if (_locationLat != null && _locationLng != null) {
+      center = ll.LatLng(_locationLat!, _locationLng!);
+    } else {
+      // Fallback to start location or default
+      final startLocation = vf.startForDay[dayNum];
+      center = startLocation ?? const ll.LatLng(61.0, 8.5); // Norway default
+    }
   }
 
   // Create annotations for waypoints
@@ -2236,10 +2566,15 @@ Widget _buildDayRouteMap(DayRoute? route, int dayNum, _VersionFormData vf) {
       annotations: annotations,
       polylines: polylines,
       onMapCreated: (controller) {
-        // Fit bounds to show all waypoints and route
+        // Fit bounds to show all waypoints and route, or location from step 1
         final allPoints = <ll.LatLng>[];
         allPoints.addAll(waypoints.map((w) => w.position));
         allPoints.addAll(routeCoordinates);
+        
+        // If no waypoints or route, add location from step 1
+        if (allPoints.isEmpty && _locationLat != null && _locationLng != null) {
+          allPoints.add(ll.LatLng(_locationLat!, _locationLng!));
+        }
         
         if (allPoints.isNotEmpty) {
           // Calculate bounds
@@ -2602,6 +2937,9 @@ startLng: start?.longitude ?? prev?.startLng,
 endLat: end?.latitude ?? prev?.endLat,
 endLng: end?.longitude ?? prev?.endLng,
 route: vf.routeByDay[i] ?? prev?.route,
+komootLink: vf.komootLinkCtrl(i).text.trim().isEmpty ? (prev?.komootLink) : vf.komootLinkCtrl(i).text.trim(),
+allTrailsLink: vf.allTrailsLinkCtrl(i).text.trim().isEmpty ? (prev?.allTrailsLink) : vf.allTrailsLinkCtrl(i).text.trim(),
+routeInfo: vf.routeInfoByDay[i] ?? prev?.routeInfo,
 ));
 }
 return days;
@@ -2719,8 +3057,8 @@ updatedAt: now,
       activityCategory: _activityCategory,
       accommodationType: _accommodationType,
       faqItems: planFaqItems,
-      bestSeasonStartMonth: _bestSeasonStartMonth,
-      bestSeasonEndMonth: _bestSeasonEndMonth,
+      bestSeasons: _bestSeasons,
+      isEntireYear: _isEntireYear,
       showPrices: _showPrices,
     );
 
@@ -2827,8 +3165,8 @@ isPublished: _isPublished,
       activityCategory: _activityCategory,
       accommodationType: _accommodationType,
       faqItems: planFaqItems,
-      bestSeasonStartMonth: _bestSeasonStartMonth,
-      bestSeasonEndMonth: _bestSeasonEndMonth,
+      bestSeasons: _bestSeasons,
+      isEntireYear: _isEntireYear,
       showPrices: _showPrices,
     );
     // Use updatePlanWithVersions to save versions and days to subcollections
@@ -2935,8 +3273,8 @@ isPublished: false,
       activityCategory: _activityCategory,
       accommodationType: _accommodationType,
       faqItems: planFaqItems,
-      bestSeasonStartMonth: _bestSeasonStartMonth,
-      bestSeasonEndMonth: _bestSeasonEndMonth,
+      bestSeasons: _bestSeasons,
+      isEntireYear: _isEntireYear,
       showPrices: _showPrices,
     );
     // Use updatePlanWithVersions to save versions and days to subcollections
@@ -2961,8 +3299,8 @@ creatorName: creatorName,
       faqItems: planFaqItems,
       activityCategory: _activityCategory,
       accommodationType: _accommodationType,
-      bestSeasonStartMonth: _bestSeasonStartMonth,
-      bestSeasonEndMonth: _bestSeasonEndMonth,
+      bestSeasons: _bestSeasons,
+      isEntireYear: _isEntireYear,
       showPrices: _showPrices,
     );
 
@@ -3072,8 +3410,8 @@ isPublished: _isPublished,
       activityCategory: _activityCategory,
       accommodationType: _accommodationType,
       faqItems: planFaqItems,
-      bestSeasonStartMonth: _bestSeasonStartMonth,
-      bestSeasonEndMonth: _bestSeasonEndMonth,
+      bestSeasons: _bestSeasons,
+      isEntireYear: _isEntireYear,
       showPrices: _showPrices,
     );
 
@@ -4384,7 +4722,13 @@ void _initializeDayOrdering(int dayNum, List<RouteWaypoint> waypoints) {
 
 /// Get waypoints by section ID for a day
 Map<String, List<RouteWaypoint>> _getWaypointsBySectionId(int dayNum, List<RouteWaypoint> waypoints) {
-  final map = <String, List<RouteWaypoint>>{};
+  // Initialize map explicitly to avoid JavaScript compilation issues
+  final map = Map<String, List<RouteWaypoint>>();
+  
+  // Handle null/empty waypoints
+  if (waypoints.isEmpty) {
+    return map;
+  }
   
     for (final wp in waypoints) {
     String? sectionId;
@@ -4410,7 +4754,7 @@ Map<String, List<RouteWaypoint>> _getWaypointsBySectionId(int dayNum, List<Route
         break;
     }
     if (sectionId != null) {
-      map.putIfAbsent(sectionId, () => []).add(wp);
+      map.putIfAbsent(sectionId, () => <RouteWaypoint>[]).add(wp);
     }
   }
   
@@ -4419,7 +4763,12 @@ Map<String, List<RouteWaypoint>> _getWaypointsBySectionId(int dayNum, List<Route
 
 /// Get waypoints by ID for a day
 Map<String, RouteWaypoint> _getWaypointsById(List<RouteWaypoint> waypoints) {
-  return { for (final wp in waypoints) wp.id: wp };
+  // Initialize map explicitly to avoid JavaScript compilation issues
+  final map = Map<String, RouteWaypoint>();
+  for (final wp in waypoints) {
+    map[wp.id] = wp;
+  }
+  return map;
 }
 
 /// Move an item up in the day plan
@@ -4524,6 +4873,7 @@ void _applyOrderingToWaypoints(int dayNum, _VersionFormData vf) {
 }
 
 /// Build timeline layout with categories for all waypoints
+/// Uses the same _SidebarWaypointOrderedList component as route builder
 Widget _buildAllWaypointsList(int dayNum, _VersionFormData vf) {
   final existingRoute = vf.routeByDay[dayNum];
   Log.i('builder', 'Building waypoints list for day $dayNum. Route exists: ${existingRoute != null}');
@@ -4574,98 +4924,256 @@ Widget _buildAllWaypointsList(int dayNum, _VersionFormData vf) {
     return const SizedBox.shrink();
   }
 
-  // Use DayContentBuilder to render
-  return DayContentBuilder(
-    dayNumber: dayNum,
-    orderedItems: orderManager.sortedItems,
-    waypointsBySectionId: _getWaypointsBySectionId(dayNum, waypoints),
-    waypointsById: _getWaypointsById(waypoints),
-    onMoveUp: (itemId) => _moveItemUp(dayNum, itemId, vf),
-    onMoveDown: (itemId) => _moveItemDown(dayNum, itemId, vf),
-    canMoveUp: (itemId) => orderManager.canMoveUp(itemId),
-    canMoveDown: (itemId) => orderManager.canMoveDown(itemId),
-    onEditWaypoint: (waypoint) {
+  // Use _SidebarWaypointOrderedList (same as route builder)
+  return _SidebarWaypointOrderedList(
+    waypoints: waypoints,
+    onEdit: (waypoint) {
       final index = waypoints.indexOf(waypoint);
       if (index >= 0) {
         _editWaypointFromItinerary(dayNum, index, vf);
       }
     },
-    onDeleteWaypoint: (waypoint) {
-      final index = waypoints.indexOf(waypoint);
-      if (index >= 0) {
-        _deleteWaypointFromItinerary(dayNum, index, vf);
-        // Reinitialize ordering after deletion
-        final updatedRoute = vf.routeByDay[dayNum];
-        if (updatedRoute != null) {
-          final updatedWaypoints = updatedRoute.poiWaypoints
-              .map((json) => RouteWaypoint.fromJson(json))
-              .toList();
-          _initializeDayOrdering(dayNum, updatedWaypoints);
+    onMoveUp: (itemId) => _moveItemUp(dayNum, itemId, vf),
+    onMoveDown: (itemId) => _moveItemDown(dayNum, itemId, vf),
+    canMoveUp: (itemId) => orderManager.canMoveUp(itemId),
+    canMoveDown: (itemId) => orderManager.canMoveDown(itemId),
+    orderManager: orderManager,
+    onInitializeOrdering: () {
+      _initializeDayOrdering(dayNum, waypoints);
+    },
+    onTravelModeChanged: (waypoint, newMode) => _handleTravelModeChange(dayNum, waypoint, newMode, vf),
+    onAddAlternative: (waypoint) => _addAlternativeWaypoint(dayNum, waypoint, vf),
+    onWaypointUpdated: (updatedWaypoint) => _updateWaypointInRoute(dayNum, updatedWaypoint, vf),
+    onOrderChanged: () => _renumberWaypointsInRoute(dayNum, vf),
+  );
+}
+
+/// Update a waypoint in the route
+void _updateWaypointInRoute(int dayNum, RouteWaypoint updatedWaypoint, _VersionFormData vf) {
+  final route = vf.routeByDay[dayNum];
+  if (route == null) return;
+  
+  final waypoints = route.poiWaypoints
+      .map((json) => RouteWaypoint.fromJson(json))
+      .toList();
+  
+  final index = waypoints.indexWhere((w) => w.id == updatedWaypoint.id);
+  if (index >= 0) {
+    waypoints[index] = updatedWaypoint;
+    setState(() {
+      vf.routeByDay[dayNum] = route.copyWith(
+        poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
+      );
+    });
+    // Reinitialize ordering after update
+    _initializeDayOrdering(dayNum, waypoints);
+  }
+}
+
+/// Renumber waypoints to ensure sequential ordering (1, 2, 3...)
+void _renumberWaypointsInRoute(int dayNum, _VersionFormData vf) {
+  final route = vf.routeByDay[dayNum];
+  if (route == null) return;
+  
+  final waypoints = route.poiWaypoints
+      .map((json) => RouteWaypoint.fromJson(json))
+      .toList();
+  
+  // Group by order, then renumber sequentially
+  waypoints.sort((a, b) => (a.order ?? 0).compareTo(b.order ?? 0));
+  
+  // Group waypoints by their current order to handle choice groups
+  final groupedByOrder = <int, List<RouteWaypoint>>{};
+  for (final wp in waypoints) {
+    final order = wp.order ?? 0;
+    groupedByOrder.putIfAbsent(order, () => []).add(wp);
+  }
+  
+  final sortedOrders = groupedByOrder.keys.toList()..sort();
+  final renumberedWaypoints = <RouteWaypoint>[];
+  
+  int newOrder = 1;
+  for (final oldOrder in sortedOrders) {
+    final group = groupedByOrder[oldOrder]!;
+    for (final wp in group) {
+      renumberedWaypoints.add(wp.copyWith(order: newOrder));
+    }
+    newOrder++;
+  }
+  
+  setState(() {
+    vf.routeByDay[dayNum] = route.copyWith(
+      poiWaypoints: renumberedWaypoints.map((w) => w.toJson()).toList(),
+    );
+  });
+  
+  // Reinitialize ordering
+  _initializeDayOrdering(dayNum, renumberedWaypoints);
+}
+
+/// Handle travel mode change for a waypoint
+Future<void> _handleTravelModeChange(int dayNum, RouteWaypoint waypoint, String newMode, _VersionFormData vf) async {
+  final route = vf.routeByDay[dayNum];
+  if (route == null) return;
+  
+  final waypoints = route.poiWaypoints
+      .map((json) => RouteWaypoint.fromJson(json))
+      .toList();
+  
+  final index = waypoints.indexWhere((w) => w.id == waypoint.id);
+  if (index < 0) return;
+  
+  // Find previous waypoint to calculate travel
+  final prevIndex = index > 0 ? index - 1 : null;
+  if (prevIndex == null) {
+    // No previous waypoint, just update mode
+    waypoints[index] = waypoint.copyWith(travelMode: newMode);
+    setState(() {
+      vf.routeByDay[dayNum] = route.copyWith(
+        poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
+      );
+    });
+    return;
+  }
+  
+  final prevWaypoint = waypoints[prevIndex];
+  final travelService = TravelCalculatorService();
+  
+  try {
+    TravelMode? travelMode;
+    if (newMode == 'walking') {
+      travelMode = TravelMode.walking;
+    } else if (newMode == 'transit') {
+      travelMode = TravelMode.transit;
+    } else if (newMode == 'driving') {
+      travelMode = TravelMode.driving;
+    } else if (newMode == 'bicycling') {
+      travelMode = TravelMode.bicycling;
+    }
+    
+    final travelInfo = await travelService.calculateTravel(
+      from: prevWaypoint.position,
+      to: waypoint.position,
+      travelMode: travelMode,
+      includeGeometry: false,
+    );
+    
+    if (travelInfo != null && mounted) {
+      waypoints[index] = waypoint.copyWith(
+        travelMode: newMode,
+        travelTime: travelInfo.durationSeconds,
+        travelDistance: travelInfo.distanceMeters.toDouble(),
+      );
+      
+      setState(() {
+        vf.routeByDay[dayNum] = route.copyWith(
+          poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
+        );
+      });
+    }
+  } catch (e) {
+    Log.e('builder', 'Failed to calculate travel time', e);
+  }
+}
+
+/// Add an alternative waypoint (OR grouping)
+Future<void> _addAlternativeWaypoint(int dayNum, RouteWaypoint sourceWaypoint, _VersionFormData vf) async {
+  final route = vf.routeByDay[dayNum];
+  if (route == null) return;
+  
+  final waypoints = route.poiWaypoints
+      .map((json) => RouteWaypoint.fromJson(json))
+      .toList();
+  
+  // Filter available waypoints: exclude source and any already in the same choice group
+  final availableWaypoints = waypoints.where((wp) {
+    if (wp.id == sourceWaypoint.id) return false;
+    if (sourceWaypoint.choiceGroupId != null && 
+        wp.choiceGroupId == sourceWaypoint.choiceGroupId) {
+      return false;
+    }
+    return true;
+  }).toList();
+
+  if (availableWaypoints.isEmpty) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No other waypoints available to group with'),
+        ),
+      );
+    }
+    return;
+  }
+
+  final selectedWaypoint = await showDialog<RouteWaypoint>(
+    context: context,
+    builder: (context) => _SelectWaypointForGroupDialog(
+      availableWaypoints: availableWaypoints,
+      sourceWaypoint: sourceWaypoint,
+    ),
+  );
+
+  if (selectedWaypoint != null && mounted) {
+    // Get or create choice group ID
+    final choiceGroupId = sourceWaypoint.choiceGroupId ?? const Uuid().v4();
+    final groupingService = WaypointGroupingService();
+    final choiceLabel = sourceWaypoint.choiceLabel ?? 
+        groupingService.generateAutoChoiceLabel(
+          sourceWaypoint.type,
+          sourceWaypoint.suggestedStartTime,
+          sourceWaypoint.mealTime,
+          sourceWaypoint.activityTime,
+        );
+
+    // Update source waypoint if it doesn't have choiceGroupId yet
+    final sourceIndex = waypoints.indexWhere((w) => w.id == sourceWaypoint.id);
+    if (sourceIndex >= 0 && sourceWaypoint.choiceGroupId == null) {
+      waypoints[sourceIndex] = sourceWaypoint.copyWith(
+        choiceGroupId: choiceGroupId,
+        choiceLabel: choiceLabel,
+      );
+    }
+
+    // Update selected waypoint to join the choice group
+    final selectedIndex = waypoints.indexWhere((w) => w.id == selectedWaypoint.id);
+    if (selectedIndex >= 0) {
+      final oldChoiceGroupId = selectedWaypoint.choiceGroupId;
+      
+      waypoints[selectedIndex] = selectedWaypoint.copyWith(
+        order: sourceWaypoint.order, // Same order as source waypoint
+        choiceGroupId: choiceGroupId,
+        choiceLabel: choiceLabel,
+      );
+      
+      // Clean up orphaned choice groups
+      if (oldChoiceGroupId != null && oldChoiceGroupId != choiceGroupId) {
+        final remainingInOldGroup = waypoints
+            .where((w) => w.choiceGroupId == oldChoiceGroupId)
+            .toList();
+        
+        if (remainingInOldGroup.length <= 1) {
+          for (final wp in remainingInOldGroup) {
+            final idx = waypoints.indexWhere((w) => w.id == wp.id);
+            if (idx >= 0) {
+              waypoints[idx] = waypoints[idx].copyWith(
+                choiceGroupId: null,
+                choiceLabel: null,
+              );
+            }
+          }
         }
       }
-    },
-    onAddWaypoint: (type, sectionType) {
-      // Determine category and waypoint type
-      TimeSlotCategory? category;
-      WaypointType wpType;
       
-      switch (type) {
-        case OrderableItemType.restaurantSection:
-          wpType = WaypointType.restaurant;
-          switch (sectionType) {
-            case 'breakfast':
-              category = TimeSlotCategory.breakfast;
-              break;
-            case 'lunch':
-              category = TimeSlotCategory.lunch;
-              break;
-            case 'dinner':
-              category = TimeSlotCategory.dinner;
-              break;
-            default:
-              category = TimeSlotCategory.lunch;
-          }
-          break;
-        case OrderableItemType.activitySection:
-          wpType = WaypointType.activity;
-          switch (sectionType) {
-            case 'morning':
-              category = TimeSlotCategory.morningActivity;
-              break;
-            case 'afternoon':
-              category = TimeSlotCategory.afternoonActivity;
-              break;
-            case 'night':
-              category = TimeSlotCategory.eveningActivity;
-              break;
-            case 'allDay':
-              category = TimeSlotCategory.allDayActivity;
-              break;
-            default:
-              category = TimeSlotCategory.afternoonActivity;
-          }
-          break;
-        case OrderableItemType.accommodationSection:
-          wpType = WaypointType.accommodation;
-          category = TimeSlotCategory.accommodation;
-          break;
-        case OrderableItemType.logisticsWaypoint:
-          wpType = WaypointType.servicePoint;
-          category = TimeSlotCategory.logisticsGear; // Default
-          break;
-        case OrderableItemType.viewingPointWaypoint:
-          wpType = WaypointType.viewingPoint;
-          category = TimeSlotCategory.viewingPoint;
-          break;
-      }
-      
-      if (category != null) {
-        _addWaypointToCategory(dayNum, wpType, category, vf);
-      }
-    },
-    showActions: true,
-    isViewOnly: false,
-  );
+      _renumberWaypointsInRoute(dayNum, vf);
+    }
+    
+    setState(() {
+      vf.routeByDay[dayNum] = route.copyWith(
+        poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
+      );
+    });
+  }
 }
 
 List<PackingCategory> _composePackingCategories(_VersionFormData vf, {List<PackingCategory> fallback = const []}) {
@@ -4797,8 +5305,11 @@ final Map<int, TextEditingController> _distanceByDay = {};
 final Map<int, TextEditingController> _timeHoursByDay = {};
 final Map<int, TextEditingController> _stayUrlByDay = {};
 final Map<int, TextEditingController> _stayCostByDay = {};
+final Map<int, TextEditingController> _komootLinkByDay = {};
+final Map<int, TextEditingController> _allTrailsLinkByDay = {};
 final Map<int, LinkPreviewData?> stayMetaByDay = {};
 final Map<int, DayRoute> routeByDay = {};
+final Map<int, RouteInfo?> routeInfoByDay = {};
 final Map<int, List<_AccommodationFormData>> accommodationsByDay = {};
 final Map<int, List<_RestaurantFormData>> restaurantsByDay = {};
 final Map<int, List<_ActivityFormData>> activitiesByDay = {};
@@ -4852,6 +5363,12 @@ c.dispose();
 for (final c in _stayCostByDay.values) {
 c.dispose();
 }
+for (final c in _komootLinkByDay.values) {
+c.dispose();
+}
+for (final c in _allTrailsLinkByDay.values) {
+c.dispose();
+}
 for (final list in accommodationsByDay.values) {
 for (final a in list) {
 a.dispose();
@@ -4896,6 +5413,8 @@ TextEditingController distanceCtrl(int day) => _distanceByDay.putIfAbsent(day, (
 TextEditingController timeCtrl(int day) => _timeHoursByDay.putIfAbsent(day, () => TextEditingController());
 TextEditingController stayUrlCtrl(int day) => _stayUrlByDay.putIfAbsent(day, () => TextEditingController());
 TextEditingController stayCostCtrl(int day) => _stayCostByDay.putIfAbsent(day, () => TextEditingController());
+TextEditingController komootLinkCtrl(int day) => _komootLinkByDay.putIfAbsent(day, () => TextEditingController());
+TextEditingController allTrailsLinkCtrl(int day) => _allTrailsLinkByDay.putIfAbsent(day, () => TextEditingController());
 }
 
 class _AccommodationFormData {
@@ -6524,4 +7043,1029 @@ waypointId,
 
   Navigator.of(context).pop(waypoint);
 }
+}
+
+// ============================================================================
+// SIDEBAR WIDGETS - Same as route_builder_screen.dart
+// ============================================================================
+
+class _SidebarWaypointTile extends StatelessWidget {
+  final RouteWaypoint waypoint; 
+  final VoidCallback onEdit; 
+  final VoidCallback? onMoveUp; 
+  final VoidCallback? onMoveDown;
+  final VoidCallback? onAddAlternative;
+
+  const _SidebarWaypointTile({
+    super.key, 
+    required this.waypoint, 
+    required this.onEdit, 
+    this.onMoveUp, 
+    this.onMoveDown,
+    this.onAddAlternative,
+  });
+  
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 56,
+    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+    child: Row(children: [
+      Container(
+        width: 28, 
+        height: 28, 
+        decoration: BoxDecoration(
+          color: getWaypointColor(waypoint.type), 
+          borderRadius: BorderRadius.circular(8)
+        ),
+        child: Icon(getWaypointIcon(waypoint.type), color: Colors.white, size: 16)
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center, 
+          crossAxisAlignment: CrossAxisAlignment.start, 
+          children: [
+            Text(
+              waypoint.name, 
+              maxLines: 1, 
+              overflow: TextOverflow.ellipsis, 
+              style: const TextStyle(fontWeight: FontWeight.w600)
+            ),
+            Text(
+              getWaypointLabel(waypoint.type), 
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600)
+            ),
+          ]
+        )
+      ),
+      // Reorder controls for individual waypoints
+      if (onMoveUp != null || onMoveDown != null)
+        Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: ReorderControlsVertical(
+            canMoveUp: onMoveUp != null,
+            canMoveDown: onMoveDown != null,
+            onMoveUp: onMoveUp,
+            onMoveDown: onMoveDown,
+          ),
+        ),
+      PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert, size: 18),
+        onSelected: (value) {
+          if (value == 'edit') {
+            onEdit();
+          } else if (value == 'add_alternative' && onAddAlternative != null) {
+            onAddAlternative?.call();
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'edit', 
+            child: Row(children: [
+              Icon(Icons.edit, size: 18), 
+              SizedBox(width: 8), 
+              Text('Edit')
+            ])
+          ),
+          if (onAddAlternative != null)
+            const PopupMenuItem(
+              value: 'add_alternative',
+              child: Row(children: [
+                Icon(Icons.alt_route, size: 18),
+                SizedBox(width: 8),
+                Text('Add OR alternative'),
+              ]),
+            ),
+        ],
+      ),
+    ]),
+  );
+}
+
+/// Sidebar waypoint list using sequential ordering by order number
+class _SidebarWaypointOrderedList extends StatefulWidget {
+  final List<RouteWaypoint> waypoints;
+  final void Function(RouteWaypoint) onEdit;
+  final void Function(String itemId) onMoveUp;
+  final void Function(String itemId) onMoveDown;
+  final bool Function(String itemId) canMoveUp;
+  final bool Function(String itemId) canMoveDown;
+  final DayPlanOrderManager? orderManager;
+  final VoidCallback onInitializeOrdering;
+  final Future<void> Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+  final Future<void> Function(RouteWaypoint waypoint)? onAddAlternative;
+  final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+  final VoidCallback? onOrderChanged;
+  
+  const _SidebarWaypointOrderedList({
+    required this.waypoints,
+    required this.onEdit,
+    required this.onMoveUp,
+    required this.onMoveDown,
+    required this.canMoveUp,
+    required this.canMoveDown,
+    this.orderManager,
+    required this.onInitializeOrdering,
+    this.onTravelModeChanged,
+    this.onAddAlternative,
+    this.onWaypointUpdated,
+    this.onOrderChanged,
+  });
+
+  @override
+  State<_SidebarWaypointOrderedList> createState() => _SidebarWaypointOrderedListState();
+}
+
+class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList> {
+  DayPlanOrderManager? _localOrderManager;
+  Map<String, List<RouteWaypoint>>? _waypointsBySectionId;
+  Map<String, RouteWaypoint>? _waypointsById;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateOrdering();
+  }
+
+  @override
+  void didUpdateWidget(_SidebarWaypointOrderedList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final waypointsChanged = oldWidget.waypoints.length != widget.waypoints.length ||
+        oldWidget.waypoints.map((w) => w.id).join(',') != widget.waypoints.map((w) => w.id).join(',');
+    
+    if (waypointsChanged || oldWidget.orderManager != widget.orderManager) {
+      _updateOrdering();
+    }
+  }
+
+  void _updateOrdering() {
+    if (widget.orderManager != null) {
+      _localOrderManager = widget.orderManager;
+    } else {
+      widget.onInitializeOrdering();
+      return;
+    }
+    
+    _waypointsBySectionId = _getWaypointsBySectionId();
+    _waypointsById = _getWaypointsById();
+  }
+
+  Map<String, List<RouteWaypoint>> _getWaypointsBySectionId() {
+    final map = Map<String, List<RouteWaypoint>>();
+    if (widget.waypoints.isEmpty) {
+      return map;
+    }
+    
+    for (final wp in widget.waypoints) {
+      String? sectionId;
+      switch (wp.type) {
+        case WaypointType.restaurant:
+          sectionId = 'restaurantSection_${wp.mealTime?.name ?? "lunch"}';
+          break;
+        case WaypointType.bar:
+          sectionId = 'barSection_${wp.mealTime?.name ?? "dinner"}';
+          break;
+        case WaypointType.activity:
+        case WaypointType.attraction:
+          sectionId = 'activitySection_${wp.activityTime?.name ?? "afternoon"}';
+          break;
+        case WaypointType.accommodation:
+          sectionId = 'accommodationSection';
+          break;
+        default:
+          break;
+      }
+      if (sectionId != null) {
+        map.putIfAbsent(sectionId, () => <RouteWaypoint>[]).add(wp);
+      }
+    }
+    return map;
+  }
+
+  Map<String, RouteWaypoint> _getWaypointsById() {
+    final map = Map<String, RouteWaypoint>();
+    for (final wp in widget.waypoints) {
+      map[wp.id] = wp;
+    }
+    return map;
+  }
+
+  List<int> _getDistinctOrders() {
+    final orders = widget.waypoints.map((w) => w.order).toSet().toList()..sort();
+    return orders;
+  }
+
+  bool _canMoveUp(RouteWaypoint waypoint) {
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    return currentOrderIndex > 0;
+  }
+
+  bool _canMoveDown(RouteWaypoint waypoint) {
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    return currentOrderIndex < orders.length - 1;
+  }
+
+  void _moveWaypointUp(RouteWaypoint waypoint) {
+    if (widget.onWaypointUpdated == null) return;
+    
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    if (currentOrderIndex <= 0) return;
+
+    final currentOrder = orders[currentOrderIndex];
+    final previousOrder = orders[currentOrderIndex - 1];
+
+    final currentGroup = widget.waypoints.where((w) => w.order == currentOrder).toList();
+    final previousGroup = widget.waypoints.where((w) => w.order == previousOrder).toList();
+
+    for (final wp in currentGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: previousOrder));
+    }
+    for (final wp in previousGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: currentOrder));
+    }
+
+    widget.onOrderChanged?.call();
+  }
+
+  void _moveWaypointDown(RouteWaypoint waypoint) {
+    if (widget.onWaypointUpdated == null) return;
+    
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    if (currentOrderIndex >= orders.length - 1) return;
+
+    final currentOrder = orders[currentOrderIndex];
+    final nextOrder = orders[currentOrderIndex + 1];
+
+    final currentGroup = widget.waypoints.where((w) => w.order == currentOrder).toList();
+    final nextGroup = widget.waypoints.where((w) => w.order == nextOrder).toList();
+
+    for (final wp in currentGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: nextOrder));
+    }
+    for (final wp in nextGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: currentOrder));
+    }
+
+    widget.onOrderChanged?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sortedWaypoints = List<RouteWaypoint>.from(widget.waypoints)
+      ..sort((a, b) => a.order.compareTo(b.order));
+
+    if (sortedWaypoints.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final groupedWaypoints = <int, List<RouteWaypoint>>{};
+    for (final wp in sortedWaypoints) {
+      groupedWaypoints.putIfAbsent(wp.order, () => <RouteWaypoint>[]).add(wp);
+    }
+
+    final orderedGroups = groupedWaypoints.keys.toList()..sort();
+    final widgets = <Widget>[];
+    
+    for (int i = 0; i < orderedGroups.length; i++) {
+      final order = orderedGroups[i];
+      final waypointsAtOrder = groupedWaypoints[order]!;
+      
+      final firstWp = waypointsAtOrder.first;
+      final isChoiceGroup = firstWp.choiceGroupId != null && waypointsAtOrder.length > 1;
+      
+      if (isChoiceGroup) {
+        List<RouteWaypoint>? previousWaypoints;
+        if (i > 0) {
+          final prevOrder = orderedGroups[i - 1];
+          previousWaypoints = groupedWaypoints[prevOrder];
+        }
+        
+        widgets.add(
+          _SidebarChoiceGroup(
+            key: ValueKey('choice_${firstWp.choiceGroupId}'),
+            waypoints: waypointsAtOrder,
+            choiceLabel: firstWp.choiceLabel ?? 'Choose an option',
+            onEdit: widget.onEdit,
+            onMoveUp: _canMoveUp(firstWp) ? () => _moveWaypointUp(firstWp) : null,
+            onMoveDown: _canMoveDown(firstWp) ? () => _moveWaypointDown(firstWp) : null,
+            previousWaypoints: previousWaypoints,
+            onTravelModeChanged: widget.onTravelModeChanged,
+          ),
+        );
+      } else {
+        for (final wp in waypointsAtOrder) {
+          final availableForGrouping = widget.waypoints.where((other) {
+            if (other.id == wp.id) return false;
+            if (wp.choiceGroupId != null && other.choiceGroupId == wp.choiceGroupId) return false;
+            return true;
+          }).isNotEmpty;
+          
+          widgets.add(
+            _SidebarWaypointTile(
+              key: ValueKey(wp.id),
+              waypoint: wp,
+              onEdit: () => widget.onEdit(wp),
+              onMoveUp: _canMoveUp(wp) ? () => _moveWaypointUp(wp) : null,
+              onMoveDown: _canMoveDown(wp) ? () => _moveWaypointDown(wp) : null,
+              onAddAlternative: (widget.onAddAlternative != null && availableForGrouping) 
+                  ? () => widget.onAddAlternative!(wp) 
+                  : null,
+            ),
+          );
+        }
+      }
+      
+      if (i < orderedGroups.length - 1) {
+        final nextOrder = orderedGroups[i + 1];
+        final nextWaypoints = groupedWaypoints[nextOrder]!;
+        final nextFirstWp = nextWaypoints.first;
+        final nextIsChoiceGroup = nextFirstWp.choiceGroupId != null && nextWaypoints.length > 1;
+        
+        if (nextIsChoiceGroup) {
+          // Travel info shown inside choice group
+        } else {
+          if (isChoiceGroup) {
+            for (final fromWp in waypointsAtOrder) {
+              widgets.add(
+                _SidebarTravelSegmentWithLabel(
+                  key: ValueKey('travel_${fromWp.id}_${nextFirstWp.id}'),
+                  fromWaypoint: fromWp,
+                  toWaypoint: nextFirstWp,
+                  label: 'from ${fromWp.name}',
+                  onTravelModeChanged: widget.onTravelModeChanged,
+                ),
+              );
+            }
+          } else {
+            final fromWp = waypointsAtOrder.last;
+            widgets.add(
+              _SidebarTravelSegment(
+                key: ValueKey('travel_${fromWp.id}_${nextFirstWp.id}'),
+                fromWaypoint: fromWp,
+                toWaypoint: nextFirstWp,
+                onTravelModeChanged: widget.onTravelModeChanged,
+              ),
+            );
+          }
+        }
+      }
+    }
+    
+    return Column(children: widgets);
+  }
+}
+
+class _SidebarChoiceGroup extends StatelessWidget {
+  final List<RouteWaypoint> waypoints;
+  final String choiceLabel;
+  final void Function(RouteWaypoint) onEdit;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+  final List<RouteWaypoint>? previousWaypoints;
+  final Future<void> Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+
+  const _SidebarChoiceGroup({
+    super.key,
+    required this.waypoints,
+    required this.choiceLabel,
+    required this.onEdit,
+    this.onMoveUp,
+    this.onMoveDown,
+    this.previousWaypoints,
+    this.onTravelModeChanged,
+  });
+
+  String _formatTravelTime(int? seconds) {
+    if (seconds == null) return '...';
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return rem == 0 ? '$hours h' : '$hours h $rem min';
+  }
+
+  String _getTravelModeLabel(String? mode) {
+    switch (mode) {
+      case 'walking': return 'walk';
+      case 'transit': return 'metro';
+      case 'driving': return 'drive';
+      case 'bicycling': return 'bike';
+      default: return 'walk';
+    }
+  }
+
+  IconData _getTravelIcon(String? mode) {
+    switch (mode) {
+      case 'walking': return Icons.directions_walk;
+      case 'transit': return Icons.directions_transit;
+      case 'driving': return Icons.directions_car;
+      case 'bicycling': return Icons.directions_bike;
+      default: return Icons.directions_walk;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.blue.shade200),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.blue.shade50,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade100,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+            ),
+            child: Row(
+              children: [
+                if (onMoveUp != null)
+                  IconButton(
+                    icon: const Icon(Icons.arrow_upward, size: 18),
+                    onPressed: onMoveUp,
+                    tooltip: 'Move group up',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                if (onMoveDown != null)
+                  IconButton(
+                    icon: const Icon(Icons.arrow_downward, size: 18),
+                    onPressed: onMoveDown,
+                    tooltip: 'Move group down',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                Icon(Icons.check_circle_outline, size: 16, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    choiceLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.blue.shade900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '(${waypoints.length} options)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              children: [
+                for (final wp in waypoints)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.radio_button_unchecked, size: 16, color: Colors.blue.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _SidebarWaypointTile(
+                                waypoint: wp,
+                                onEdit: () => onEdit(wp),
+                                onMoveUp: null,
+                                onMoveDown: null,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (previousWaypoints != null &&
+                            previousWaypoints!.isNotEmpty &&
+                            wp.travelTime != null &&
+                            wp.travelDistance != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 24, top: 2, bottom: 4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: Colors.green.shade200.withOpacity(0.5),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _getTravelIcon(wp.travelMode),
+                                    size: 14,
+                                    color: Colors.green.shade700,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '↓ ${_formatTravelTime(wp.travelTime)} ${_getTravelModeLabel(wp.travelMode)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.green.shade900,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '(${(wp.travelDistance! / 1000.0).toStringAsFixed(1)} km)',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                  if (onTravelModeChanged != null) ...[
+                                    const SizedBox(width: 4),
+                                    SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: PopupMenuButton<String>(
+                                        icon: Icon(Icons.swap_horiz, size: 14, color: Colors.green.shade700),
+                                        tooltip: 'Change travel mode',
+                                        padding: EdgeInsets.zero,
+                                        onSelected: (newMode) => onTravelModeChanged!(wp, newMode),
+                                        itemBuilder: (_) => [
+                                          PopupMenuItem(value: 'walking', child: Row(children: [Icon(Icons.directions_walk, size: 16), const SizedBox(width: 8), const Text('Walk')])),
+                                          PopupMenuItem(value: 'transit', child: Row(children: [Icon(Icons.directions_transit, size: 16), const SizedBox(width: 8), const Text('Transit')])),
+                                          PopupMenuItem(value: 'driving', child: Row(children: [Icon(Icons.directions_car, size: 16), const SizedBox(width: 8), const Text('Drive')])),
+                                          PopupMenuItem(value: 'bicycling', child: Row(children: [Icon(Icons.directions_bike, size: 16), const SizedBox(width: 8), const Text('Bike')])),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarTravelSegment extends StatelessWidget {
+  final RouteWaypoint fromWaypoint;
+  final RouteWaypoint toWaypoint;
+  final Future<void> Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+
+  const _SidebarTravelSegment({
+    super.key,
+    required this.fromWaypoint,
+    required this.toWaypoint,
+    this.onTravelModeChanged,
+  });
+
+  IconData _getTravelIcon(String? mode) {
+    switch (mode) {
+      case 'walking': return Icons.directions_walk;
+      case 'transit': return Icons.directions_transit;
+      case 'driving': return Icons.directions_car;
+      case 'bicycling': return Icons.directions_bike;
+      default: return Icons.directions_walk;
+    }
+  }
+
+  String _getTravelModeLabel(String? mode) {
+    switch (mode) {
+      case 'walking': return 'walk';
+      case 'transit': return 'metro';
+      case 'driving': return 'drive';
+      case 'bicycling': return 'bike';
+      default: return 'walk';
+    }
+  }
+
+  String _formatTravelTime(int? seconds) {
+    if (seconds == null) return 'calculating...';
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) {
+      return '$minutes min';
+    }
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    if (remainingMinutes == 0) {
+      return '$hours h';
+    }
+    return '$hours h $remainingMinutes min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTravelInfo = toWaypoint.travelTime != null && 
+                          toWaypoint.travelMode != null && 
+                          toWaypoint.travelDistance != null;
+    
+    final distanceKm = hasTravelInfo 
+        ? (toWaypoint.travelDistance! / 1000.0).toStringAsFixed(1)
+        : null;
+    final timeStr = hasTravelInfo ? _formatTravelTime(toWaypoint.travelTime!) : null;
+    final mode = toWaypoint.travelMode ?? 'walking';
+    final modeLabel = _getTravelModeLabel(mode);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _getTravelIcon(mode),
+            size: 16,
+            color: Colors.green.shade700,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Row(
+              children: [
+                if (hasTravelInfo) ...[
+                  Text(
+                    '↓ $timeStr $modeLabel',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade900,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (distanceKm != null) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      '($distanceKm km)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                  ],
+                ] else ...[
+                  Text(
+                    'Calculating travel time...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (onTravelModeChanged != null)
+            PopupMenuButton<String>(
+              icon: Icon(Icons.swap_horiz, size: 16, color: Colors.green.shade700),
+              tooltip: 'Change travel mode',
+              onSelected: (newMode) => onTravelModeChanged!(toWaypoint, newMode),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'walking',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_walk, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Walk'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'transit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_transit, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Transit'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'driving',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_car, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Drive'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'bicycling',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_bike, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Bike'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarTravelSegmentWithLabel extends StatelessWidget {
+  final RouteWaypoint fromWaypoint;
+  final RouteWaypoint toWaypoint;
+  final String label;
+  final Future<void> Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+
+  const _SidebarTravelSegmentWithLabel({
+    super.key,
+    required this.fromWaypoint,
+    required this.toWaypoint,
+    required this.label,
+    this.onTravelModeChanged,
+  });
+
+  IconData _getTravelIcon(String? mode) {
+    switch (mode) {
+      case 'walking': return Icons.directions_walk;
+      case 'transit': return Icons.directions_transit;
+      case 'driving': return Icons.directions_car;
+      case 'bicycling': return Icons.directions_bike;
+      default: return Icons.directions_walk;
+    }
+  }
+
+  String _getTravelModeLabel(String? mode) {
+    switch (mode) {
+      case 'walking': return 'walk';
+      case 'transit': return 'metro';
+      case 'driving': return 'drive';
+      case 'bicycling': return 'bike';
+      default: return 'walk';
+    }
+  }
+
+  String _formatTravelTime(int? seconds) {
+    if (seconds == null) return '...';
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return rem == 0 ? '$hours h' : '$hours h $rem min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTravelInfo = toWaypoint.travelTime != null &&
+                          toWaypoint.travelMode != null &&
+                          toWaypoint.travelDistance != null;
+
+    final distanceKm = hasTravelInfo
+        ? (toWaypoint.travelDistance! / 1000.0).toStringAsFixed(1)
+        : null;
+    final mode = toWaypoint.travelMode ?? 'walking';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.green.shade200.withOpacity(0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(_getTravelIcon(mode), size: 14, color: Colors.green.shade700),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.green.shade600,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                if (hasTravelInfo)
+                  Row(
+                    children: [
+                      Text(
+                        '↓ ${_formatTravelTime(toWaypoint.travelTime)} ${_getTravelModeLabel(mode)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.green.shade900,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (distanceKm != null) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          '($distanceKm km)',
+                          style: TextStyle(fontSize: 10, color: Colors.green.shade700),
+                        ),
+                      ],
+                    ],
+                  )
+                else
+                  Text(
+                    'Calculating...',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.green.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (onTravelModeChanged != null)
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: PopupMenuButton<String>(
+                icon: Icon(Icons.swap_horiz, size: 14, color: Colors.green.shade700),
+                tooltip: 'Change travel mode',
+                padding: EdgeInsets.zero,
+                onSelected: (newMode) => onTravelModeChanged!(toWaypoint, newMode),
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'walking', child: Row(children: [Icon(Icons.directions_walk, size: 16), const SizedBox(width: 8), const Text('Walk')])),
+                  PopupMenuItem(value: 'transit', child: Row(children: [Icon(Icons.directions_transit, size: 16), const SizedBox(width: 8), const Text('Transit')])),
+                  PopupMenuItem(value: 'driving', child: Row(children: [Icon(Icons.directions_car, size: 16), const SizedBox(width: 8), const Text('Drive')])),
+                  PopupMenuItem(value: 'bicycling', child: Row(children: [Icon(Icons.directions_bike, size: 16), const SizedBox(width: 8), const Text('Bike')])),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectWaypointForGroupDialog extends StatelessWidget {
+  final List<RouteWaypoint> availableWaypoints;
+  final RouteWaypoint sourceWaypoint;
+
+  const _SelectWaypointForGroupDialog({
+    required this.availableWaypoints,
+    required this.sourceWaypoint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollBlockingDialog(
+      child: Container(
+        width: 480,
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.95,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Group as Choice',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Select a waypoint to group with "${sourceWaypoint.name}"',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ScrollBlockingScrollView(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  shrinkWrap: true,
+                  itemCount: availableWaypoints.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final waypoint = availableWaypoints[index];
+                    return InkWell(
+                      onTap: () => Navigator.of(context).pop(waypoint),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: getWaypointColor(waypoint.type),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                getWaypointIcon(waypoint.type),
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    waypoint.name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    getWaypointLabel(waypoint.type),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right,
+                              color: Colors.grey.shade400,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

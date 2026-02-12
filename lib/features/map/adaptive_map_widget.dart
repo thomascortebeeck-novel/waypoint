@@ -26,6 +26,7 @@ class MapAnnotation {
   final Function(LatLng)? onDrag;
   final double? markerSize; // Optional size override (default: 22 for POIs, 28 for waypoints)
   final double? iconSize; // Optional icon size override (default: 12 for POIs, 16 for waypoints)
+  final bool showInfoWindow; // Whether to show Google Maps info window popup
   
   const MapAnnotation({
     required this.id,
@@ -38,11 +39,13 @@ class MapAnnotation {
     this.onDrag,
     this.markerSize,
     this.iconSize,
+    this.showInfoWindow = true, // Default to showing info window for backward compatibility
   });
   
   /// Create annotation from RouteWaypoint
   factory MapAnnotation.fromWaypoint(RouteWaypoint waypoint, {
     bool draggable = false,
+    bool showInfoWindow = true,
     VoidCallback? onTap,
     Function(LatLng)? onDrag,
   }) {
@@ -53,6 +56,7 @@ class MapAnnotation {
       color: getWaypointColor(waypoint.type),
       label: waypoint.name,
       draggable: draggable,
+      showInfoWindow: showInfoWindow,
       onTap: onTap,
       onDrag: onDrag,
       markerSize: 28, // Custom waypoints are larger

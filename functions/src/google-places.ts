@@ -285,18 +285,27 @@ export const placeDetails = onCall({
     }
 
     // Call Google Places API (Place Details)
+    // Include additional fields: editorialSummary (description), userRatingCount, reviews, priceLevel
     const response = await axios.get(
       `${PLACES_BASE_URL}/places/${placeId}`,
       {
         headers: {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,websiteUri,nationalPhoneNumber,types,photos",
+          "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,websiteUri,nationalPhoneNumber,types,photos,editorialSummary,userRatingCount,reviews,priceLevel",
         },
       }
     );
 
     const place = response.data;
+
+    // Extract reviews (limit to first 5 for response size)
+    const reviews = place.reviews?.slice(0, 5).map((review: any) => ({
+      authorName: review.authorAttribution?.displayName || null,
+      rating: review.rating || null,
+      text: review.text?.text || null,
+      publishTime: review.publishTime || null,
+    })) || [];
 
     // Transform response to match Flutter expectations
     return {
@@ -310,6 +319,10 @@ export const placeDetails = onCall({
       phoneNumber: place.nationalPhoneNumber || null,
       types: place.types || [],
       photoReference: place.photos?.[0]?.name || null,
+      description: place.editorialSummary?.text || null,
+      userRatingCount: place.userRatingCount || null,
+      reviews: reviews,
+      priceLevel: place.priceLevel || null, // 0=free, 1=$, 2=$$, 3=$$$, 4=$$$$
     };
   } catch (error: any) {
     console.error("Place details failed:", error.response?.data || error.message);

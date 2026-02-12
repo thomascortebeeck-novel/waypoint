@@ -49,6 +49,7 @@ dependencies:
   shared_preferences: ^2.5.3
   flutter_markdown: ^0.7.6
   url_launcher: ^6.2.0
+  pointer_interceptor: ^0.10.1+2
 
 dev_dependencies:
   flutter_test:

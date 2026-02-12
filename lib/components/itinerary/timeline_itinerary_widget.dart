@@ -8,7 +8,7 @@ import 'package:waypoint/theme.dart';
 
 /// Timeline itinerary widget displaying waypoints in a vertical timeline
 /// Matches the design with numbered circles, cards, and travel segments
-class TimelineItineraryWidget extends StatelessWidget {
+class TimelineItineraryWidget extends StatefulWidget {
   final List<RouteWaypoint> waypoints;
   final int? dayNumber; // Day number for color coding (1 = red, 2 = teal, 3 = yellow)
   final bool isBuilderView; // Builder can edit, users can only view
@@ -27,8 +27,16 @@ class TimelineItineraryWidget extends StatelessWidget {
   });
 
   @override
+  State<TimelineItineraryWidget> createState() => _TimelineItineraryWidgetState();
+}
+
+class _TimelineItineraryWidgetState extends State<TimelineItineraryWidget> {
+  // Track selected waypoint per choice group
+  final Map<String, String> _selectedWaypointIds = {}; // choiceGroupId -> waypointId
+
+  @override
   Widget build(BuildContext context) {
-    if (waypoints.isEmpty) {
+    if (widget.waypoints.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -48,7 +56,7 @@ class TimelineItineraryWidget extends StatelessWidget {
     }
 
     // Group waypoints by choice groups
-    final groupedWaypoints = _groupWaypointsByChoice(waypoints);
+    final groupedWaypoints = _groupWaypointsByChoice(widget.waypoints);
 
     return ListView.builder(
       shrinkWrap: true,
@@ -65,26 +73,39 @@ class TimelineItineraryWidget extends StatelessWidget {
               _ChoiceGroupCard(
                 waypoints: group.waypoints,
                 order: group.order,
-                dayNumber: dayNumber,
-                isBuilderView: isBuilderView,
-                onEdit: onEdit,
-                onDelete: onDelete,
-                onChoiceSelected: onChoiceSelected,
+                dayNumber: widget.dayNumber,
+                isBuilderView: widget.isBuilderView,
+                onEdit: widget.onEdit,
+                onDelete: widget.onDelete,
+                onChoiceSelected: (waypoint, groupId) {
+                  setState(() {
+                    _selectedWaypointIds[groupId] = waypoint.id;
+                  });
+                  widget.onChoiceSelected?.call(waypoint, groupId);
+                },
+                selectedWaypointId: group.waypoints.first.choiceGroupId != null
+                    ? _selectedWaypointIds[group.waypoints.first.choiceGroupId!]
+                    : null,
               )
             else
               _TimelineWaypointCard(
                 waypoint: group.waypoints.first,
                 order: group.order,
-                dayNumber: dayNumber,
-                isBuilderView: isBuilderView,
-                onEdit: onEdit,
-                onDelete: onDelete,
+                dayNumber: widget.dayNumber,
+                isBuilderView: widget.isBuilderView,
+                onEdit: widget.onEdit,
+                onDelete: widget.onDelete,
               ),
             
             // Travel segment (if not last)
             if (!isLast && group.waypoints.isNotEmpty)
               _TravelSegment(
-                from: group.waypoints.first,
+                from: group.isChoiceGroup && group.waypoints.first.choiceGroupId != null
+                    ? group.waypoints.firstWhere(
+                        (w) => w.id == _selectedWaypointIds[group.waypoints.first.choiceGroupId!],
+                        orElse: () => group.waypoints.first,
+                      )
+                    : group.waypoints.first,
                 to: groupedWaypoints[index + 1].waypoints.first,
               ),
           ],
@@ -511,8 +532,18 @@ class _WaypointCardContentState extends State<_WaypointCardContent> {
   }
 
   String _getPriceRangeString(PriceRange priceRange) {
-    final count = ((priceRange.max - priceRange.min) / 20).round() + 1;
-    return '\$' * count.clamp(1, 4);
+    // Use average price to determine price level
+    // Standard ranges: $ = <€30, $$ = €30-60, $$$ = €60-120, $$$$ = >€120
+    final avgPrice = (priceRange.min + priceRange.max) / 2;
+    if (avgPrice < 30) {
+      return '\$';
+    } else if (avgPrice < 60) {
+      return '\$\$';
+    } else if (avgPrice < 120) {
+      return '\$\$\$';
+    } else {
+      return '\$\$\$\$';
+    }
   }
 
   Future<void> _openDirections(RouteWaypoint waypoint) async {
@@ -644,6 +675,7 @@ class _ChoiceGroupCard extends StatelessWidget {
   final Function(RouteWaypoint)? onEdit;
   final Function(RouteWaypoint)? onDelete;
   final Function(RouteWaypoint, String)? onChoiceSelected;
+  final String? selectedWaypointId; // Selected waypoint ID for this choice group
 
   const _ChoiceGroupCard({
     required this.waypoints,
@@ -653,6 +685,7 @@ class _ChoiceGroupCard extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.onChoiceSelected,
+    this.selectedWaypointId,
   });
 
   @override
@@ -692,10 +725,12 @@ class _ChoiceGroupCard extends StatelessWidget {
                   ...waypoints.asMap().entries.map((entry) {
                     final index = entry.key;
                     final waypoint = entry.value;
+                    final isSelected = selectedWaypointId == waypoint.id;
                     return Padding(
                       padding: EdgeInsets.only(bottom: index < waypoints.length - 1 ? 12 : 0),
                       child: _ChoiceOption(
                         waypoint: waypoint,
+                        isSelected: isSelected,
                         isBuilderView: isBuilderView,
                         onEdit: onEdit,
                         onDelete: onDelete,
@@ -731,6 +766,7 @@ class _ChoiceGroupCard extends StatelessWidget {
 /// Individual choice option within a choice group
 class _ChoiceOption extends StatelessWidget {
   final RouteWaypoint waypoint;
+  final bool isSelected;
   final bool isBuilderView;
   final Function(RouteWaypoint)? onEdit;
   final Function(RouteWaypoint)? onDelete;
@@ -738,6 +774,7 @@ class _ChoiceOption extends StatelessWidget {
 
   const _ChoiceOption({
     required this.waypoint,
+    required this.isSelected,
     this.isBuilderView = false,
     this.onEdit,
     this.onDelete,
@@ -758,11 +795,15 @@ class _ChoiceOption extends StatelessWidget {
           if (onSelected != null)
             Radio<RouteWaypoint>(
               value: waypoint,
-              groupValue: waypoint, // This would come from state
+              groupValue: isSelected ? waypoint : null,
               onChanged: (_) => onSelected?.call(),
             )
           else
-            const Icon(Icons.radio_button_unchecked, size: 20, color: Colors.grey),
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: 20,
+              color: isSelected ? Colors.blue : Colors.grey,
+            ),
           const SizedBox(width: 12),
           // Waypoint name
           Expanded(

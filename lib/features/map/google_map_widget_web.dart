@@ -76,7 +76,7 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
           icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
             _getMarkerHue(annotation.color),
           ),
-          infoWindow: annotation.label != null
+          infoWindow: annotation.showInfoWindow && annotation.label != null
               ? gmaps.InfoWindow(title: annotation.label!)
               : gmaps.InfoWindow.noText,
           draggable: annotation.draggable,

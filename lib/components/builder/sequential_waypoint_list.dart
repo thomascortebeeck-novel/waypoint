@@ -31,7 +31,7 @@ class SequentialWaypointList extends StatefulWidget {
 }
 
 class _SequentialWaypointListState extends State<SequentialWaypointList> {
-  final _groupingService = WaypointGroupingService();
+  // Removed unused _groupingService - groupingService is created locally in _groupWaypoints
 
   @override
   Widget build(BuildContext context) {
@@ -85,8 +85,13 @@ class _SequentialWaypointListState extends State<SequentialWaypointList> {
             : [waypoint];
 
         // Only show the first waypoint in a choice group, or show individual waypoints
+        // Use a visible placeholder instead of SizedBox.shrink() to maintain correct indices
         if (isChoiceGroup && choiceGroupWaypoints.first.id != waypoint.id) {
-          return const SizedBox.shrink();
+          return Container(
+            key: ValueKey(waypoint.id),
+            height: 0,
+            width: 0,
+          ); // Invisible but maintains index for ReorderableListView
         }
 
         return _WaypointListItem(
@@ -131,6 +136,9 @@ class _SequentialWaypointListState extends State<SequentialWaypointList> {
   void _ungroupWaypoint(RouteWaypoint waypoint) {
     if (waypoint.choiceGroupId == null) return;
 
+    final oldChoiceGroupId = waypoint.choiceGroupId!;
+    
+    // Remove choice group from this waypoint
     final updatedWaypoints = widget.waypoints.map((w) {
       if (w.id == waypoint.id) {
         return w.copyWith(
@@ -140,6 +148,24 @@ class _SequentialWaypointListState extends State<SequentialWaypointList> {
       }
       return w;
     }).toList();
+
+    // Check if old group has any remaining members
+    final remainingInOldGroup = updatedWaypoints
+        .where((w) => w.choiceGroupId == oldChoiceGroupId)
+        .toList();
+    
+    // If only 1 or 0 members left, remove choice group from all
+    if (remainingInOldGroup.length <= 1) {
+      for (final wp in remainingInOldGroup) {
+        final idx = updatedWaypoints.indexWhere((w) => w.id == wp.id);
+        if (idx >= 0) {
+          updatedWaypoints[idx] = updatedWaypoints[idx].copyWith(
+            choiceGroupId: null,
+            choiceLabel: null,
+          );
+        }
+      }
+    }
 
     widget.onWaypointsChanged(updatedWaypoints);
   }

@@ -268,6 +268,30 @@ class PlacePrediction {
       );
 }
 
+/// Review information from Google Places
+class PlaceReview {
+  final String? authorName;
+  final double? rating;
+  final String? text;
+  final String? publishTime;
+
+  PlaceReview({
+    this.authorName,
+    this.rating,
+    this.text,
+    this.publishTime,
+  });
+
+  factory PlaceReview.fromJson(Map<String, dynamic> json) {
+    return PlaceReview(
+      authorName: json['authorName'] as String?,
+      rating: json['rating'] != null ? (json['rating'] as num).toDouble() : null,
+      text: json['text'] as String?,
+      publishTime: json['publishTime'] as String?,
+    );
+  }
+}
+
 /// Detailed place information
 class PlaceDetails {
   final String placeId;
@@ -279,6 +303,10 @@ class PlaceDetails {
   final String? phoneNumber;
   final List<String> types;
   final String? photoReference;
+  final String? description;
+  final int? userRatingCount;
+  final List<PlaceReview> reviews;
+  final int? priceLevel; // 0=free, 1=$, 2=$$, 3=$$$, 4=$$$$
 
   PlaceDetails({
     required this.placeId,
@@ -290,6 +318,10 @@ class PlaceDetails {
     this.phoneNumber,
     this.types = const [],
     this.photoReference,
+    this.description,
+    this.userRatingCount,
+    this.reviews = const [],
+    this.priceLevel,
   });
 
   factory PlaceDetails.fromJson(Map<String, dynamic> json) {
@@ -306,6 +338,29 @@ class PlaceDetails {
       phoneNumber: json['phoneNumber'] as String?,
       types: (json['types'] as List<dynamic>?)?.cast<String>() ?? [],
       photoReference: json['photoReference'] as String?,
+      description: json['description'] as String?,
+      userRatingCount: json['userRatingCount'] != null ? (json['userRatingCount'] as num).toInt() : null,
+      reviews: (json['reviews'] as List<dynamic>?)?.map((r) => PlaceReview.fromJson(r as Map<String, dynamic>)).toList() ?? [],
+      priceLevel: json['priceLevel'] != null ? (json['priceLevel'] as num).toInt() : null,
     );
+  }
+
+  /// Convert priceLevel to dollar signs string
+  String? get priceRangeString {
+    if (priceLevel == null) return null;
+    switch (priceLevel) {
+      case 0:
+        return 'Free';
+      case 1:
+        return '\$';
+      case 2:
+        return '\$\$';
+      case 3:
+        return '\$\$\$';
+      case 4:
+        return '\$\$\$\$';
+      default:
+        return null;
+    }
   }
 }

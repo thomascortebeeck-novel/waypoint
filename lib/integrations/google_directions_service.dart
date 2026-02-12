@@ -88,7 +88,8 @@ class GoogleDirectionsService {
       });
 
       if (result.data == null) {
-        Log.w('google_directions', '⚠️ No route data returned');
+        // ZERO_RESULTS or other cases where no route is found
+        Log.w('google_directions', '⚠️ No route found between waypoints (ZERO_RESULTS or null response)');
         return null;
       }
 
@@ -96,6 +97,12 @@ class GoogleDirectionsService {
       Log.i('google_directions', '✅ Route calculated: ${route.distanceKm.toStringAsFixed(2)}km, ${route.durationMinutes}min');
       return route;
     } on FirebaseFunctionsException catch (e) {
+      // Check if this is a ZERO_RESULTS case (handled gracefully on backend)
+      if (e.message != null && e.message!.contains('ZERO_RESULTS')) {
+        Log.w('google_directions', '⚠️ No route found between waypoints');
+        return null;
+      }
+
       Log.e('google_directions', '❌ Route calculation failed: ${e.code} - ${e.message}', e);
 
       if (e.code == 'resource-exhausted') {

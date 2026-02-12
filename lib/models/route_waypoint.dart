@@ -68,6 +68,15 @@ enum ServiceCategory {
 typedef LogisticsCategory = ServiceCategory;
 
 /// Time slot category for organizing waypoints chronologically
+/// 
+/// **Deprecated**: This enum is deprecated in favor of sequential ordering.
+/// 
+/// Migration guide:
+/// - Use `RouteWaypoint.order` for sequential positioning (1, 2, 3...)
+/// - Use `RouteWaypoint.choiceGroupId` and `RouteWaypoint.choiceLabel` for grouping alternatives
+/// - Legacy code will continue to work but should be migrated to the new system
+/// 
+/// See also: [RouteWaypoint.order], [RouteWaypoint.choiceGroupId], [RouteWaypoint.choiceLabel]
 enum TimeSlotCategory {
   breakfast,
   morningActivity,
@@ -150,13 +159,27 @@ class RouteWaypoint {
   String? travelMode; // 'walking', 'transit', 'driving', 'bicycling'
   int? travelTime; // Duration in seconds
   double? travelDistance; // Distance in meters
+  List<ll.LatLng>? travelRouteGeometry; // Route polyline geometry for this segment
   
   // Day grouping for multi-day trips
   int? day; // Day number (1, 2, 3, etc.)
 
   // Choice group fields (for OR logic)
-  String? choiceGroupId; // Groups waypoints with same order as OR options
-  String? choiceLabel; // Display label for choice group (e.g., "Lunch Options")
+  /// Groups waypoints with the same order as OR options.
+  /// 
+  /// When multiple waypoints share the same `order` and `choiceGroupId`,
+  /// they represent alternative options at that position in the route.
+  /// For example, three restaurants at order 3 with the same choiceGroupId
+  /// represent "pick one of these three lunch options".
+  /// 
+  /// Use [generateChoiceGroupId()] to create unique IDs for new choice groups.
+  String? choiceGroupId;
+  
+  /// Display label for the choice group (e.g., "Lunch Options", "Morning Activities").
+  /// 
+  /// This label is shown in the UI to help users understand what the choice group represents.
+  /// Use [generateAutoChoiceLabel()] to get sensible defaults based on waypoint type.
+  String? choiceLabel;
 
   // Timeline organization
   @Deprecated('Use sequential ordering instead. TimeSlotCategory is legacy.')
@@ -196,6 +219,7 @@ class RouteWaypoint {
     this.travelMode,
     this.travelTime,
     this.travelDistance,
+    this.travelRouteGeometry,
     this.day,
     this.choiceGroupId,
     this.choiceLabel,
@@ -234,6 +258,7 @@ class RouteWaypoint {
         if (travelMode != null) 'travelMode': travelMode,
         if (travelTime != null) 'travelTime': travelTime,
         if (travelDistance != null) 'travelDistance': travelDistance,
+        if (travelRouteGeometry != null) 'travelRouteGeometry': travelRouteGeometry!.map((p) => <String, double>{'lat': p.latitude, 'lng': p.longitude}).toList(),
         if (day != null) 'day': day,
         if (choiceGroupId != null) 'choiceGroupId': choiceGroupId,
         if (choiceLabel != null) 'choiceLabel': choiceLabel,
@@ -302,6 +327,15 @@ class RouteWaypoint {
         travelMode: json['travelMode'] as String?,
         travelTime: json['travelTime'] as int?,
         travelDistance: (json['travelDistance'] as num?)?.toDouble(),
+        travelRouteGeometry: json['travelRouteGeometry'] != null
+            ? (json['travelRouteGeometry'] as List<dynamic>).map((p) {
+                final map = p as Map<String, dynamic>;
+                return ll.LatLng(
+                  (map['lat'] as num).toDouble(),
+                  (map['lng'] as num).toDouble(),
+                );
+              }).toList()
+            : null,
         day: json['day'] as int?,
         choiceGroupId: json['choiceGroupId'] as String?,
         choiceLabel: json['choiceLabel'] as String?,
@@ -345,6 +379,7 @@ class RouteWaypoint {
     String? travelMode,
     int? travelTime,
     double? travelDistance,
+    List<ll.LatLng>? travelRouteGeometry,
     int? day,
     String? choiceGroupId,
     String? choiceLabel,
@@ -382,6 +417,7 @@ class RouteWaypoint {
         travelMode: travelMode ?? this.travelMode,
         travelTime: travelTime ?? this.travelTime,
         travelDistance: travelDistance ?? this.travelDistance,
+        travelRouteGeometry: travelRouteGeometry ?? this.travelRouteGeometry,
         day: day ?? this.day,
         choiceGroupId: choiceGroupId ?? this.choiceGroupId,
         choiceLabel: choiceLabel ?? this.choiceLabel,
@@ -580,5 +616,86 @@ int getWaypointChronologicalOrder(RouteWaypoint waypoint) {
   
   // Viewing points and service points - default to midday
   return 13;
+}
+
+// ============================================================================
+// Choice Group Helper Functions
+// ============================================================================
+
+/// Get all waypoints in a specific choice group
+/// 
+/// Choice groups allow waypoints with the same order to be displayed as
+/// alternatives (OR logic). For example, multiple lunch options at order 3.
+/// 
+/// Example:
+/// ```dart
+/// final lunchOptions = getWaypointsInChoiceGroup(waypoints, 'choice_group_123');
+/// ```
+List<RouteWaypoint> getWaypointsInChoiceGroup(List<RouteWaypoint> waypoints, String choiceGroupId) {
+  return waypoints.where((wp) => wp.choiceGroupId == choiceGroupId).toList();
+}
+
+/// Check if a waypoint is part of a choice group
+/// 
+/// Returns true if the waypoint has a non-null choiceGroupId.
+bool isInChoiceGroup(RouteWaypoint waypoint) {
+  return waypoint.choiceGroupId != null && waypoint.choiceGroupId!.isNotEmpty;
+}
+
+/// Generate a unique choice group ID
+/// 
+/// Uses UUID v4 to ensure uniqueness. This should be called when creating
+/// a new choice group for waypoints.
+String generateChoiceGroupId() {
+  return const Uuid().v4();
+}
+
+/// Auto-generate a choice label based on waypoint type and time context
+/// 
+/// This provides sensible defaults for choice group labels based on the
+/// waypoint's type and meal/activity time. Users can override this in the UI.
+/// 
+/// Examples:
+/// - Restaurant with MealTime.lunch → "Lunch Options"
+/// - Attraction with ActivityTime.morning → "Morning Activities"
+/// - Restaurant with MealTime.dinner → "Dinner Options"
+String generateAutoChoiceLabel(WaypointType type, MealTime? mealTime, ActivityTime? activityTime) {
+  switch (type) {
+    case WaypointType.restaurant:
+      switch (mealTime) {
+        case MealTime.breakfast:
+          return 'Breakfast Options';
+        case MealTime.lunch:
+          return 'Lunch Options';
+        case MealTime.dinner:
+          return 'Dinner Options';
+        case null:
+          return 'Restaurant Options';
+      }
+    case WaypointType.bar:
+      return 'Bar Options';
+    case WaypointType.attraction:
+    case WaypointType.activity: // Legacy support
+      switch (activityTime) {
+        case ActivityTime.morning:
+          return 'Morning Activities';
+        case ActivityTime.afternoon:
+          return 'Afternoon Activities';
+        case ActivityTime.night:
+          return 'Evening Activities';
+        case ActivityTime.allDay:
+        case null:
+          return 'Activity Options';
+      }
+    case WaypointType.accommodation:
+      return 'Accommodation Options';
+    case WaypointType.service:
+    case WaypointType.servicePoint: // Legacy support
+      return 'Service Options';
+    case WaypointType.viewingPoint:
+      return 'Viewing Points';
+    case WaypointType.routePoint:
+      return 'Route Points';
+  }
 }
 

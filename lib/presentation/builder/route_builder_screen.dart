@@ -29,6 +29,7 @@ import 'package:waypoint/features/map/map_feature_flags.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/components/widgets/scroll_blocking_dialog.dart';
 import 'package:waypoint/components/day_content_builder.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'package:waypoint/models/orderable_item.dart';
 import 'package:waypoint/components/reorder_controls.dart';
 import 'package:waypoint/services/storage_service.dart';
@@ -92,20 +93,25 @@ final _svc = MapboxService();
 final _googlePlacesService = GooglePlacesService();
 final _searchController = TextEditingController();
 final _searchFocusNode = FocusNode();
+final _sidebarSearchController = TextEditingController();
+final _sidebarSearchFocusNode = FocusNode();
 Timer? _searchDebounce;
-bool _snapToTrail = true;
+Timer? _sidebarSearchDebounce;
+// Legacy: snapToTrail removed
 bool _busy = false;
 bool _searching = false;
+bool _sidebarSearching = false;
 bool _isProgrammaticCameraMove = false; // Track programmatic camera moves to prevent map tap pop-up
 bool _dialogOrBottomSheetOpen = false; // Track when dialogs/bottom sheets are open to prevent map taps
-final _points = <ll.LatLng>[];
-Map<String, dynamic>? _previewGeometry;
+Map<String, dynamic>? _previewGeometry; // Legacy - kept for backward compatibility
+List<Map<String, dynamic>>? _previewRouteSegments; // Per-segment routes with travel modes
 double? _previewDistance;
 int? _previewDuration;
 List<ElevationPoint> _previewElevation = const [];
 double? _previewAscent;
 double? _previewDescent;
 List<PlaceSuggestion> _searchResults = [];
+List<PlaceSuggestion> _sidebarSearchResults = [];
 
 // POI waypoints
 final List<RouteWaypoint> _poiWaypoints = [];
@@ -160,13 +166,12 @@ if (!MapFeatureFlags.useLegacyEditor && MapFeatureFlags.useMapboxEverywhere) {
 WidgetsBinding.instance.addPostFrameCallback((_) {
 if (mounted) {
 // Check if we have waypoints to display
-final hasWaypoints = _poiWaypoints.isNotEmpty || _points.isNotEmpty || widget.initial != null;
+final hasWaypoints = _poiWaypoints.isNotEmpty || widget.initial != null;
 
 if (hasWaypoints) {
   // Fit map to show all waypoints when editing existing route
   _fitToWaypoints();
-  // Load POIs after fitting
-  _loadPOIs();
+  // LEGACY: OSM POI loading disabled - removed POI loading after fitting waypoints
 } else {
   // No waypoints - use location from step 1 if available, otherwise show world map
   if (widget.location != null) {
@@ -184,19 +189,27 @@ if (hasWaypoints) {
 }
 });
 try {
-if (widget.start != null) _points.add(widget.start!);
-if (widget.end != null) _points.add(widget.end!);
 if (widget.initial != null) {
 _previewGeometry = widget.initial!.geometry;
 _previewDistance = widget.initial!.distance;
 _previewDuration = widget.initial!.duration;
-// Only load route points if there's no preview geometry
-// If geometry exists, it was already snapped and we don't want to lose that
-if (widget.initial!.waypoints.isNotEmpty && _points.isEmpty && _previewGeometry == null) {
-_points.addAll(widget.initial!.waypoints.map((w) => ll.LatLng(w['lat']!, w['lng']!)));
-} else if (widget.initial!.routePoints.isNotEmpty && _points.isEmpty) {
-// Load routePoints for editing
-_points.addAll(widget.initial!.routePoints.map((w) => ll.LatLng(w['lat']!, w['lng']!)));
+// Convert legacy route points to waypoints for backward compatibility
+if (widget.initial!.routePoints.isNotEmpty) {
+final convertedWaypoints = widget.initial!.routePoints.asMap().entries.map((entry) {
+final index = entry.key;
+final point = entry.value;
+final waypoint = RouteWaypoint(
+type: WaypointType.routePoint,
+position: ll.LatLng(point['lat']!, point['lng']!),
+name: index == 0 ? 'Start' : (index == widget.initial!.routePoints.length - 1 ? 'End' : 'Route Point ${index + 1}'),
+order: index,
+);
+// Auto-assign time slot category if not set
+final autoCategory = autoAssignTimeSlotCategory(waypoint);
+return waypoint.copyWith(timeSlotCategory: autoCategory);
+}).toList();
+_poiWaypoints.addAll(convertedWaypoints);
+Log.i('route_builder', '🔄 Converted ${convertedWaypoints.length} route points to waypoints for backward compatibility');
 }
 // Load existing POI waypoints and auto-assign categories if missing
 if (widget.initial!.poiWaypoints.isNotEmpty) {
@@ -224,9 +237,12 @@ Log.e('route_builder', 'init failed', e, stack);
 @override
 void dispose() {
 _searchDebounce?.cancel();
+_sidebarSearchDebounce?.cancel();
 _poiDebounce?.cancel();
 _searchController.dispose();
 _searchFocusNode.dispose();
+_sidebarSearchController.dispose();
+_sidebarSearchFocusNode.dispose();
 _mapboxController = null;
 super.dispose();
 }
@@ -239,7 +255,6 @@ ll.LatLng _getCameraCenter() {
   // Fallback chain for Mapbox mode
   return _currentCameraCenter ?? 
          _poiWaypoints.firstOrNull?.position ?? 
-         _points.firstOrNull ?? 
          widget.start ?? 
          const ll.LatLng(61.0, 8.5);
 }
@@ -308,14 +323,9 @@ Map<String, double> _calculateBoundsFromCenterZoom(ll.LatLng center, double zoom
   };
 }
 
-/// Fit map to show all waypoints and route points
+/// Fit map to show all waypoints
 void _fitToWaypoints() {
   final allPoints = <ll.LatLng>[];
-  
-  // Add route points
-  if (_points.isNotEmpty) {
-    allPoints.addAll(_points);
-  }
   
   // Add waypoint positions
   for (final wp in _poiWaypoints) {
@@ -414,25 +424,16 @@ void _moveCamera(ll.LatLng position, [double? zoom]) {
   }
 }
 
-/// Returns the appropriate activity label based on activity category
-String _getActivityLabel() {
-return _getActivityLabelStatic(widget.activityCategory);
-}
+// Legacy: _getActivityLabel removed
 
 /// Handle back button press - return current route state to keep waypoint order in sync
 void _handleBackPress() {
 // If we have waypoints or route data, return the current state
-if (_poiWaypoints.isNotEmpty || _points.isNotEmpty || _previewGeometry != null) {
+if (_poiWaypoints.isNotEmpty || _previewGeometry != null) {
 // CRITICAL: Always preserve preview geometry (contains snapped route)
 Map<String, dynamic> geometry;
 if (_previewGeometry != null) {
 geometry = _previewGeometry!;
-} else if (_points.isNotEmpty) {
-// Create geometry from route points if no preview exists
-geometry = {
-'type': 'LineString',
-'coordinates': _points.map((p) => [p.longitude, p.latitude]).toList(),
-};
 } else if (_poiWaypoints.isNotEmpty) {
 // Create empty geometry centered on first waypoint as last resort
 final firstWp = _poiWaypoints.first;
@@ -460,7 +461,7 @@ final route = DayRoute(
 geometry: geometry,
 distance: _previewDistance ?? 0,
 duration: _previewDuration ?? 0,
-routePoints: _points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+routePoints: [], // Route points removed - routes are built from waypoints only
 elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : null,
 ascent: _previewAscent,
 descent: _previewDescent,
@@ -483,7 +484,7 @@ final center = (!MapFeatureFlags.useLegacyEditor &&
 ? _currentCameraCenter!
 : (_poiWaypoints.isNotEmpty
     ? _poiWaypoints.first.position
-    : (_points.isNotEmpty ? _points.first : widget.start ?? const ll.LatLng(61.0, 8.5)));
+    : (widget.start ?? const ll.LatLng(61.0, 8.5)));
 return Scaffold(
 backgroundColor: context.colors.surface,
 appBar: AppBar(
@@ -494,15 +495,7 @@ toolbarHeight: 56,
 leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _handleBackPress),
 title: Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
 actions: [
-Padding(
-padding: const EdgeInsets.symmetric(horizontal: 8),
-child: Row(children: [
-Text('Snap to trail', style: context.textStyles.labelSmall?.copyWith(color: context.colors.onSurface.withValues(alpha: 0.7))),
-const SizedBox(width: 8),
-Switch(value: _snapToTrail, onChanged: (v) => setState(() => _snapToTrail = v)),
-const SizedBox(width: 8),
-]),
-),
+// Legacy: Snap to trail toggle removed
 ],
 ),
 body: LayoutBuilder(builder: (context, constraints) {
@@ -514,35 +507,19 @@ children: [
 SizedBox(
 width: 380,
 child: _DesktopSidebar(
-snapToTrail: _snapToTrail,
-onToggleSnap: (v) => setState(() => _snapToTrail = v),
 poiWaypoints: _poiWaypoints,
-routePoints: _points,
-previewDistance: _previewDistance,
-previewDuration: _previewDuration,
-elevation: _previewElevation,
-ascent: _previewAscent,
-descent: _previewDescent,
 busy: _busy,
 onAddWaypoint: _showAddWaypointDialog,
 onEditWaypoint: _editWaypoint,
-onAddRoutePoint: _showAddRoutePointDialog,
-onDeleteRoutePoint: (index) {
-setState(() {
-_points.removeAt(index);
-});
-_updatePreview();
-},
-onReorderRoutePoints: (oldIndex, newIndex) {
-setState(() {
-if (newIndex > oldIndex) newIndex -= 1;
-final item = _points.removeAt(oldIndex);
-_points.insert(newIndex, item);
-});
-_updatePreview();
-},
-onPreview: _points.length < 2 ? null : _updatePreview,
-onSave: (_points.length < 2 && _poiWaypoints.isEmpty) ? null : _buildAndSave,
+sidebarSearchController: _sidebarSearchController,
+sidebarSearchFocusNode: _sidebarSearchFocusNode,
+sidebarSearching: _sidebarSearching,
+sidebarSearchResults: _sidebarSearchResults,
+onSidebarSearchChanged: _debouncedSidebarSearch,
+onSidebarSearchClear: () => setState(() => _sidebarSearchResults = []),
+onSidebarSearchSelect: (s) => _selectPlace(s),
+onPreview: _poiWaypoints.length < 2 ? null : _updatePreview,
+onSave: (_poiWaypoints.isEmpty) ? null : _buildAndSave,
 onReorder: (oldIndex, newIndex) {
 setState(() {
 if (newIndex > oldIndex) newIndex -= 1;
@@ -556,6 +533,27 @@ _poiWaypoints[i].order = i;
 onCancel: _handleBackPress,
 activityCategory: widget.activityCategory,
 routeOrderManager: _routeOrderManager,
+onTravelModeChanged: (waypoint, newMode) async {
+  await _recalculateTravelForWaypoint(waypoint, newMode);
+},
+onAddAlternative: (waypoint) async {
+  await _addAlternativeWaypoint(waypoint);
+},
+onWaypointUpdated: (updatedWp) {
+  setState(() {
+    final index = _poiWaypoints.indexWhere((w) => w.id == updatedWp.id);
+    if (index != -1) {
+      _poiWaypoints[index] = updatedWp;
+    }
+  });
+},
+onOrderChanged: () {
+  _renumberWaypoints(); // Normalize orders to 1,2,3...
+  _calculateTravelTimes(); // Recalculate travel times
+  if (_poiWaypoints.length >= 2) {
+    _updatePreview(); // Update route preview
+  }
+},
 onMoveUp: (itemId) {
 if (_routeOrderManager == null) {
 _initializeRouteOrdering();
@@ -592,19 +590,17 @@ child: Stack(children: [
 Positioned.fill(
 child: _buildMapWidget(center),
 ),
-// CRITICAL: Transparent overlay shield that blocks ALL events from reaching the Mapbox Platform View
-// This is necessary because Flutter's AbsorbPointer doesn't stop Platform View (HtmlElementView) events
-// The shield must be opaque to hit tests to block browser-level DOM events
+// CRITICAL: PointerInterceptor creates an invisible HTML element above the
+// Google Maps Platform View to block browser-level DOM events (scroll, click, drag).
+// Flutter's gesture system cannot intercept events targeting Platform Views.
 if (_dialogOrBottomSheetOpen)
   Positioned.fill(
-    child: MouseRegion(
-      cursor: SystemMouseCursors.basic, // Force standard cursor instead of map's grabbing hand
+    child: PointerInterceptor(
       child: GestureDetector(
-        behavior: HitTestBehavior.opaque, // CRITICAL: This blocks clicks at the Flutter layer
-        onTap: () {}, // Consumes tap events
-        onScaleUpdate: (_) {}, // Consumes pinch/zoom/pan gestures (scale is a superset of pan)
+        behavior: HitTestBehavior.opaque,
+        onTap: () {}, // Consume taps
         child: Container(
-          color: Colors.transparent, // Invisible but still hits tests - blocks events to Mapbox canvas
+          color: Colors.transparent,
         ),
       ),
     ),
@@ -617,7 +613,7 @@ searching: _searching,
 results: _searchResults,
 onChanged: _debouncedSearch,
 onClear: () => setState(() => _searchResults = []),
-onSelect: (s) => _selectPlace(s),
+onSelect: (s) => _selectPlaceForMapNavigation(s),
 mapAreaPaddingLeft: 0,
 mapAreaWidth: null,
 ),
@@ -630,7 +626,7 @@ padding: const EdgeInsets.only(right: 12),
 child: _ZoomControls(
 onZoomIn: () => _handleZoom(1),
 onZoomOut: () => _handleZoom(-1),
-onFitWaypoints: (_poiWaypoints.isNotEmpty || _points.length >= 2) ? _fitToWaypoints : null,
+onFitWaypoints: _poiWaypoints.isNotEmpty ? _fitToWaypoints : null,
 ),
 ),
 ),
@@ -647,19 +643,17 @@ children: [
 Positioned.fill(
 child: _buildMapWidget(center),
 ),
-// CRITICAL: Transparent overlay shield that blocks ALL events from reaching the Mapbox Platform View
-// This is necessary because Flutter's AbsorbPointer doesn't stop Platform View (HtmlElementView) events
-// The shield must be opaque to hit tests to block browser-level DOM events
+// CRITICAL: PointerInterceptor creates an invisible HTML element above the
+// Google Maps Platform View to block browser-level DOM events (scroll, click, drag).
+// Flutter's gesture system cannot intercept events targeting Platform Views.
 if (_dialogOrBottomSheetOpen)
   Positioned.fill(
-    child: MouseRegion(
-      cursor: SystemMouseCursors.basic, // Force standard cursor instead of map's grabbing hand
+    child: PointerInterceptor(
       child: GestureDetector(
-        behavior: HitTestBehavior.opaque, // CRITICAL: This blocks clicks at the Flutter layer
-        onTap: () {}, // Consumes tap events
-        onScaleUpdate: (_) {}, // Consumes pinch/zoom/pan gestures (scale is a superset of pan)
+        behavior: HitTestBehavior.opaque,
+        onTap: () {}, // Consume taps
         child: Container(
-          color: Colors.transparent, // Invisible but still hits tests - blocks events to Mapbox canvas
+          color: Colors.transparent,
         ),
       ),
     ),
@@ -708,7 +702,7 @@ searching: _searching,
 results: _searchResults,
 onChanged: _debouncedSearch,
 onClear: () => setState(() => _searchResults = []),
-onSelect: (s) => _selectPlace(s),
+onSelect: (s) => _selectPlaceForMapNavigation(s),
 mapAreaPaddingLeft: 0,
 mapAreaWidth: null,
 ),
@@ -733,7 +727,7 @@ padding: const EdgeInsets.only(right: 12),
 child: _ZoomControls(
 onZoomIn: () => _handleZoom(1),
 onZoomOut: () => _handleZoom(-1),
-onFitWaypoints: (_poiWaypoints.isNotEmpty || _points.length >= 2) ? _fitToWaypoints : null,
+onFitWaypoints: _poiWaypoints.isNotEmpty ? _fitToWaypoints : null,
 ),
 ),
 ),
@@ -742,39 +736,12 @@ Positioned(
 right: 12,
 bottom: 12 + 180, // keep above bottom sheet when collapsed
 child: Column(children: [
-if (_points.isNotEmpty)
-_SmallControlButton(
-icon: Icons.undo,
-label: 'Undo',
-onTap: () async {
-setState(() => _points.removeLast());
-await _updatePreview();
-},
-),
-if (_points.isNotEmpty) const SizedBox(height: 8),
-if (_points.isNotEmpty)
-_SmallControlButton(
-icon: Icons.clear_all,
-label: 'Clear',
-onTap: () {
-setState(() {
-_points.clear();
-_previewGeometry = null;
-_previewDistance = null;
-_previewDuration = null;
-_previewElevation = [];
-_previewAscent = null;
-_previewDescent = null;
-});
-},
-),
 ]),
 ),
 
 // Bottom draggable panel
 _BottomPanel(
 poiWaypoints: _poiWaypoints,
-routePoints: _points,
 previewDistance: _previewDistance,
 previewDuration: _previewDuration,
 elevation: _previewElevation,
@@ -783,23 +750,8 @@ descent: _previewDescent,
 busy: _busy,
 onAddWaypoint: _showAddWaypointDialog,
 onEditWaypoint: _editWaypoint,
-onAddRoutePoint: _showAddRoutePointDialog,
-onDeleteRoutePoint: (index) {
-setState(() {
-_points.removeAt(index);
-});
-_updatePreview();
-},
-onReorderRoutePoints: (oldIndex, newIndex) {
-setState(() {
-if (newIndex > oldIndex) newIndex -= 1;
-final item = _points.removeAt(oldIndex);
-_points.insert(newIndex, item);
-});
-_updatePreview();
-},
-onPreview: _points.length < 2 ? null : _updatePreview,
-onSave: (_points.length < 2 && _poiWaypoints.isEmpty) ? null : _buildAndSave,
+onPreview: _poiWaypoints.length < 2 ? null : _updatePreview,
+onSave: _poiWaypoints.isEmpty ? null : _buildAndSave,
 onReorder: (oldIndex, newIndex) {
 setState(() {
 if (newIndex > oldIndex) newIndex -= 1;
@@ -808,9 +760,37 @@ _poiWaypoints.insert(newIndex, item);
 for (int i = 0; i < _poiWaypoints.length; i++) {
 _poiWaypoints[i].order = i;
 }
+_renumberWaypoints(); // Ensure sequential ordering
 });
+// Recalculate travel times after reordering
+_calculateTravelTimes();
+// Auto-update preview to show route line when there are 2+ waypoints
+if (_poiWaypoints.length >= 2) {
+_updatePreview();
+}
 },
 routeOrderManager: _routeOrderManager,
+onTravelModeChanged: (waypoint, newMode) async {
+  await _recalculateTravelForWaypoint(waypoint, newMode);
+},
+onAddAlternative: (waypoint) async {
+  await _addAlternativeWaypoint(waypoint);
+},
+onWaypointUpdated: (updatedWp) {
+  setState(() {
+    final index = _poiWaypoints.indexWhere((w) => w.id == updatedWp.id);
+    if (index != -1) {
+      _poiWaypoints[index] = updatedWp;
+    }
+  });
+},
+onOrderChanged: () {
+  _renumberWaypoints(); // Normalize orders to 1,2,3...
+  _calculateTravelTimes(); // Recalculate travel times
+  if (_poiWaypoints.length >= 2) {
+    _updatePreview(); // Update route preview
+  }
+},
 onMoveUp: (itemId) {
 if (_routeOrderManager == null) {
 _initializeRouteOrdering();
@@ -863,7 +843,31 @@ Widget _buildMapWidget(ll.LatLng center) {
 Widget _buildMapboxEditor(ll.LatLng center) {
   // Convert preview geometry to polyline
   final polylines = <MapPolyline>[];
-  if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty) {
+  // Use per-segment routes if available (with travel mode colors), otherwise fallback to legacy single route
+  if (_previewRouteSegments != null && _previewRouteSegments!.isNotEmpty) {
+    for (int i = 0; i < _previewRouteSegments!.length; i++) {
+      final segment = _previewRouteSegments![i];
+      final mode = segment['travelMode'] as String;
+      final coords = segment['geometry'] as List;
+      final points = _coordsToLatLng(coords);
+      final isChoiceRoute = segment['isChoiceRoute'] as bool? ?? false;
+      
+      if (points.isNotEmpty) {
+        final color = _getTravelModeColor(mode);
+        polylines.add(MapPolyline(
+          id: 'route_${mode}_$i',
+          points: points,
+          color: isChoiceRoute ? color.withOpacity(0.6) : color, // Slightly transparent for choice routes
+          width: isChoiceRoute ? 3 : 5, // Thinner for choice routes
+          borderColor: Colors.white,
+          borderWidth: isChoiceRoute ? 1 : 2,
+          // Note: MapPolyline may not support dash patterns directly
+          // If needed, we'd need to use a different approach or extend MapPolyline
+        ));
+      }
+    }
+  } else if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty) {
+    // Legacy fallback: single route
     polylines.add(MapPolyline(
       id: 'route',
       points: _coordsToLatLng(_previewGeometry!['coordinates']),
@@ -874,120 +878,19 @@ Widget _buildMapboxEditor(ll.LatLng center) {
     ));
   }
   
-  // Convert route points to annotations
+  // Convert waypoints to annotations
   final annotations = <MapAnnotation>[];
-  for (int i = 0; i < _points.length; i++) {
-    final isStart = i == 0;
-    final isEnd = i == _points.length - 1;
-    annotations.add(MapAnnotation(
-      id: 'route_point_$i',
-      position: _points[i],
-      icon: isStart ? Icons.circle : (isEnd ? Icons.circle : Icons.circle),
-      color: isStart ? const Color(0xFF52B788) : (isEnd ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
-      label: isStart ? 'A' : (isEnd ? 'B' : ''),
-      draggable: false,
-      onTap: () => _showRoutePointOptions(i),
-    ));
-  }
   
-  // Convert OSM POIs to annotations (with deduplication)
-  // Skip OSM POIs that are very close to custom waypoints (within ~50m)
-  // Also filter out OSM viewpoints - Mapbox shows viewpoints natively, so we don't need OSM duplicates
-  // This prevents duplicate markers when Mapbox style shows POIs and we also have OSM POIs
-  int poiDeduplicated = 0;
-  int viewpointsFiltered = 0;
-  
-  // First pass: Filter out viewpoints (Mapbox handles these natively)
-  final nonViewpointPOIs = _osmPOIs.where((poi) {
-    if (poi.type == POIType.viewpoint) {
-      viewpointsFiltered++;
-      Log.i('route_builder', 'Skipping OSM viewpoint ${poi.name} - Mapbox shows viewpoints natively');
-      return false;
-    }
-    return true;
-  }).toList();
-  
-  // Second pass: Deduplicate OSM POIs that match custom waypoints
-  // NEW: Track OSM POIs to remove (match custom waypoints)
-  final osmPoisToRemove = <String>{}; // Track OSM POI IDs to remove
-  
-  for (final poi in nonViewpointPOIs) {
-    // Check if this OSM POI matches any custom waypoint
-    for (final wp in _poiWaypoints) {
-      final distance = _calculateDistance(poi.coordinates, wp.position);
-      
-      // Check both distance AND name similarity
-      final nameSimilar = _areNamesSimilar(poi.name.toLowerCase(), wp.name.toLowerCase());
-      
-      if (distance < 0.05 || (distance < 0.1 && nameSimilar)) { 
-        // 50m threshold OR 100m with similar name
-        osmPoisToRemove.add(poi.id);
-        poiDeduplicated++;
-        Log.i('route_builder', '🗑️ Removing OSM POI ${poi.name} - matches custom waypoint ${wp.name} (${(distance * 1000).toStringAsFixed(1)}m, nameSimilar: $nameSimilar)');
-        break;
-      }
-    }
-  }
-  
-  // Filter out OSM POIs that match custom waypoints
-  final deduplicatedOSMPOIs = nonViewpointPOIs.where((poi) => !osmPoisToRemove.contains(poi.id)).toList();
-  
-  // Third pass: Check proximity to route points and other OSM POIs
-  for (final poi in deduplicatedOSMPOIs) {
-    bool isDuplicate = false;
-    
-    // Also check against route points
-    if (!isDuplicate) {
-      for (final point in _points) {
-        final distance = _calculateDistance(poi.coordinates, point);
-        if (distance < 0.05) { // 50 meters threshold
-          isDuplicate = true;
-          poiDeduplicated++;
-          Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to route point (${(distance * 1000).toStringAsFixed(1)}m)');
-          break;
-        }
-      }
-    }
-    
-    // Also check if this OSM POI is very close to another OSM POI of the same type (within 50m)
-    // This helps reduce duplicates when Mapbox also shows the same POI
-    if (!isDuplicate) {
-      for (final otherPoi in deduplicatedOSMPOIs) {
-        if (otherPoi.id != poi.id && otherPoi.type == poi.type) {
-          final distance = _calculateDistance(poi.coordinates, otherPoi.coordinates);
-          if (distance < 0.05) { // 50 meters threshold
-            // If they're the same type and very close, prefer the one with a better name or skip both
-            // For now, skip the second one found (simple heuristic)
-            isDuplicate = true;
-            poiDeduplicated++;
-            Log.i('route_builder', 'Skipping OSM POI ${poi.name} - too close to another ${poi.type.name} POI (${(distance * 1000).toStringAsFixed(1)}m)');
-            break;
-          }
-        }
-      }
-    }
-    
-    if (!isDuplicate) {
-      annotations.add(MapAnnotation.fromPOI(
-        poi,
-        onTap: () => _showOSMPOIDetails(poi),
-      ));
-    }
-  }
-  
-  if (viewpointsFiltered > 0) {
-    Log.i('route_builder', '📍 Filtered $viewpointsFiltered OSM viewpoints (Mapbox shows viewpoints natively)');
-  }
-  if (poiDeduplicated > 0) {
-    Log.i('route_builder', '📍 Deduplication summary: ${osmPoisToRemove.length} OSM POIs removed (match custom waypoints), ${poiDeduplicated - osmPoisToRemove.length} additional duplicates (too close to route points/other POIs)');
-  }
-  Log.i('route_builder', '📍 Converting ${_osmPOIs.length} OSM POIs to ${annotations.length} annotations (${_osmPOIs.length - annotations.length} filtered: $viewpointsFiltered viewpoints + $poiDeduplicated duplicates)');
+  // OSM POI annotations removed - no longer showing red dots on map
   
   // Convert custom waypoints to annotations
+  // showInfoWindow: false prevents Google Maps from showing its default
+  // info window popup when the marker is tapped
   for (final wp in _poiWaypoints) {
     annotations.add(MapAnnotation.fromWaypoint(
       wp,
       draggable: false,
+      showInfoWindow: false,
       onTap: () => _editWaypoint(wp),
     ));
   }
@@ -1000,17 +903,8 @@ Widget _buildMapboxEditor(ll.LatLng center) {
       _mapboxController = controller;
       Log.i('route_builder', '🗺️ Mapbox controller stored for camera commands');
       
-      // Load POIs after map is ready (if not already loading)
-      // Small delay to ensure map is fully initialized
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted && !_loadingPOIs && _osmPOIs.isEmpty) {
-          final currentZoom = _getCameraZoom();
-          if (currentZoom >= 12.0) {
-            Log.i('route_builder', '🗺️ Map ready, loading POIs...');
-            _loadPOIs();
-          }
-        }
-      });
+      // LEGACY: OSM POI loading disabled - removed POI loading after map ready
+      // OSM POIs are no longer used in the application
     },
     onTap: (latLng) async {
       // Only clear search results when tapping map
@@ -1029,39 +923,8 @@ Widget _buildMapboxEditor(ll.LatLng center) {
       _currentCameraCenter = newCenter;
       _currentCameraZoom = newZoom;
       
-      // Always refresh POIs on zoom changes (best practice: refresh on any zoom change)
-      // Also refresh if camera moved significantly (>2km)
-      final positionChanged = _lastPOICenter != null && 
-          _calculateDistance(_lastPOICenter!, newCenter) > 2.0; // 2km threshold
-      final zoomChanged = _lastPOIZoom != null && 
-          (newZoom - _lastPOIZoom!).abs() > 0.01; // Reload on ANY zoom change (was 0.5)
-      
-      // Reload if camera moved significantly, zoom changed, or no POIs loaded yet
-      final shouldReload = _lastPOICenter == null ||
-          positionChanged ||
-          zoomChanged ||
-          _osmPOIs.isEmpty;
-      
-      if (shouldReload) {
-        // DON'T clear POIs immediately - this causes markers to disappear and reappear
-        // Instead, let the new POIs merge with existing ones through the annotation update
-        // Only clear if zooming out below threshold
-        if (zoomChanged && newZoom < 12.0 && _lastPOIZoom != null && _lastPOIZoom! >= 12.0) {
-          // Only clear when zooming out below the POI threshold
-          setState(() {
-            _osmPOIs = [];
-          });
-          Log.i('route_builder', '📍 Zoomed out below POI threshold, clearing POIs');
-        }
-        
-        // Debounce to avoid too many API calls
-        _poiDebounce?.cancel();
-        _poiDebounce = Timer(const Duration(milliseconds: 600), () {
-          if (mounted) {
-            _loadPOIs();
-          }
-        });
-      }
+      // LEGACY: OSM POI loading disabled - removed POI refresh logic on camera changes
+      // OSM POIs are no longer used in the application
     },
     annotations: annotations,
     polylines: polylines,
@@ -1090,7 +953,30 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
         urlTemplate: defaultRasterTileUrl,
         userAgentPackageName: 'com.waypoint.app',
       ),
-      if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
+      // Use per-segment routes if available (with travel mode colors), otherwise fallback to legacy single route
+      if (_previewRouteSegments != null && _previewRouteSegments!.isNotEmpty)
+        fm.PolylineLayer(
+          polylines: _previewRouteSegments!.asMap().entries.map((entry) {
+            final i = entry.key;
+            final segment = entry.value;
+            final mode = segment['travelMode'] as String;
+            final coords = segment['geometry'] as List;
+            final points = _coordsToLatLng(coords);
+            final isChoiceRoute = segment['isChoiceRoute'] as bool? ?? false;
+            final color = _getTravelModeColor(mode);
+            
+            return fm.Polyline(
+              points: points,
+              color: isChoiceRoute ? color.withOpacity(0.6) : color, // Slightly transparent for choice routes
+              strokeWidth: isChoiceRoute ? 3 : 5, // Thinner for choice routes
+              borderColor: Colors.white,
+              borderStrokeWidth: isChoiceRoute ? 1 : 2,
+              // Note: flutter_map doesn't support strokePattern/dashed lines directly
+              // Visual distinction is achieved through opacity and width differences
+            );
+          }).toList(),
+        )
+      else if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
         fm.PolylineLayer(
           polylines: [
             fm.Polyline(
@@ -1102,86 +988,8 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
             )
           ],
         ),
-      if (_points.isNotEmpty)
-        fm.MarkerLayer(
-          markers: [
-            for (int i = 0; i < _points.length; i++)
-              fm.Marker(
-                point: _points[i],
-                width: i == 0 || i == _points.length - 1 ? 48 : 32,
-                height: i == 0 || i == _points.length - 1 ? 48 : 32,
-                child: GestureDetector(
-                  onTap: () => _showRoutePointOptions(i),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: i == 0
-                          ? const Color(0xFF52B788)
-                          : (i == _points.length - 1 ? const Color(0xFFD62828) : const Color(0xFFFF9800)),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: i == 0 || i == _points.length - 1 ? 3.5 : 2.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: i == 0 || i == _points.length - 1 ? 0.35 : 0.25),
-                          blurRadius: i == 0 || i == _points.length - 1 ? 8 : 5,
-                          offset: Offset(0, i == 0 || i == _points.length - 1 ? 3 : 2),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: i == 0
-                          ? const Text('A', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-                          : i == _points.length - 1
-                              ? const Text('B', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))
-                              : const Icon(Icons.circle, color: Colors.white, size: 14),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      // OSM POI markers (match Mapbox native style: colored background, white icon)
-      if (_osmPOIs.isNotEmpty)
-        fm.MarkerLayer(
-          markers: _osmPOIs
-              .map((poi) => fm.Marker(
-                    point: poi.coordinates,
-                    width: 22,
-                    height: 22,
-                    child: GestureDetector(
-                      onTap: () => _showOSMPOIDetails(poi),
-                      child: Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: poi.type.color, // FILL with POI category color
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white, // WHITE border
-                            width: 2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Material( // FIX: Prevents "box" icons on Web
-                            type: MaterialType.transparency,
-                            child: Icon(
-                              poi.type.icon,
-                              color: Colors.white, // WHITE icon for visibility
-                              size: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ))
-              .toList(),
-        ),
+      // Route points removed - routes are built from waypoints only
+      // OSM POI markers removed - no longer showing red dots on map
       // Custom POI waypoints (larger than OSM/Mapbox POIs, using brand colors)
       if (_poiWaypoints.isNotEmpty)
         fm.MarkerLayer(
@@ -1265,6 +1073,69 @@ setState(() => _searching = true);
 _searchDebounce = Timer(const Duration(milliseconds: 800), () => _performSearch(query));
 }
 
+void _debouncedSidebarSearch(String query) {
+_sidebarSearchDebounce?.cancel();
+if (query.trim().isEmpty) {
+setState(() {
+_sidebarSearchResults = [];
+_sidebarSearching = false;
+});
+return;
+}
+setState(() => _sidebarSearching = true);
+_sidebarSearchDebounce = Timer(const Duration(milliseconds: 800), () => _performSidebarSearch(query));
+}
+
+Future<void> _performSidebarSearch(String query) async {
+if (query.trim().isEmpty) {
+if (mounted) setState(() => _sidebarSearchResults = []);
+return;
+}
+try {
+Log.i('route_builder', '🔍 Starting sidebar Google Places search for: "$query"');
+final center = _getCameraCenter();
+final predictions = await _googlePlacesService.searchPlaces(
+query: query,
+proximity: center,
+);
+
+Log.i('route_builder', '✅ Sidebar Google Places search returned ${predictions.length} results');
+
+final results = predictions.map((prediction) {
+  return PlaceSuggestion(
+    id: prediction.placeId,
+    text: prediction.text,
+    placeName: prediction.text,
+    longitude: 0.0,
+    latitude: 0.0,
+    isPoi: false,
+  );
+}).toList();
+
+if (mounted) {
+setState(() {
+_sidebarSearchResults = results;
+_sidebarSearching = false;
+});
+}
+} catch (e, stack) {
+Log.e('route_builder', '❌ Sidebar Google Places search failed', e, stack);
+if (mounted) {
+setState(() {
+_sidebarSearching = false;
+_sidebarSearchResults = [];
+});
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(
+content: Text('Search failed: ${e.toString()}'),
+backgroundColor: Colors.red,
+duration: const Duration(seconds: 3),
+),
+);
+}
+}
+}
+
 Future<void> _performSearch(String query) async {
 if (query.trim().isEmpty) {
 if (mounted) setState(() => _searchResults = []);
@@ -1318,8 +1189,9 @@ duration: const Duration(seconds: 3),
 }
 }
 
-Future<void> _selectPlace(PlaceSuggestion place) async {
-Log.i('route_builder', 'Place selected: ${place.text}');
+/// Select place from map search bar - only moves camera, does not show add waypoint dialog
+Future<void> _selectPlaceForMapNavigation(PlaceSuggestion place) async {
+Log.i('route_builder', 'Place selected for map navigation: ${place.text}');
 _searchFocusNode.unfocus();
 setState(() {
 _searchResults = [];
@@ -1344,30 +1216,69 @@ try {
     return;
   }
 
+  // Move camera to selected location (no dialog)
+  _moveCamera(placeDetails.location, 14);
+  
+  if (mounted) {
+    setState(() => _searching = false);
+  }
+
+  // LEGACY: OSM POI loading disabled - removed POI refresh after location search
+  // OSM POIs are no longer used in the application
+} catch (e, stack) {
+  Log.e('route_builder', '❌ Failed to fetch place details for map navigation', e, stack);
+  if (mounted) {
+    setState(() => _searching = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to load place details: ${e.toString()}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+}
+}
+
+Future<void> _selectPlace(PlaceSuggestion place) async {
+Log.i('route_builder', 'Place selected: ${place.text}');
+_searchFocusNode.unfocus();
+_sidebarSearchFocusNode.unfocus();
+setState(() {
+_searchResults = [];
+_searchController.clear();
+_sidebarSearchResults = [];
+_sidebarSearchController.clear();
+});
+
+// Fetch place details from Google Places API
+try {
+  setState(() => _searching = true);
+  final placeDetails = await _googlePlacesService.getPlaceDetails(place.id);
+  
+  if (placeDetails == null) {
+    if (mounted) {
+      setState(() => _searching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not fetch place details'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    return;
+  }
+
   // Move camera to selected location
   _moveCamera(placeDetails.location, 14);
   
-  // Show waypoint editor dialog with pre-filled location data
+  // Show unified waypoint dialog with pre-filled Google My Business data
   if (mounted) {
     setState(() => _searching = false);
-    await _showWaypointEditorFromPlace(placeDetails);
+    await _showAddWaypointDialog(preselectedPlace: placeDetails);
   }
 
-// Trigger POI refresh after camera moves to new location
-setState(() {
-    _osmPOIs = [];
-    _lastPOICenter = null;
-    _lastPOIZoom = null;
-  });
-
-  // Load POIs after search
-_poiDebounce?.cancel();
-_poiDebounce = Timer(const Duration(milliseconds: 1000), () {
-  if (mounted) {
-    Log.i('route_builder', '📍 Loading POIs after location search...');
-    _loadPOIs();
-  }
-});
+  // LEGACY: OSM POI loading disabled - removed POI refresh after location search
+  // OSM POIs are no longer used in the application
 } catch (e, stack) {
   Log.e('route_builder', '❌ Failed to fetch place details', e, stack);
   if (mounted) {
@@ -1443,6 +1354,12 @@ _poiDebounce = Timer(const Duration(milliseconds: 1000), () {
   }
 
   Future<void> _loadPOIs() async {
+    // LEGACY: OSM POI loading is disabled - this is legacy code
+    // OSM POIs are no longer used in the application
+    return;
+    
+    // Disabled code below (legacy OSM POI loading)
+    /*
     if (_loadingPOIs) return;
 
     // Get current zoom level
@@ -1521,13 +1438,15 @@ maxResults: maxResults,
 
 // Apply corridor filtering if route geometry exists
 List<POI> filteredPois = pois;
-if (_previewGeometry != null || _points.length >= 2) {
-  // Get route points from preview geometry (preferred) or _points
+if (_previewGeometry != null || _poiWaypoints.length >= 2) {
+  // Get route points from preview geometry (preferred) or waypoints
   List<ll.LatLng> routePoints;
   if (_previewGeometry != null) {
     routePoints = _coordsToLatLng(_previewGeometry!['coordinates']);
   } else {
-    routePoints = _points;
+    // Build route from waypoints in order
+    final sortedWaypoints = List<RouteWaypoint>.from(_poiWaypoints)..sort((a, b) => a.order.compareTo(b.order));
+    routePoints = sortedWaypoints.map((wp) => wp.position).toList();
   }
   
   if (routePoints.length >= 2) {
@@ -1582,8 +1501,13 @@ setState(() => _loadingPOIs = false);
 }
 }
 }
+*/
+}
 
+// LEGACY: OSM POI details method - disabled
 void _showOSMPOIDetails(POI poi) {
+  // LEGACY: This method is disabled - OSM POIs are no longer used
+  return;
 // Set flag to prevent map taps while bottom sheet is open
 setState(() => _dialogOrBottomSheetOpen = true);
 // Disable map scroll zoom when bottom sheet opens
@@ -1661,10 +1585,21 @@ color: Colors.grey.shade600,
 }
 
 Future<void> _updatePreview() async {
-Log.i('route_builder', '_updatePreview called: ${_points.length} points');
-if (_points.length < 2) {
+  // Group waypoints by order for choice group handling
+  final grouped = <int, List<RouteWaypoint>>{};
+  for (final wp in _poiWaypoints) {
+    if (wp.position.latitude != null && wp.position.longitude != null) {
+      grouped.putIfAbsent(wp.order, () => <RouteWaypoint>[]).add(wp);
+    }
+  }
+  
+  final sortedOrders = grouped.keys.toList()..sort();
+  Log.i('route_builder', '_updatePreview called: ${_poiWaypoints.length} waypoints, ${sortedOrders.length} order groups');
+  
+  if (sortedOrders.length < 2) {
 setState(() {
 _previewGeometry = null;
+      _previewRouteSegments = null;
 _previewDistance = null;
 _previewDuration = null;
 _previewElevation = [];
@@ -1675,39 +1610,110 @@ return;
 }
 
 setState(() => _busy = true);
+  
 try {
-final profile = getMapboxProfile(widget.activityCategory);
-Map<String, dynamic>? match;
-try {
-match = await _svc.matchRoute(points: _points, snapToTrail: _snapToTrail, profile: profile);
-} catch (e) {
-Log.w('route_builder', 'Cloud Function failed, using direct API');
+    final travelService = TravelCalculatorService();
+    final routeSegments = <Map<String, dynamic>>[];
+    double totalDistance = 0;
+    int totalDuration = 0;
+    final allRoutePoints = <ll.LatLng>[];
+    
+    // For each adjacent pair of order groups, calculate all route combinations (cartesian product)
+    for (int i = 0; i < sortedOrders.length - 1; i++) {
+      final fromOrder = sortedOrders[i];
+      final toOrder = sortedOrders[i + 1];
+      final fromWaypoints = grouped[fromOrder]!;
+      final toWaypoints = grouped[toOrder]!;
+      final isChoiceRoute = fromWaypoints.length > 1 || toWaypoints.length > 1;
+      
+      // Cartesian product: every fromWp → every toWp
+      for (final fromWp in fromWaypoints) {
+        for (final toWp in toWaypoints) {
+          // Use stored geometry if available, otherwise fetch
+          List<ll.LatLng>? segmentGeometry = toWp.travelRouteGeometry;
+          
+          // Check if we have stored geometry for this specific segment
+          // (Note: currently geometry is stored on toWp, but we need per-segment storage)
+          // For now, fetch if not available
+          if (segmentGeometry == null || segmentGeometry.isEmpty) {
+            // Fetch route geometry
+            final travelMode = toWp.travelMode != null
+                ? TravelMode.values.firstWhere(
+                    (tm) => tm.name == toWp.travelMode,
+                    orElse: () => TravelMode.walking,
+                  )
+                : null;
+            
+            final travelInfo = await travelService.calculateTravel(
+              from: fromWp.position,
+              to: toWp.position,
+              travelMode: travelMode,
+              includeGeometry: true, // Request geometry
+            );
+            
+            if (travelInfo != null && travelInfo.routeGeometry != null) {
+              segmentGeometry = travelInfo.routeGeometry;
+              
+              // Store geometry on waypoint (for the primary route)
+              // Note: For choice groups, we may need per-segment storage in the future
+              if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
+                final index = _poiWaypoints.indexWhere((w) => w.id == toWp.id);
+                if (index >= 0) {
+                  _poiWaypoints[index] = _poiWaypoints[index].copyWith(
+                    travelRouteGeometry: segmentGeometry,
+                    travelMode: travelMode?.name ?? travelInfo.travelMode.name,
+                    travelTime: travelInfo.durationSeconds,
+                    travelDistance: travelInfo.distanceMeters.toDouble(),
+                  );
+}
+              }
+              
+              // Only count distance/duration once per segment (use first combination)
+              if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
+                totalDistance += travelInfo.distanceMeters;
+                totalDuration += travelInfo.durationSeconds;
+              }
+            }
+          } else {
+            // Use stored values (only count once)
+            if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
+              if (toWp.travelDistance != null) totalDistance += toWp.travelDistance!;
+              if (toWp.travelTime != null) totalDuration += toWp.travelTime!;
+            }
+          }
+          
+          if (segmentGeometry != null && segmentGeometry.isNotEmpty) {
+            routeSegments.add({
+              'geometry': segmentGeometry.map((p) => [p.longitude, p.latitude]).toList(),
+              'travelMode': toWp.travelMode ?? 'walking',
+              'isChoiceRoute': isChoiceRoute, // Flag for visual distinction
+            });
+            // Only add to allRoutePoints once (for legacy single route)
+            if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
+              allRoutePoints.addAll(segmentGeometry);
+            }
+          }
+        }
+      }
 }
 
-if (match == null && _snapToTrail) {
-match = await _directionsApiFallback(_points, profile);
-}
-
-if (match == null) {
-match = {
-'geometry': {'type': 'LineString', 'coordinates': _points.map((p) => [p.longitude, p.latitude]).toList()},
-'distance': _calculateStraightDistance(_points),
-'duration': (_calculateStraightDistance(_points) / 1.2).toInt(),
-};
-}
-
-if (mounted && match != null) {
+    if (mounted && routeSegments.isNotEmpty) {
 setState(() {
-_previewGeometry = Map<String, dynamic>.from(match!['geometry'] as Map);
-_previewDistance = (match['distance'] as num?)?.toDouble();
-_previewDuration = (match['duration'] as num?)?.toInt();
+        // Store segments for multi-polyline rendering
+        _previewRouteSegments = routeSegments;
+        // Also create legacy single geometry for backward compatibility
+        _previewGeometry = {
+          'type': 'LineString',
+          'coordinates': allRoutePoints.map((p) => [p.longitude, p.latitude]).toList(),
+        };
+        _previewDistance = totalDistance;
+        _previewDuration = totalDuration;
 });
 
-try {
-final coords = (_previewGeometry!['coordinates'] as List)
-.map((e) => (e as List).map((n) => (n as num).toDouble()).toList())
-.cast<List<double>>()
-.toList();
+      // Calculate elevation profile if needed
+      try {
+        if (allRoutePoints.isNotEmpty) {
+          final coords = allRoutePoints.map((p) => [p.longitude, p.latitude]).toList();
 final elev = await _svc.elevationProfile(
 coordinates: coords,
 sampleEveryMeters: 100,
@@ -1725,6 +1731,7 @@ _previewElevation = points;
 _previewAscent = (elev['ascent'] as num?)?.toDouble();
 _previewDescent = (elev['descent'] as num?)?.toDouble();
 });
+          }
 }
 } catch (e) {
 Log.w('route_builder', 'Elevation skipped: $e');
@@ -1738,13 +1745,16 @@ SnackBar(content: Text('Preview failed: $e'), backgroundColor: Colors.orange),
 );
 }
 } finally {
-if (mounted) setState(() => _busy = false);
+    if (mounted) {
+      setState(() => _busy = false);
+    }
 }
 }
 
 Future<void> _buildAndSave() async {
-// If we have route points but no preview yet, generate it
-if (_points.length >= 2 && _previewGeometry == null) {
+// If we have waypoints but no preview yet, generate it
+final sortedWaypoints = List<RouteWaypoint>.from(_poiWaypoints)..sort((a, b) => a.order.compareTo(b.order));
+if (sortedWaypoints.length >= 2 && _previewGeometry == null) {
 await _updatePreview();
 if (_previewGeometry == null) {
 if (mounted) {
@@ -1763,11 +1773,12 @@ try {
 Map<String, dynamic> geometry;
 if (_previewGeometry != null) {
 geometry = _previewGeometry!;
-} else if (_points.isNotEmpty) {
-// Create geometry from route points if no preview exists
+} else if (sortedWaypoints.length >= 2) {
+// Create geometry from waypoints if no preview exists
+final waypointPoints = sortedWaypoints.map((wp) => wp.position).toList();
 geometry = {
 'type': 'LineString',
-'coordinates': _points.map((p) => [p.longitude, p.latitude]).toList(),
+'coordinates': waypointPoints.map((p) => [p.longitude, p.latitude]).toList(),
 };
 } else if (_poiWaypoints.isNotEmpty) {
 // Create empty geometry centered on first waypoint as last resort
@@ -1800,7 +1811,7 @@ final route = DayRoute(
 geometry: geometry,
 distance: _previewDistance ?? 0,
 duration: _previewDuration ?? 0,
-routePoints: _points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+routePoints: [], // Route points removed - routes are built from waypoints only
 elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : null,
 ascent: _previewAscent,
 descent: _previewDescent,
@@ -1921,14 +1932,7 @@ if (mounted) {
 }
 
 if (result != null && mounted) {
-// Check if it's a route point - if so, add to _points, otherwise to _poiWaypoints
-if (result.type == WaypointType.routePoint) {
-setState(() {
-_points.add(result.position);
-_hintDismissed = true;
-});
-await _updatePreview();
-} else {
+// Add waypoint (route points are now waypoints too)
 setState(() {
 // Auto-assign time slot category if not set
 if (result.timeSlotCategory == null) {
@@ -1939,9 +1943,10 @@ _poiWaypoints.add(result);
 }
 _initializeRouteOrdering(); // Reinitialize ordering after adding waypoint
 });
+// Calculate travel times after adding waypoint
+_calculateTravelTimes();
 // Fit map to show all waypoints after adding
 _fitToWaypoints();
-}
 }
 }
 
@@ -1976,91 +1981,26 @@ _poiWaypoints.add(waypointWithCategory);
 // Reinitialize ordering after adding waypoint
 _initializeRouteOrdering();
 });
+// Calculate travel times after adding waypoint
+_calculateTravelTimes();
 // Fit map to show all waypoints after adding
 _fitToWaypoints();
 }
 }
 
-/// Show waypoint editor dialog from a Google Places selection
-Future<void> _showWaypointEditorFromPlace(PlaceDetails placeDetails) async {
-// Set flag to prevent map taps while dialog is open
-setState(() => _dialogOrBottomSheetOpen = true);
-// Disable map scroll zoom when dialog opens
-_mapboxController?.disableInteractions();
-
-// Determine waypoint type from place types
-WaypointType defaultType = WaypointType.attraction;
-if (placeDetails.types.contains('restaurant') || 
-    placeDetails.types.contains('food') ||
-    placeDetails.types.contains('cafe')) {
-  defaultType = WaypointType.restaurant;
-} else if (placeDetails.types.contains('lodging') || 
-           placeDetails.types.contains('hotel')) {
-  defaultType = WaypointType.accommodation;
-} else if (placeDetails.types.contains('tourist_attraction') ||
-           placeDetails.types.contains('point_of_interest')) {
-  defaultType = WaypointType.attraction;
-}
-
-// Create a temporary waypoint with place details to pre-fill the dialog
-final tempWaypoint = RouteWaypoint(
-  type: defaultType,
-  position: placeDetails.location,
-  name: placeDetails.name,
-  address: placeDetails.address,
-  googlePlaceId: placeDetails.placeId,
-  website: placeDetails.website,
-  phoneNumber: placeDetails.phoneNumber,
-  rating: placeDetails.rating,
-  order: _poiWaypoints.length,
-);
-
-final result = await showDialog<RouteWaypoint>(
-context: context,
-builder: (context) => _WaypointEditorDialog(
-existingWaypoint: tempWaypoint, // Pre-filled with place data
-type: defaultType,
-position: placeDetails.location,
-),
-);
-
-// Clear flag when dialog closes
-if (mounted) {
-  setState(() => _dialogOrBottomSheetOpen = false);
-  // Re-enable map scroll zoom when dialog closes
-  _mapboxController?.enableInteractions();
-}
-
-if (result != null && mounted) {
-  setState(() {
-    // Auto-assign time slot category if not set
-    final finalCategory = result.timeSlotCategory ?? autoAssignTimeSlotCategory(result);
-    final waypointWithCategory = result.copyWith(timeSlotCategory: finalCategory);
-    _poiWaypoints.add(waypointWithCategory);
-    
-    // Reinitialize ordering after adding waypoint
-    _initializeRouteOrdering();
-    
-    // Calculate travel time/distance from previous waypoint
-    _calculateTravelTimes();
-  });
-  // Fit map to show all waypoints after adding
-  _fitToWaypoints();
-}
-}
+// _showWaypointEditorFromPlace removed - now using _showAddWaypointDialog with preselectedPlace parameter
 
 Future<void> _editWaypoint(RouteWaypoint waypoint) async {
 // Set flag to prevent map taps while dialog is open
 setState(() => _dialogOrBottomSheetOpen = true);
-// Disable map scroll zoom when dialog opens
+// Disable map scroll zoom and all interactions when dialog opens
 _mapboxController?.disableInteractions();
 
 final result = await showDialog<RouteWaypoint>(
 context: context,
-builder: (context) => _WaypointEditorDialog(
+builder: (context) => _AddWaypointDialog(
 existingWaypoint: waypoint,
-type: waypoint.type,
-position: waypoint.position,
+proximityBias: waypoint.position,
 ),
 );
 
@@ -2073,19 +2013,36 @@ if (mounted) {
 
 if (!mounted) return;
 
-if (result == null) {
-setState(() {
-_poiWaypoints.removeWhere((w) => w.id == waypoint.id);
-_initializeRouteOrdering(); // Reinitialize ordering after removing waypoint
-});
-} else {
-setState(() {
-final index = _poiWaypoints.indexWhere((w) => w.id == waypoint.id);
-if (index >= 0) {
-_poiWaypoints[index] = result;
+// Handle deletion (empty name signals deletion)
+if (result != null && result.name.isEmpty) {
+  setState(() {
+    _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
+    _initializeRouteOrdering();
+  });
 }
-});
+// Only update if user saved changes (result is not null and has a name)
+else if (result != null && result.name.isNotEmpty) {
+  setState(() {
+    final index = _poiWaypoints.indexWhere((w) => w.id == waypoint.id);
+    if (index >= 0) {
+      _poiWaypoints[index] = result;
+    } else {
+      // Waypoint not found, add it (shouldn't happen but handle gracefully)
+      _poiWaypoints.add(result);
+      _initializeRouteOrdering();
+    }
+  });
+  // Recalculate travel times after updating waypoint
+  _calculateTravelTimes();
+  // Fit map to show all waypoints after updating
+  _fitToWaypoints();
+  
+  // Auto-update preview to show route line when there are 2+ waypoints
+  if (_poiWaypoints.length >= 2) {
+    _updatePreview();
+  }
 }
+// If result is null, user cancelled - don't delete, just close
 }
 
 Future<void> _deleteWaypoint(RouteWaypoint waypoint) async {
@@ -2129,107 +2086,6 @@ _initializeRouteOrdering();
 }
 }
 
-Future<void> _showAddRoutePointDialog() async {
-// Show the waypoint dialog with routePoint preselected
-// Set flag to prevent map taps while dialog is open
-setState(() => _dialogOrBottomSheetOpen = true);
-
-final center = _getCameraCenter(); // Use helper method
-// Set flag and disable map scroll zoom when dialog opens
-setState(() => _dialogOrBottomSheetOpen = true);
-_mapboxController?.disableInteractions();
-
-final result = await showDialog<RouteWaypoint>(
-context: context,
-builder: (context) => _AddWaypointDialog(
-preselectedType: WaypointType.routePoint,
-proximityBias: center,
-),
-);
-
-// Clear flag when dialog closes
-if (mounted) {
-  setState(() => _dialogOrBottomSheetOpen = false);
-  // Re-enable map scroll zoom when dialog closes
-  _mapboxController?.enableInteractions();
-}
-
-if (result != null && mounted) {
-setState(() {
-_points.add(result.position);
-_hintDismissed = true;
-});
-await _updatePreview();
-}
-}
-
-Future<void> _showRoutePointOptions(int index) async {
-// Set flag to prevent map taps while dialog is open
-setState(() => _dialogOrBottomSheetOpen = true);
-// Disable map scroll zoom when dialog opens
-_mapboxController?.disableInteractions();
-
-final action = await showDialog<String>(
-context: context,
-builder: (context) => Dialog(
-shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-child: Padding(
-padding: const EdgeInsets.all(24),
-child: Column(
-mainAxisSize: MainAxisSize.min,
-crossAxisAlignment: CrossAxisAlignment.stretch,
-children: [
-Text(
-'Route Point ${index + 1}',
-style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-textAlign: TextAlign.center,
-),
-const SizedBox(height: 8),
-Text(
-'${_points[index].latitude.toStringAsFixed(4)}, ${_points[index].longitude.toStringAsFixed(4)}',
-style: context.textStyles.bodySmall?.copyWith(color: Colors.grey.shade600),
-textAlign: TextAlign.center,
-),
-const SizedBox(height: 24),
-_ActionTile(
-icon: Icons.delete,
-color: Colors.red,
-label: 'Delete Point',
-onTap: () => Navigator.of(context).pop('delete'),
-),
-],
-),
-),
-),
-);
-
-// Re-enable map scroll zoom when dialog closes
-if (mounted) {
-  setState(() => _dialogOrBottomSheetOpen = false);
-  _mapboxController?.enableInteractions();
-}
-
-// Clear flag when dialog closes (immediately, no delay)
-if (mounted) {
-  setState(() => _dialogOrBottomSheetOpen = false);
-}
-
-if (!mounted || action == null) {
-  // Ensure flag is cleared even if action is null
-  if (mounted) {
-    setState(() => _dialogOrBottomSheetOpen = false);
-  }
-  return;
-}
-
-if (action == 'delete') {
-setState(() {
-_points.removeAt(index);
-});
-await _updatePreview();
-}
-}
-
 
 /// Initialize ordering for route waypoints
 void _initializeRouteOrdering() {
@@ -2238,7 +2094,13 @@ void _initializeRouteOrdering() {
 
 /// Get waypoints by section ID
 Map<String, List<RouteWaypoint>> _getRouteWaypointsBySectionId() {
-  final map = <String, List<RouteWaypoint>>{};
+  // Initialize map explicitly to avoid JavaScript compilation issues
+  final map = Map<String, List<RouteWaypoint>>();
+  
+  // Handle empty waypoints
+  if (_poiWaypoints.isEmpty) {
+    return map;
+  }
   
   for (final wp in _poiWaypoints) {
     String? sectionId;
@@ -2264,7 +2126,7 @@ Map<String, List<RouteWaypoint>> _getRouteWaypointsBySectionId() {
         break;
     }
     if (sectionId != null) {
-      map.putIfAbsent(sectionId, () => []).add(wp);
+      map.putIfAbsent(sectionId, () => <RouteWaypoint>[]).add(wp);
     }
   }
   
@@ -2462,11 +2324,11 @@ void _renumberWaypoints() {
   for (final wp in _poiWaypoints) {
     // If this waypoint is in a choice group
     if (wp.choiceGroupId != null) {
-      // If this is a new choice group, increment order
+      // If this is a new choice group, assign current order first, then increment
       if (wp.choiceGroupId != lastChoiceGroupId) {
-        order++;
         lastChoiceGroupId = wp.choiceGroupId;
         lastAssignedOrder = order;
+        order++; // Increment for next group
       }
       // Assign the same order as other waypoints in this choice group
       final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
@@ -2474,16 +2336,14 @@ void _renumberWaypoints() {
         _poiWaypoints[index] = _poiWaypoints[index].copyWith(order: lastAssignedOrder!);
       }
     } else {
-      // Individual waypoint - increment order if not already at this position
-      if (lastAssignedOrder == null || wp.order != lastAssignedOrder) {
-        order++;
-      }
+      // Individual waypoint - assign current order, then increment
       final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
       if (index >= 0) {
         _poiWaypoints[index] = _poiWaypoints[index].copyWith(order: order);
       }
       lastAssignedOrder = order;
       lastChoiceGroupId = null;
+      order++; // Increment for next waypoint
     }
   }
 }
@@ -2493,60 +2353,63 @@ void _renumberWaypoints() {
 Future<void> _calculateTravelTimes() async {
   if (_poiWaypoints.length < 2) return;
 
-  final sortedWaypoints = List<RouteWaypoint>.from(_poiWaypoints)
-    ..sort((a, b) => a.order.compareTo(b.order));
+  // Group waypoints by order for choice group handling
+  final grouped = <int, List<RouteWaypoint>>{};
+  for (final wp in _poiWaypoints) {
+    if (wp.position.latitude != null && wp.position.longitude != null) {
+      grouped.putIfAbsent(wp.order, () => <RouteWaypoint>[]).add(wp);
+    }
+  }
+
+  final sortedOrders = grouped.keys.toList()..sort();
+  if (sortedOrders.length < 2) return;
 
   final travelService = TravelCalculatorService();
 
-  // Calculate travel for each waypoint from its previous waypoint(s)
-  for (int i = 1; i < sortedWaypoints.length; i++) {
-    final toWaypoint = sortedWaypoints[i];
-    final currentOrder = toWaypoint.order;
-    
-    // Find all previous waypoints at the highest order before this one
-    final previousWaypoints = sortedWaypoints
-        .where((w) => w.order < currentOrder)
-        .toList()
-      ..sort((a, b) => b.order.compareTo(a.order));
-    
-    if (previousWaypoints.isEmpty) continue;
-    
-    // Get the most recent waypoint group (could be OR conditions)
-    final maxOrder = previousWaypoints.first.order;
-    final previousGroup = previousWaypoints
-        .where((w) => w.order == maxOrder)
-        .toList();
-    
-    // Calculate distance from each option in the previous group
-    // For OR conditions, we need to calculate from all options
-    // For now, calculate from the first one (user can change mode later)
-    final fromWaypoint = previousGroup.first;
-    
+  // For each adjacent pair of order groups, calculate all route combinations (cartesian product)
+  for (int i = 0; i < sortedOrders.length - 1; i++) {
+    final fromOrder = sortedOrders[i];
+    final toOrder = sortedOrders[i + 1];
+    final fromWaypoints = grouped[fromOrder]!;
+    final toWaypoints = grouped[toOrder]!;
+
+    // Cartesian product: every fromWp → every toWp
+    for (final fromWp in fromWaypoints) {
+      for (final toWp in toWaypoints) {
     // Use existing travel mode if set, otherwise let service choose
-    final travelMode = toWaypoint.travelMode != null
+        final travelMode = toWp.travelMode != null
         ? TravelMode.values.firstWhere(
-            (tm) => tm.name == toWaypoint.travelMode,
+                (tm) => tm.name == toWp.travelMode,
             orElse: () => TravelMode.walking,
           )
         : null;
     
     final travelInfo = await travelService.calculateTravel(
-      from: fromWaypoint.position,
-      to: toWaypoint.position,
+          from: fromWp.position,
+          to: toWp.position,
       travelMode: travelMode,
+          includeGeometry: true, // Request geometry for route preview
     );
     
     if (travelInfo != null && mounted) {
                         setState(() {
-        final index = _poiWaypoints.indexWhere((w) => w.id == toWaypoint.id);
+            final index = _poiWaypoints.indexWhere((w) => w.id == toWp.id);
         if (index >= 0) {
+              // Store geometry and travel info on the destination waypoint
+              // For choice groups, we store the primary route (first combination)
+              // In the future, we may need per-segment storage
+              if (fromWp == fromWaypoints.first) {
           _poiWaypoints[index] = _poiWaypoints[index].copyWith(
             travelMode: travelMode?.name ?? travelInfo.travelMode.name,
             travelTime: travelInfo.durationSeconds,
             travelDistance: travelInfo.distanceMeters.toDouble(),
+                  travelRouteGeometry: travelInfo.routeGeometry,
           );
+              }
         }
       });
+        }
+      }
     }
   }
 }
@@ -2583,6 +2446,7 @@ Future<void> _recalculateTravelForWaypoint(RouteWaypoint waypoint, String newMod
     from: fromWaypoint.position,
     to: waypoint.position,
     travelMode: travelMode,
+    includeGeometry: true, // Request geometry for route preview
   );
   
   if (travelInfo != null && mounted) {
@@ -2593,9 +2457,15 @@ Future<void> _recalculateTravelForWaypoint(RouteWaypoint waypoint, String newMod
           travelMode: newMode,
           travelTime: travelInfo.durationSeconds,
           travelDistance: travelInfo.distanceMeters.toDouble(),
+          travelRouteGeometry: travelInfo.routeGeometry,
         );
       }
     });
+    
+    // Auto-update preview to show route line when there are 2+ waypoints
+    if (_poiWaypoints.length >= 2) {
+      _updatePreview();
+    }
   }
 }
 
@@ -2666,10 +2536,13 @@ Future<void> _handleNewWaypoint(RouteWaypoint newWaypoint) async {
     }
   }
 
-  // Add waypoint
+  // Add waypoint - ensure it has a timeSlotCategory
   if (mounted) {
     setState(() {
-      _poiWaypoints.add(waypointWithOrder);
+      // Auto-assign time slot category if not set
+      final finalCategory = waypointWithOrder.timeSlotCategory ?? autoAssignTimeSlotCategory(waypointWithOrder);
+      final waypointWithCategory = waypointWithOrder.copyWith(timeSlotCategory: finalCategory);
+      _poiWaypoints.add(waypointWithCategory);
       _renumberWaypoints(); // Ensure sequential ordering
     });
     
@@ -2678,6 +2551,11 @@ Future<void> _handleNewWaypoint(RouteWaypoint newWaypoint) async {
     
     // Calculate travel times after adding waypoint
     _calculateTravelTimes();
+    
+    // Auto-update preview to show route line when there are 2+ waypoints
+    if (_poiWaypoints.length >= 2) {
+      _updatePreview();
+    }
   }
 }
 
@@ -2739,15 +2617,140 @@ if (result != null && mounted) {
 }
 }
 
-Future<void> _showAddWaypointDialog() async {
+/// Handle map tap to add waypoint at tapped location
+/// This allows users to add waypoints by tapping on the map or POIs
+/// When user taps near a POI, we'll search for places at that location
+/// Add an alternative waypoint (OR option) to an existing waypoint
+/// Groups an existing waypoint with the source waypoint as a choice group
+Future<void> _addAlternativeWaypoint(RouteWaypoint sourceWaypoint) async {
+  // Filter available waypoints: exclude source and any already in the same choice group
+  final availableWaypoints = _poiWaypoints.where((wp) {
+    // Exclude the source waypoint itself
+    if (wp.id == sourceWaypoint.id) return false;
+    // Exclude waypoints already in the same choice group
+    if (sourceWaypoint.choiceGroupId != null && 
+        wp.choiceGroupId == sourceWaypoint.choiceGroupId) {
+      return false;
+    }
+    return true;
+  }).toList();
+
+  // If no available waypoints, don't show the dialog
+  if (availableWaypoints.isEmpty) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No other waypoints available to group with'),
+        ),
+      );
+    }
+    return;
+  }
+
+  // Set flag to prevent map taps while dialog is open
+  setState(() => _dialogOrBottomSheetOpen = true);
+  // Disable map scroll zoom when dialog opens
+  _mapboxController?.disableInteractions();
+
+  final selectedWaypoint = await showDialog<RouteWaypoint>(
+    context: context,
+    builder: (context) => _SelectWaypointForGroupDialog(
+      availableWaypoints: availableWaypoints,
+      sourceWaypoint: sourceWaypoint,
+    ),
+  );
+
+  // Clear flag when dialog closes
+  if (mounted) {
+    setState(() => _dialogOrBottomSheetOpen = false);
+    // Re-enable map scroll zoom when dialog closes
+    _mapboxController?.enableInteractions();
+  }
+
+  if (selectedWaypoint != null && mounted) {
+    // Get or create choice group ID
+    final choiceGroupId = sourceWaypoint.choiceGroupId ?? const Uuid().v4();
+    final groupingService = WaypointGroupingService();
+    final choiceLabel = sourceWaypoint.choiceLabel ?? 
+        groupingService.generateAutoChoiceLabel(
+          sourceWaypoint.type,
+          sourceWaypoint.suggestedStartTime,
+          sourceWaypoint.mealTime,
+          sourceWaypoint.activityTime,
+        );
+
+    // Update source waypoint if it doesn't have choiceGroupId yet
+    if (sourceWaypoint.choiceGroupId == null) {
+      final sourceIndex = _poiWaypoints.indexWhere((w) => w.id == sourceWaypoint.id);
+      if (sourceIndex >= 0) {
+        setState(() {
+          _poiWaypoints[sourceIndex] = sourceWaypoint.copyWith(
+            choiceGroupId: choiceGroupId,
+            choiceLabel: choiceLabel,
+          );
+        });
+      }
+    }
+
+    // Update selected waypoint to join the choice group
+    final selectedIndex = _poiWaypoints.indexWhere((w) => w.id == selectedWaypoint.id);
+    if (selectedIndex >= 0) {
+      setState(() {
+        // Store old choice group ID if it exists
+        final oldChoiceGroupId = selectedWaypoint.choiceGroupId;
+        
+        _poiWaypoints[selectedIndex] = selectedWaypoint.copyWith(
+          order: sourceWaypoint.order, // Same order as source waypoint
+          choiceGroupId: choiceGroupId,
+          choiceLabel: choiceLabel,
+        );
+        
+        // Clean up orphaned choice groups
+        if (oldChoiceGroupId != null && oldChoiceGroupId != choiceGroupId) {
+          // Check if old group has any remaining members
+          final remainingInOldGroup = _poiWaypoints
+              .where((w) => w.choiceGroupId == oldChoiceGroupId)
+              .toList();
+          
+          // If only 1 or 0 members left, remove choice group from all
+          if (remainingInOldGroup.length <= 1) {
+            for (final wp in remainingInOldGroup) {
+              final idx = _poiWaypoints.indexWhere((w) => w.id == wp.id);
+              if (idx >= 0) {
+                _poiWaypoints[idx] = _poiWaypoints[idx].copyWith(
+                  choiceGroupId: null,
+                  choiceLabel: null,
+                );
+              }
+            }
+          }
+        }
+        
+        _renumberWaypoints(); // Ensure sequential ordering
+      });
+    }
+
+    // Fit map to show all waypoints after grouping
+    _fitToWaypoints();
+    
+    // Recalculate travel times after grouping (order may have changed)
+    _calculateTravelTimes();
+    
+    // Auto-update preview to show route line when there are 2+ waypoints
+    if (_poiWaypoints.length >= 2) {
+      _updatePreview();
+    }
+}
+}
+
+Future<void> _showAddWaypointDialog({PlaceDetails? preselectedPlace}) async {
 // Show the waypoint dialog directly (using user's current map center as proximity bias)
 // Exclude routePoint type since this is for POI waypoints only
 // Set flag to prevent map taps while dialog is open
 setState(() => _dialogOrBottomSheetOpen = true);
 
-final center = _getCameraCenter(); // Use helper method
-// Set flag and disable map scroll zoom when dialog opens
-setState(() => _dialogOrBottomSheetOpen = true);
+final center = preselectedPlace?.location ?? _getCameraCenter(); // Use place location if provided
+// Disable map scroll zoom when dialog opens
 _mapboxController?.disableInteractions();
 
 final result = await showDialog<RouteWaypoint>(
@@ -2755,6 +2758,7 @@ context: context,
 builder: (context) => _AddWaypointDialog(
 proximityBias: center,
 excludeRoutePoint: true,
+preselectedPlace: preselectedPlace,
 ),
 );
 
@@ -2776,7 +2780,7 @@ if (result != null && mounted) {
 bool _hintDismissed = false; // module-level to persist within session
 
 extension _HintLogic on _RouteBuilderScreenState {
-bool get _shouldShowHint => !_hintDismissed && _points.isEmpty;
+bool get _shouldShowHint => !_hintDismissed && _poiWaypoints.isEmpty;
 }
 
 class _HintChip extends StatelessWidget {
@@ -2881,6 +2885,7 @@ final ValueChanged<PlaceSuggestion> onSelect;
 // When inside desktop map area, the parent may provide padding/width overrides
 final double? mapAreaPaddingLeft; // left offset padding inside map area
 final double? mapAreaWidth; // explicit width of map area; if null, uses screen width
+final bool usePositioned; // If false, don't wrap in Positioned (for use in Column/ListView)
 const _FloatingSearchBar({
 required this.controller,
 required this.focusNode,
@@ -2891,6 +2896,7 @@ required this.onClear,
 required this.onSelect,
 this.mapAreaPaddingLeft,
 this.mapAreaWidth,
+this.usePositioned = true, // Default to true for backward compatibility
 });
 @override
 State<_FloatingSearchBar> createState() => _FloatingSearchBarState();
@@ -2936,11 +2942,8 @@ final boxShadow = [
 BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 4)),
 if (_focused) BoxShadow(color: context.colors.primary.withValues(alpha: 0.15), blurRadius: 0, spreadRadius: 2),
 ];
-return Positioned(
-top: isMobile ? kToolbarHeight + 12 : 12,
-left: leftOffset,
-width: barWidth,
-child: Column(mainAxisSize: MainAxisSize.min, children: [
+
+final searchContent = Column(mainAxisSize: MainAxisSize.min, children: [
 // SINGLE container - no nesting, TextField has collapsed decoration
 Material(
 color: Colors.transparent,
@@ -3040,20 +3043,32 @@ onTap: () => widget.onSelect(result),
 ),
 ),
 ),
-]),
+]);
+
+// If usePositioned is false, return content directly (for use in Column/ListView)
+if (!widget.usePositioned) {
+  return SizedBox(
+    width: double.infinity,
+    child: searchContent,
+  );
+}
+
+// Otherwise, wrap in Positioned for Stack parent
+return Positioned(
+  top: isMobile ? 56 + 12 : 12, // kToolbarHeight is typically 56
+  left: leftOffset,
+  width: barWidth,
+  child: searchContent,
 );
 }
 }
 
 class _BottomPanel extends StatelessWidget {
 final List<RouteWaypoint> poiWaypoints;
-final List<ll.LatLng> routePoints;
 final double? previewDistance; final int? previewDuration;
 final List<ElevationPoint> elevation; final double? ascent; final double? descent;
 final bool busy;
 final VoidCallback onAddWaypoint; final void Function(RouteWaypoint) onEditWaypoint;
-final VoidCallback onAddRoutePoint; final void Function(int) onDeleteRoutePoint;
-final void Function(int oldIndex, int newIndex) onReorderRoutePoints;
 final VoidCallback? onPreview; final VoidCallback? onSave;
 final void Function(int oldIndex, int newIndex) onReorder;
 final DayPlanOrderManager? routeOrderManager;
@@ -3062,10 +3077,13 @@ final void Function(String) onMoveDown;
 final bool Function(String) canMoveUp;
 final bool Function(String) canMoveDown;
 final VoidCallback onInitializeOrdering;
+final Future<void> Function(RouteWaypoint waypoint, String newMode) onTravelModeChanged;
+final Future<void> Function(RouteWaypoint waypoint) onAddAlternative;
+final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+final VoidCallback? onOrderChanged;
 
 const _BottomPanel({
 required this.poiWaypoints,
-required this.routePoints,
 required this.previewDistance,
 required this.previewDuration,
 required this.elevation,
@@ -3074,9 +3092,6 @@ required this.descent,
 required this.busy,
 required this.onAddWaypoint,
 required this.onEditWaypoint,
-required this.onAddRoutePoint,
-required this.onDeleteRoutePoint,
-required this.onReorderRoutePoints,
 required this.onPreview,
 required this.onSave,
 required this.onReorder,
@@ -3086,6 +3101,10 @@ required this.onMoveDown,
 required this.canMoveUp,
 required this.canMoveDown,
 required this.onInitializeOrdering,
+required this.onTravelModeChanged,
+required this.onAddAlternative,
+this.onWaypointUpdated,
+this.onOrderChanged,
 });
 
 @override
@@ -3103,49 +3122,6 @@ const SizedBox(height: 8),
 Center(
 child: Container(width: 44, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
 ),
-// Route Points Section
-Padding(
-padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-child: Align(
-alignment: Alignment.center,
-child: ConstrainedBox(
-constraints: BoxConstraints(maxWidth: isDesktop ? 600 : double.infinity),
-child: Row(children: [
-Text('Route Points', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-const SizedBox(width: 8),
-Container(
-padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(999)),
-child: Text('${routePoints.length}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-),
-const Spacer(),
-IconButton(
-onPressed: onAddRoutePoint,
-style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.1)),
-icon: const Icon(Icons.add, color: Color(0xFF4CAF50)),
-tooltip: 'Add route point',
-),
-]),
-),
-),
-),
-if (routePoints.isNotEmpty)
-Padding(
-padding: const EdgeInsets.symmetric(horizontal: 16),
-child: Column(children: [
-for (int i = 0; i < routePoints.length; i++)
-_RoutePointTile(
-index: i,
-point: routePoints[i],
-isStart: i == 0,
-isEnd: i == routePoints.length - 1,
-onDelete: () => onDeleteRoutePoint(i),
-onMoveUp: i == 0 ? null : () => onReorderRoutePoints(i, i - 1),
-onMoveDown: i == routePoints.length - 1 ? null : () => onReorderRoutePoints(i, i + 2),
-),
-]),
-),
-const SizedBox(height: 16),
 // Waypoints Section
 Padding(
 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -3194,44 +3170,14 @@ canMoveUp: canMoveUp,
 canMoveDown: canMoveDown,
 orderManager: routeOrderManager,
 onInitializeOrdering: onInitializeOrdering,
+onTravelModeChanged: onTravelModeChanged,
+onAddAlternative: onAddAlternative,
+onWaypointUpdated: onWaypointUpdated,
+onOrderChanged: onOrderChanged,
 ),
 ),
-if (previewDistance != null || elevation.isNotEmpty) ...[
-const SizedBox(height: 8),
-Padding(
-padding: const EdgeInsets.symmetric(horizontal: 16),
-child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-if (previewDistance != null)
-Row(children: [
-Icon(Icons.straighten, size: 18, color: context.colors.primary),
-const SizedBox(width: 8),
-Text('${(previewDistance! / 1000).toStringAsFixed(2)} km', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-const SizedBox(width: 20),
-Icon(Icons.schedule, size: 18, color: context.colors.primary),
-const SizedBox(width: 8),
-Text(_formatDuration(previewDuration ?? 0), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-]),
-if (elevation.isNotEmpty) ...[
-const SizedBox(height: 10),
-SizedBox(height: 120, child: ElevationChart(data: elevation)),
-const SizedBox(height: 6),
-Row(children: [
-if (ascent != null) ...[
-Icon(Icons.trending_up, size: 16, color: Colors.green.shade700),
-const SizedBox(width: 4),
-Text('+${ascent!.toStringAsFixed(0)} m', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.green.shade700)),
-const SizedBox(width: 16),
-],
-if (descent != null) ...[
-Icon(Icons.trending_down, size: 16, color: Colors.red.shade700),
-const SizedBox(width: 4),
-Text('-${descent!.toStringAsFixed(0)} m', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red.shade700)),
-],
-]),
-],
-]),
-),
-],
+// Legacy: Route stats section removed (Length, Elev. gain, Est. time, Activity)
+// Legacy: Elevation chart removed
 const SizedBox(height: 8),
 Padding(
 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -3276,15 +3222,9 @@ return '${m}m';
 }
 
 class _DesktopSidebar extends StatelessWidget {
-final bool snapToTrail; final ValueChanged<bool> onToggleSnap;
 final List<RouteWaypoint> poiWaypoints;
-final List<ll.LatLng> routePoints;
-final double? previewDistance; final int? previewDuration;
-final List<ElevationPoint> elevation; final double? ascent; final double? descent;
 final bool busy;
 final VoidCallback onAddWaypoint; final void Function(RouteWaypoint) onEditWaypoint;
-final VoidCallback onAddRoutePoint; final void Function(int) onDeleteRoutePoint;
-final void Function(int oldIndex, int newIndex) onReorderRoutePoints;
 final VoidCallback? onPreview; final VoidCallback? onSave;
 final void Function(int oldIndex, int newIndex) onReorder;
 final VoidCallback onCancel;
@@ -3295,23 +3235,23 @@ final void Function(String) onMoveDown;
 final bool Function(String) canMoveUp;
 final bool Function(String) canMoveDown;
 final VoidCallback onInitializeOrdering;
+final TextEditingController sidebarSearchController;
+final FocusNode sidebarSearchFocusNode;
+final bool sidebarSearching;
+final List<PlaceSuggestion> sidebarSearchResults;
+final ValueChanged<String> onSidebarSearchChanged;
+final VoidCallback onSidebarSearchClear;
+final ValueChanged<PlaceSuggestion> onSidebarSearchSelect;
+final Future<void> Function(RouteWaypoint waypoint, String newMode) onTravelModeChanged;
+final Future<void> Function(RouteWaypoint waypoint) onAddAlternative;
+final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+final VoidCallback? onOrderChanged;
 
 const _DesktopSidebar({
-required this.snapToTrail,
-required this.onToggleSnap,
 required this.poiWaypoints,
-required this.routePoints,
-required this.previewDistance,
-required this.previewDuration,
-required this.elevation,
-required this.ascent,
-required this.descent,
 required this.busy,
 required this.onAddWaypoint,
 required this.onEditWaypoint,
-required this.onAddRoutePoint,
-required this.onDeleteRoutePoint,
-required this.onReorderRoutePoints,
 required this.onPreview,
 required this.onSave,
 required this.onReorder,
@@ -3323,6 +3263,17 @@ required this.onMoveDown,
 required this.canMoveUp,
 required this.canMoveDown,
 required this.onInitializeOrdering,
+required this.sidebarSearchController,
+required this.sidebarSearchFocusNode,
+required this.sidebarSearching,
+required this.sidebarSearchResults,
+required this.onSidebarSearchChanged,
+required this.onSidebarSearchClear,
+required this.onSidebarSearchSelect,
+required this.onTravelModeChanged,
+required this.onAddAlternative,
+this.onWaypointUpdated,
+this.onOrderChanged,
 });
 
 @override
@@ -3341,92 +3292,41 @@ padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
 decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
 child: Row(children: [
 Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-const Spacer(),
-Text('Snap', style: context.textStyles.labelSmall?.copyWith(color: Colors.grey.shade600)),
-const SizedBox(width: 6),
-Switch(value: snapToTrail, onChanged: onToggleSnap),
 ]),
+),
+// Search bar for adding waypoints
+Container(
+padding: const EdgeInsets.all(16),
+decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+child: Column(
+mainAxisSize: MainAxisSize.min,
+children: [
+_FloatingSearchBar(
+controller: sidebarSearchController,
+focusNode: sidebarSearchFocusNode,
+searching: sidebarSearching,
+results: sidebarSearchResults,
+onChanged: onSidebarSearchChanged,
+onClear: onSidebarSearchClear,
+onSelect: onSidebarSearchSelect,
+usePositioned: false, // Don't use Positioned in Column
+),
+],
+),
 ),
 Expanded(
 child: ListView(
 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
 children: [
-// Stats section
-if (previewDistance != null || ascent != null || previewDuration != null)
-_StatsRow(
-distanceMeters: previewDistance,
-durationSeconds: previewDuration,
-ascentMeters: ascent,
-activityCategory: activityCategory,
-),
-if (elevation.isNotEmpty) ...[
-const SizedBox(height: 12),
-Container(
-height: 80,
-padding: const EdgeInsets.all(8),
-decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
-child: ElevationChart(data: elevation),
-),
-],
-const SizedBox(height: 16),
-// Route Points section
-Container(
-decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
-padding: const EdgeInsets.symmetric(vertical: 8),
-child: Row(children: [
-Text('Route Points', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-const SizedBox(width: 8),
-Container(
-padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(999)),
-child: Text('${routePoints.length}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-),
-const Spacer(),
-IconButton(
-onPressed: onAddRoutePoint,
-style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50).withValues(alpha: 0.1)),
-icon: const Icon(Icons.add, color: Color(0xFF4CAF50)),
-tooltip: 'Add route point',
-),
-]),
-),
-if (routePoints.isEmpty) ...[
-const SizedBox(height: 16),
-Container(
-padding: const EdgeInsets.all(12),
-decoration: BoxDecoration(
-color: Colors.grey.shade50,
-borderRadius: BorderRadius.circular(8),
-border: Border.all(color: Colors.grey.shade200),
-),
-child: Row(children: [
-const Icon(Icons.info_outline, size: 16),
-const SizedBox(width: 8),
-const Expanded(child: Text('Add points to define your route path')),
-]),
-),
-] else ...[
-const SizedBox(height: 8),
-Column(children: [
-for (int i = 0; i < routePoints.length; i++)
-_RoutePointTile(
-index: i,
-point: routePoints[i],
-isStart: i == 0,
-isEnd: i == routePoints.length - 1,
-onDelete: () => onDeleteRoutePoint(i),
-onMoveUp: i == 0 ? null : () => onReorderRoutePoints(i, i - 1),
-onMoveDown: i == routePoints.length - 1 ? null : () => onReorderRoutePoints(i, i + 2),
-),
-]),
-],
+// Legacy: Stats section removed (Length, Elev. gain, Est. time, Activity)
+// Legacy: Elevation chart removed
 const SizedBox(height: 16),
 // Waypoints section
 Container(
 decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
 padding: const EdgeInsets.symmetric(vertical: 8),
 child: Row(children: [
-Text('POI Waypoints', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+Text('Waypoints', style: context.textStyles.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
 const SizedBox(width: 8),
 Container(
 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -3468,6 +3368,10 @@ canMoveUp: canMoveUp,
 canMoveDown: canMoveDown,
 orderManager: routeOrderManager,
 onInitializeOrdering: onInitializeOrdering,
+onTravelModeChanged: onTravelModeChanged,
+onAddAlternative: onAddAlternative,
+onWaypointUpdated: onWaypointUpdated,
+onOrderChanged: onOrderChanged,
 ),
 ],
 ],
@@ -3496,42 +3400,7 @@ label: const Text('Build & Save'),
 );
 }
 
-class _StatsRow extends StatelessWidget {
-final double? distanceMeters; final int? durationSeconds; final double? ascentMeters;
-final ActivityCategory? activityCategory;
-const _StatsRow({this.distanceMeters, this.durationSeconds, this.ascentMeters, this.activityCategory});
-@override
-Widget build(BuildContext context) {
-String dist = distanceMeters == null ? '-' : '${(distanceMeters! / 1000).toStringAsFixed(1)} km';
-String dur = durationSeconds == null ? '-' : _fmtDuration(durationSeconds!);
-String asc = ascentMeters == null ? '-' : '+${ascentMeters!.toStringAsFixed(0)} m';
-TextStyle label = TextStyle(fontSize: 11, color: Colors.grey.shade600);
-TextStyle value = const TextStyle(fontSize: 13, fontWeight: FontWeight.w700);
-return Row(children: [
-_statTile(context, Icons.straighten, 'Length', dist, label, value),
-_divider(),
-_statTile(context, Icons.trending_up, 'Elev. gain', asc, label, value),
-_divider(),
-_statTile(context, Icons.schedule, 'Est. time', dur, label, value),
-_divider(),
-_statTile(context, Icons.directions_walk, 'Activity', _getActivityLabelStatic(activityCategory), label, value),
-]);
-}
-
-Widget _divider() => Container(width: 1, height: 28, margin: const EdgeInsets.symmetric(horizontal: 10), color: Colors.grey.shade200);
-Widget _statTile(BuildContext context, IconData icon, String label, String value, TextStyle l, TextStyle v) => Expanded(
-child: Row(children: [
-Icon(icon, size: 16, color: context.colors.primary),
-const SizedBox(width: 6),
-Flexible(
-child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-Text(label, style: l, overflow: TextOverflow.ellipsis),
-Text(value, style: v, overflow: TextOverflow.ellipsis),
-]),
-),
-]),
-);
-}
+// Legacy: _StatsRow widget removed (Length, Elev. gain, Est. time, Activity)
 
 String _fmtDuration(int seconds) {
 final h = seconds ~/ 3600;
@@ -3540,30 +3409,40 @@ if (h > 0) return '${h}h ${m}m';
 return '${m}m';
 }
 
-/// Returns the appropriate activity label based on activity category (static helper)
-String _getActivityLabelStatic(ActivityCategory? activityCategory) {
-switch (activityCategory) {
-case ActivityCategory.cycling:
-return 'Cycling';
-case ActivityCategory.roadTripping:
-return 'Driving';
-case ActivityCategory.skis:
-return 'Skiing';
-case ActivityCategory.climbing:
-return 'Climbing';
-case ActivityCategory.cityTrips:
-return 'Walking';
-case ActivityCategory.tours:
-return 'Touring';
-case ActivityCategory.hiking:
+/// Get color for travel mode (for route polyline rendering)
+Color _getTravelModeColor(String mode) {
+  switch (mode) {
+    case 'walking':
+      return const Color(0xFF4CAF50); // Green
+    case 'transit':
+      return const Color(0xFF2196F3); // Blue
+    case 'driving':
+      return Colors.grey.shade700; // Grey
+    case 'bicycling':
+      return const Color(0xFFFF9800); // Orange
 default:
-return 'Hiking';
+      return const Color(0xFF4CAF50); // Default to green
 }
 }
 
+/// Returns the appropriate activity label based on activity category (static helper)
+// Legacy: _getActivityLabelStatic removed
+
 class _SidebarWaypointTile extends StatelessWidget {
-final RouteWaypoint waypoint; final VoidCallback onEdit; final VoidCallback? onMoveUp; final VoidCallback? onMoveDown;
-const _SidebarWaypointTile({super.key, required this.waypoint, required this.onEdit, this.onMoveUp, this.onMoveDown});
+final RouteWaypoint waypoint; 
+final VoidCallback onEdit; 
+final VoidCallback? onMoveUp; 
+final VoidCallback? onMoveDown;
+final VoidCallback? onAddAlternative;
+
+const _SidebarWaypointTile({
+  super.key, 
+  required this.waypoint, 
+  required this.onEdit, 
+  this.onMoveUp, 
+  this.onMoveDown,
+  this.onAddAlternative,
+});
 @override
 Widget build(BuildContext context) => Container(
 height: 56,
@@ -3590,10 +3469,23 @@ if (onMoveUp != null || onMoveDown != null)
 PopupMenuButton<String>(
 icon: const Icon(Icons.more_vert, size: 18),
 onSelected: (value) {
-if (value == 'edit') onEdit();
+if (value == 'edit') {
+  onEdit();
+} else if (value == 'add_alternative' && onAddAlternative != null) {
+  onAddAlternative?.call();
+}
 },
 itemBuilder: (context) => [
 const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+if (onAddAlternative != null)
+  const PopupMenuItem(
+    value: 'add_alternative',
+    child: Row(children: [
+      Icon(Icons.alt_route, size: 18),
+      SizedBox(width: 8),
+      Text('Add OR alternative'),
+    ]),
+  ),
 ],
 ),
 ]),
@@ -3611,6 +3503,11 @@ class _SidebarWaypointOrderedList extends StatefulWidget {
   final bool Function(String itemId) canMoveDown;
   final DayPlanOrderManager? orderManager;
   final VoidCallback onInitializeOrdering;
+  final Future<void> Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+  final Future<void> Function(RouteWaypoint waypoint)? onAddAlternative;
+  // New callbacks for sequential ordering (by order number, not itemId)
+  final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+  final VoidCallback? onOrderChanged;
   
   const _SidebarWaypointOrderedList({
     required this.waypoints,
@@ -3621,6 +3518,10 @@ class _SidebarWaypointOrderedList extends StatefulWidget {
     required this.canMoveDown,
     this.orderManager,
     required this.onInitializeOrdering,
+    this.onTravelModeChanged,
+    this.onAddAlternative,
+    this.onWaypointUpdated,
+    this.onOrderChanged,
   });
 
   @override
@@ -3641,7 +3542,12 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
   @override
   void didUpdateWidget(_SidebarWaypointOrderedList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.waypoints != widget.waypoints || oldWidget.orderManager != widget.orderManager) {
+    // Always recalculate maps when waypoints or orderManager change
+    // Use length and IDs to detect changes even if list reference is the same
+    final waypointsChanged = oldWidget.waypoints.length != widget.waypoints.length ||
+        oldWidget.waypoints.map((w) => w.id).join(',') != widget.waypoints.map((w) => w.id).join(',');
+    
+    if (waypointsChanged || oldWidget.orderManager != widget.orderManager) {
       _updateOrdering();
     }
   }
@@ -3655,79 +3561,253 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
       return;
     }
     
+    // Always recalculate maps to ensure they're up to date
     _waypointsBySectionId = _getWaypointsBySectionId();
     _waypointsById = _getWaypointsById();
   }
 
   Map<String, List<RouteWaypoint>> _getWaypointsBySectionId() {
-    final map = <String, List<RouteWaypoint>>{};
+    // Initialize map explicitly to avoid JavaScript compilation issues
+    final map = Map<String, List<RouteWaypoint>>();
+    
+    // Handle empty waypoints
+    if (widget.waypoints.isEmpty) {
+      return map;
+    }
+    
     for (final wp in widget.waypoints) {
       String? sectionId;
       switch (wp.type) {
         case WaypointType.restaurant:
           sectionId = 'restaurantSection_${wp.mealTime?.name ?? "lunch"}';
           break;
+        case WaypointType.bar:
+          sectionId = 'barSection_${wp.mealTime?.name ?? "dinner"}';
+          break;
         case WaypointType.activity:
+        case WaypointType.attraction:
           sectionId = 'activitySection_${wp.activityTime?.name ?? "afternoon"}';
           break;
         case WaypointType.accommodation:
           sectionId = 'accommodationSection';
           break;
+        case WaypointType.servicePoint:
+        case WaypointType.service:
+        case WaypointType.viewingPoint:
+        case WaypointType.routePoint:
+          // These are individual items, not sections - they should appear as individual waypoints
+          break;
         default:
           break;
       }
       if (sectionId != null) {
-        map.putIfAbsent(sectionId, () => []).add(wp);
+        map.putIfAbsent(sectionId, () => <RouteWaypoint>[]).add(wp);
       }
     }
     return map;
   }
 
   Map<String, RouteWaypoint> _getWaypointsById() {
-    return { for (final wp in widget.waypoints) wp.id: wp };
+    // Initialize map explicitly to avoid JavaScript compilation issues
+    final map = Map<String, RouteWaypoint>();
+    for (final wp in widget.waypoints) {
+      map[wp.id] = wp;
+    }
+    return map;
+  }
+
+  /// Get all distinct order values, sorted ascending.
+  List<int> _getDistinctOrders() {
+    final orders = widget.waypoints.map((w) => w.order).toSet().toList()..sort();
+    return orders;
+  }
+
+  /// Check if a waypoint (or its entire choice group) can move up.
+  bool _canMoveUp(RouteWaypoint waypoint) {
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    return currentOrderIndex > 0;
+  }
+
+  /// Check if a waypoint (or its entire choice group) can move down.
+  bool _canMoveDown(RouteWaypoint waypoint) {
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    return currentOrderIndex < orders.length - 1;
+  }
+
+  /// Move a waypoint (or its entire choice group) up by swapping orders
+  /// with the previous order group.
+  void _moveWaypointUp(RouteWaypoint waypoint) {
+    if (widget.onWaypointUpdated == null) return;
+    
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    if (currentOrderIndex <= 0) return;
+
+    final currentOrder = orders[currentOrderIndex];
+    final previousOrder = orders[currentOrderIndex - 1];
+
+    // Get all waypoints at both order positions
+    final currentGroup = widget.waypoints.where((w) => w.order == currentOrder).toList();
+    final previousGroup = widget.waypoints.where((w) => w.order == previousOrder).toList();
+
+    // Swap orders: current group gets previousOrder, previous group gets currentOrder
+    for (final wp in currentGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: previousOrder));
+    }
+    for (final wp in previousGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: currentOrder));
+    }
+
+    // Trigger route recalculation
+    widget.onOrderChanged?.call();
+  }
+
+  /// Move a waypoint (or its entire choice group) down by swapping orders
+  /// with the next order group.
+  void _moveWaypointDown(RouteWaypoint waypoint) {
+    if (widget.onWaypointUpdated == null) return;
+    
+    final orders = _getDistinctOrders();
+    final currentOrderIndex = orders.indexOf(waypoint.order);
+    if (currentOrderIndex >= orders.length - 1) return;
+
+    final currentOrder = orders[currentOrderIndex];
+    final nextOrder = orders[currentOrderIndex + 1];
+
+    // Get all waypoints at both order positions
+    final currentGroup = widget.waypoints.where((w) => w.order == currentOrder).toList();
+    final nextGroup = widget.waypoints.where((w) => w.order == nextOrder).toList();
+
+    // Swap orders
+    for (final wp in currentGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: nextOrder));
+    }
+    for (final wp in nextGroup) {
+      widget.onWaypointUpdated!(wp.copyWith(order: currentOrder));
+    }
+
+    // Trigger route recalculation
+    widget.onOrderChanged?.call();
   }
 
   @override
   Widget build(BuildContext context) {
-    final orderManager = widget.orderManager ?? _localOrderManager;
-    if (orderManager == null) {
-      widget.onInitializeOrdering();
+    // Simplified sequential ordering: sort by order number (1, 2, 3...)
+    final sortedWaypoints = List<RouteWaypoint>.from(widget.waypoints)
+      ..sort((a, b) => a.order.compareTo(b.order));
+
+    if (sortedWaypoints.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final orderedItems = orderManager.sortedItems;
-    final waypointsBySectionId = _waypointsBySectionId ?? _getWaypointsBySectionId();
-    final waypointsById = _waypointsById ?? _getWaypointsById();
+    // Group waypoints by order, handling choice groups
+    final groupedWaypoints = <int, List<RouteWaypoint>>{};
+    for (final wp in sortedWaypoints) {
+      groupedWaypoints.putIfAbsent(wp.order, () => <RouteWaypoint>[]).add(wp);
+    }
 
-    return Column(
-      children: orderedItems.map<Widget>((item) {
-        if (item.isSection) {
-          final sectionWaypoints = waypointsBySectionId[item.id] ?? [];
-          return _SidebarCategoryGroup(
-            key: ValueKey(item.id),
-            category: _getCategoryFromSectionId(item.id),
-            waypoints: sectionWaypoints,
+    final orderedGroups = groupedWaypoints.keys.toList()..sort();
+
+    final widgets = <Widget>[];
+    
+    for (int i = 0; i < orderedGroups.length; i++) {
+      final order = orderedGroups[i];
+      final waypointsAtOrder = groupedWaypoints[order]!;
+      
+      // Check if this is a choice group (multiple waypoints with same order and choiceGroupId)
+      final firstWp = waypointsAtOrder.first;
+      final isChoiceGroup = firstWp.choiceGroupId != null && waypointsAtOrder.length > 1;
+      
+      if (isChoiceGroup) {
+        // Get previous order group's waypoints (for per-option travel display)
+        List<RouteWaypoint>? previousWaypoints;
+        if (i > 0) {
+          final prevOrder = orderedGroups[i - 1];
+          previousWaypoints = groupedWaypoints[prevOrder];
+        }
+        
+        // Display choice group with move arrows on header
+        widgets.add(
+          _SidebarChoiceGroup(
+            key: ValueKey('choice_${firstWp.choiceGroupId}'),
+            waypoints: waypointsAtOrder,
+            choiceLabel: firstWp.choiceLabel ?? 'Choose an option',
             onEdit: widget.onEdit,
-            itemId: item.id,
-            canMoveUp: widget.canMoveUp(item.id),
-            canMoveDown: widget.canMoveDown(item.id),
-            onMoveUp: () => widget.onMoveUp(item.id),
-            onMoveDown: () => widget.onMoveDown(item.id),
+            onMoveUp: _canMoveUp(firstWp) ? () => _moveWaypointUp(firstWp) : null,
+            onMoveDown: _canMoveDown(firstWp) ? () => _moveWaypointDown(firstWp) : null,
+            previousWaypoints: previousWaypoints,
+            onTravelModeChanged: widget.onTravelModeChanged,
+          ),
           );
-        } else if (item.isIndividualWaypoint && item.waypointId != null) {
-          final waypoint = waypointsById[item.waypointId!];
-          if (waypoint == null) return const SizedBox.shrink();
-          return _SidebarWaypointTile(
-            key: ValueKey(item.id),
-            waypoint: waypoint,
-            onEdit: () => widget.onEdit(waypoint),
-            onMoveUp: widget.canMoveUp(item.id) ? () => widget.onMoveUp(item.id) : null,
-            onMoveDown: widget.canMoveDown(item.id) ? () => widget.onMoveDown(item.id) : null,
+      } else {
+        // Display individual waypoint with move arrows
+        for (final wp in waypointsAtOrder) {
+          // Check if there are other waypoints available to group with
+          final availableForGrouping = widget.waypoints.where((other) {
+            if (other.id == wp.id) return false; // Exclude self
+            if (wp.choiceGroupId != null && other.choiceGroupId == wp.choiceGroupId) return false; // Exclude same group
+            return true;
+          }).isNotEmpty;
+          
+          widgets.add(
+            _SidebarWaypointTile(
+              key: ValueKey(wp.id),
+              waypoint: wp,
+              onEdit: () => widget.onEdit(wp),
+              onMoveUp: _canMoveUp(wp) ? () => _moveWaypointUp(wp) : null,
+              onMoveDown: _canMoveDown(wp) ? () => _moveWaypointDown(wp) : null,
+              onAddAlternative: (widget.onAddAlternative != null && availableForGrouping) 
+                  ? () => widget.onAddAlternative!(wp) 
+                  : null,
+            ),
           );
         }
-        return const SizedBox.shrink();
-      }).toList(),
+      }
+      
+      // Show travel segment between this group and the next one
+      if (i < orderedGroups.length - 1) {
+        final nextOrder = orderedGroups[i + 1];
+        final nextWaypoints = groupedWaypoints[nextOrder]!;
+        final nextFirstWp = nextWaypoints.first;
+        final nextIsChoiceGroup = nextFirstWp.choiceGroupId != null && nextWaypoints.length > 1;
+        
+        if (nextIsChoiceGroup) {
+          // Next group is a choice group — travel info will be shown
+          // INSIDE the choice group widget (per-option). No segment here.
+        } else {
+          // Next group is a single waypoint
+          if (isChoiceGroup) {
+            // Current = choice group, next = single → show per-origin segments
+            for (final fromWp in waypointsAtOrder) {
+              widgets.add(
+                _SidebarTravelSegmentWithLabel(
+                  key: ValueKey('travel_${fromWp.id}_${nextFirstWp.id}'),
+                  fromWaypoint: fromWp,
+                  toWaypoint: nextFirstWp,
+                  label: 'from ${fromWp.name}',
+                  onTravelModeChanged: widget.onTravelModeChanged,
+                ),
+          );
+        }
+          } else {
+            // Single → single: normal travel segment
+            final fromWp = waypointsAtOrder.last;
+            widgets.add(
+              _SidebarTravelSegment(
+                key: ValueKey('travel_${fromWp.id}_${nextFirstWp.id}'),
+                fromWaypoint: fromWp,
+                toWaypoint: nextFirstWp,
+                onTravelModeChanged: widget.onTravelModeChanged,
+              ),
     );
+          }
+        }
+      }
+    }
+    
+    return Column(children: widgets);
   }
 
   TimeSlotCategory _getCategoryFromSectionId(String sectionId) {
@@ -3766,6 +3846,532 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
       }
     }
     return TimeSlotCategory.afternoonActivity; // Default fallback
+  }
+}
+
+/// Sidebar choice group widget (for OR logic - multiple waypoints at same order)
+/// Shows per-option travel info when previousWaypoints is provided.
+class _SidebarChoiceGroup extends StatelessWidget {
+  final List<RouteWaypoint> waypoints;
+  final String choiceLabel;
+  final void Function(RouteWaypoint) onEdit;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+  final List<RouteWaypoint>? previousWaypoints;
+  final void Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+
+  const _SidebarChoiceGroup({
+    super.key,
+    required this.waypoints,
+    required this.choiceLabel,
+    required this.onEdit,
+    this.onMoveUp,
+    this.onMoveDown,
+    this.previousWaypoints,
+    this.onTravelModeChanged,
+  });
+
+  String _formatTravelTime(int? seconds) {
+    if (seconds == null) return '...';
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return rem == 0 ? '$hours h' : '$hours h $rem min';
+  }
+
+  String _getTravelModeLabel(String? mode) {
+    switch (mode) {
+      case 'walking': return 'walk';
+      case 'transit': return 'metro';
+      case 'driving': return 'drive';
+      case 'bicycling': return 'bike';
+      default: return 'walk';
+    }
+  }
+
+  IconData _getTravelIcon(String? mode) {
+    switch (mode) {
+      case 'walking': return Icons.directions_walk;
+      case 'transit': return Icons.directions_transit;
+      case 'driving': return Icons.directions_car;
+      case 'bicycling': return Icons.directions_bike;
+      default: return Icons.directions_walk;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.blue.shade200),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.blue.shade50,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Choice group header with move arrows
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade100,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+            ),
+            child: Row(
+              children: [
+                // Move up arrow
+                if (onMoveUp != null)
+                  IconButton(
+                    icon: const Icon(Icons.arrow_upward, size: 18),
+                    onPressed: onMoveUp,
+                    tooltip: 'Move group up',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                // Move down arrow
+                if (onMoveDown != null)
+                  IconButton(
+                    icon: const Icon(Icons.arrow_downward, size: 18),
+                    onPressed: onMoveDown,
+                    tooltip: 'Move group down',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  ),
+                Icon(Icons.check_circle_outline, size: 16, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    choiceLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.blue.shade900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '(${waypoints.length} options)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Choice options with per-option travel info
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              children: [
+                for (final wp in waypoints)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.radio_button_unchecked, size: 16, color: Colors.blue.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _SidebarWaypointTile(
+                                waypoint: wp,
+                                onEdit: () => onEdit(wp),
+                                onMoveUp: null,
+                                onMoveDown: null,
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Per-option travel info (from previous waypoint to this option)
+                        if (previousWaypoints != null &&
+                            previousWaypoints!.isNotEmpty &&
+                            wp.travelTime != null &&
+                            wp.travelDistance != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 24, top: 2, bottom: 4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: Colors.green.shade200.withOpacity(0.5),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _getTravelIcon(wp.travelMode),
+                                    size: 14,
+                                    color: Colors.green.shade700,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '↓ ${_formatTravelTime(wp.travelTime)} ${_getTravelModeLabel(wp.travelMode)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.green.shade900,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '(${(wp.travelDistance! / 1000.0).toStringAsFixed(1)} km)',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                  // Travel mode picker
+                                  if (onTravelModeChanged != null) ...[
+                                    const SizedBox(width: 4),
+                                    SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: PopupMenuButton<String>(
+                                        icon: Icon(Icons.swap_horiz, size: 14, color: Colors.green.shade700),
+                                        tooltip: 'Change travel mode',
+                                        padding: EdgeInsets.zero,
+                                        onSelected: (newMode) => onTravelModeChanged!(wp, newMode),
+                                        itemBuilder: (_) => [
+                                          PopupMenuItem(value: 'walking', child: Row(children: [Icon(Icons.directions_walk, size: 16), const SizedBox(width: 8), const Text('Walk')])),
+                                          PopupMenuItem(value: 'transit', child: Row(children: [Icon(Icons.directions_transit, size: 16), const SizedBox(width: 8), const Text('Transit')])),
+                                          PopupMenuItem(value: 'driving', child: Row(children: [Icon(Icons.directions_car, size: 16), const SizedBox(width: 8), const Text('Drive')])),
+                                          PopupMenuItem(value: 'bicycling', child: Row(children: [Icon(Icons.directions_bike, size: 16), const SizedBox(width: 8), const Text('Bike')])),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sidebar travel segment widget (shows distance/time between waypoints)
+class _SidebarTravelSegment extends StatelessWidget {
+  final RouteWaypoint fromWaypoint;
+  final RouteWaypoint toWaypoint;
+  final void Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+
+  const _SidebarTravelSegment({
+    super.key,
+    required this.fromWaypoint,
+    required this.toWaypoint,
+    this.onTravelModeChanged,
+  });
+
+  IconData _getTravelIcon(String? mode) {
+    switch (mode) {
+      case 'walking':
+        return Icons.directions_walk;
+      case 'transit':
+        return Icons.directions_transit;
+      case 'driving':
+        return Icons.directions_car;
+      case 'bicycling':
+        return Icons.directions_bike;
+      default:
+        return Icons.directions_walk;
+    }
+  }
+
+  String _getTravelModeLabel(String? mode) {
+    switch (mode) {
+      case 'walking':
+        return 'walk';
+      case 'transit':
+        return 'metro';
+      case 'driving':
+        return 'drive';
+      case 'bicycling':
+        return 'bike';
+      default:
+        return 'walk';
+    }
+  }
+
+  String _formatTravelTime(int? seconds) {
+    if (seconds == null) return 'calculating...';
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) {
+      return '$minutes min';
+    }
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    if (remainingMinutes == 0) {
+      return '$hours h';
+    }
+    return '$hours h $remainingMinutes min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTravelInfo = toWaypoint.travelTime != null && 
+                          toWaypoint.travelMode != null && 
+                          toWaypoint.travelDistance != null;
+    
+    final distanceKm = hasTravelInfo 
+        ? (toWaypoint.travelDistance! / 1000.0).toStringAsFixed(1)
+        : null;
+    final timeStr = hasTravelInfo ? _formatTravelTime(toWaypoint.travelTime!) : null;
+    final mode = toWaypoint.travelMode ?? 'walking';
+    final modeLabel = _getTravelModeLabel(mode);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _getTravelIcon(mode),
+            size: 16,
+            color: Colors.green.shade700,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Row(
+              children: [
+                if (hasTravelInfo) ...[
+                  Text(
+                    '↓ $timeStr $modeLabel',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade900,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (distanceKm != null) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      '($distanceKm km)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
+                  ],
+                ] else ...[
+                  Text(
+                    'Calculating travel time...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // Travel mode picker
+          if (onTravelModeChanged != null)
+            PopupMenuButton<String>(
+              icon: Icon(Icons.swap_horiz, size: 16, color: Colors.green.shade700),
+              tooltip: 'Change travel mode',
+              onSelected: (newMode) => onTravelModeChanged!(toWaypoint, newMode),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'walking',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_walk, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Walk'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'transit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_transit, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Transit'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'driving',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_car, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Drive'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'bicycling',
+                  child: Row(
+                    children: [
+                      Icon(Icons.directions_bike, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Bike'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Travel segment with a "from" label — used when the origin is a choice group.
+/// Shows "from [option name]: 7 min walk (0.49 km)" for each origin option.
+class _SidebarTravelSegmentWithLabel extends StatelessWidget {
+  final RouteWaypoint fromWaypoint;
+  final RouteWaypoint toWaypoint;
+  final String label;
+  final void Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+
+  const _SidebarTravelSegmentWithLabel({
+    super.key,
+    required this.fromWaypoint,
+    required this.toWaypoint,
+    required this.label,
+    this.onTravelModeChanged,
+  });
+
+  IconData _getTravelIcon(String? mode) {
+    switch (mode) {
+      case 'walking': return Icons.directions_walk;
+      case 'transit': return Icons.directions_transit;
+      case 'driving': return Icons.directions_car;
+      case 'bicycling': return Icons.directions_bike;
+      default: return Icons.directions_walk;
+    }
+  }
+
+  String _getTravelModeLabel(String? mode) {
+    switch (mode) {
+      case 'walking': return 'walk';
+      case 'transit': return 'metro';
+      case 'driving': return 'drive';
+      case 'bicycling': return 'bike';
+      default: return 'walk';
+    }
+  }
+
+  String _formatTravelTime(int? seconds) {
+    if (seconds == null) return '...';
+    final minutes = (seconds / 60).round();
+    if (minutes < 60) return '$minutes min';
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return rem == 0 ? '$hours h' : '$hours h $rem min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTravelInfo = toWaypoint.travelTime != null &&
+                          toWaypoint.travelMode != null &&
+                          toWaypoint.travelDistance != null;
+
+    final distanceKm = hasTravelInfo
+        ? (toWaypoint.travelDistance! / 1000.0).toStringAsFixed(1)
+        : null;
+    final mode = toWaypoint.travelMode ?? 'walking';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.green.shade200.withOpacity(0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(_getTravelIcon(mode), size: 14, color: Colors.green.shade700),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.green.shade600,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                if (hasTravelInfo)
+                  Row(
+                    children: [
+                      Text(
+                        '↓ ${_formatTravelTime(toWaypoint.travelTime)} ${_getTravelModeLabel(mode)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.green.shade900,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (distanceKm != null) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          '($distanceKm km)',
+                          style: TextStyle(fontSize: 10, color: Colors.green.shade700),
+                        ),
+                      ],
+                    ],
+                  )
+                else
+                  Text(
+                    'Calculating...',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.green.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (onTravelModeChanged != null)
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: PopupMenuButton<String>(
+                icon: Icon(Icons.swap_horiz, size: 14, color: Colors.green.shade700),
+                tooltip: 'Change travel mode',
+                padding: EdgeInsets.zero,
+                onSelected: (newMode) => onTravelModeChanged!(toWaypoint, newMode),
+                itemBuilder: (_) => [
+                  PopupMenuItem(value: 'walking', child: Row(children: [Icon(Icons.directions_walk, size: 16), const SizedBox(width: 8), const Text('Walk')])),
+                  PopupMenuItem(value: 'transit', child: Row(children: [Icon(Icons.directions_transit, size: 16), const SizedBox(width: 8), const Text('Transit')])),
+                  PopupMenuItem(value: 'driving', child: Row(children: [Icon(Icons.directions_car, size: 16), const SizedBox(width: 8), const Text('Drive')])),
+                  PopupMenuItem(value: 'bicycling', child: Row(children: [Icon(Icons.directions_bike, size: 16), const SizedBox(width: 8), const Text('Bike')])),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -4019,6 +4625,157 @@ const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 
 );
 }
 
+/// Dialog for selecting an existing waypoint to group with another waypoint
+class _SelectWaypointForGroupDialog extends StatelessWidget {
+  final List<RouteWaypoint> availableWaypoints;
+  final RouteWaypoint sourceWaypoint;
+
+  const _SelectWaypointForGroupDialog({
+    required this.availableWaypoints,
+    required this.sourceWaypoint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollBlockingDialog(
+      child: Container(
+        width: 480,
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.95,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Group as Choice',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Select a waypoint to group with "${sourceWaypoint.name}"',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            // Waypoint list
+            Expanded(
+              child: ScrollBlockingScrollView(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  shrinkWrap: true,
+                  itemCount: availableWaypoints.length,
+                  separatorBuilder: (context, index) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final waypoint = availableWaypoints[index];
+                    return InkWell(
+                      onTap: () => Navigator.of(context).pop(waypoint),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: getWaypointColor(waypoint.type),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                getWaypointIcon(waypoint.type),
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    waypoint.name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    getWaypointLabel(waypoint.type),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right,
+                              color: Colors.grey.shade400,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            // Footer
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Action tile for map tap picker
 class _ActionTile extends StatelessWidget {
 final IconData icon;
@@ -4139,11 +4896,15 @@ class _AddWaypointDialog extends StatefulWidget {
 final WaypointType? preselectedType;
 final ll.LatLng? proximityBias;
 final bool excludeRoutePoint;
+final PlaceDetails? preselectedPlace;
+final RouteWaypoint? existingWaypoint; // For edit mode
 
 const _AddWaypointDialog({
   this.preselectedType,
   this.proximityBias,
   this.excludeRoutePoint = false,
+  this.preselectedPlace,
+  this.existingWaypoint,
 });
 
 @override
@@ -4179,65 +4940,130 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
   final _airbnbAddressController = TextEditingController();
-  final _urlController = TextEditingController();
   late WaypointType _selectedType;
   POIAccommodationType? _accommodationType;
   MealTime? _mealTime;
   ActivityTime? _activityTime;
   bool _geocoding = false;
-  bool _extractingMetadata = false;
   ll.LatLng? _airbnbLocation;
   bool _airbnbAddressConfirmed = false;
-  Map<String, dynamic>? _extractedMetadata; // Stores extracted URL metadata
   bool _hasSearchedOrExtracted = false; // Track if user has searched or extracted
   ll.LatLng? _extractedLocation; // Location from URL extraction
   Map<String, dynamic>? _extractedAddress; // Address from URL extraction
-  List<Map<String, dynamic>> _mapboxSearchResults = []; // Mapbox geocoding results
-  bool _mapboxSearching = false; // Mapbox search in progress
+  List<PlacePrediction> _googlePlacesSearchResults = []; // Google Places search results
+  bool _googlePlacesSearching = false; // Google Places search in progress
   final _addressSearchController = TextEditingController(); // Controller for manual address search
-  final _latitudeController = TextEditingController(); // Controller for manual latitude input
-  final _longitudeController = TextEditingController(); // Controller for manual longitude input
   final _priceMinController = TextEditingController(); // Controller for minimum price
   final _priceMaxController = TextEditingController(); // Controller for maximum price
   final _photoUrlController = TextEditingController(); // Controller for photo URL
   final _phoneController = TextEditingController(); // Controller for phone number
+  final _ratingController = TextEditingController(); // Controller for rating/review score
   Timer? _addressSearchDebounce; // Debounce for address search
-  MapboxPlace? _selectedMapboxPlace; // Selected Mapbox search result
   String? _uploadedImageUrl; // URL of uploaded image from Firebase Storage
   bool _uploadingImage = false; // Track image upload status
   final StorageService _storageService = StorageService(); // Storage service for image uploads
-  bool _showCoordinates = false; // Track whether to show manual coordinate input fields
+  final GooglePlacesService _googlePlacesService = GooglePlacesService(); // For fetching place photos
+  String? _googlePlacePhotoUrl; // Cached photo URL from Google Places
+  bool _loadingPhoto = false; // Track photo loading status
 
   @override
   void initState() {
     super.initState();
-    _selectedType = widget.preselectedType ?? WaypointType.restaurant;
     
-    // Auto-populate coordinates if proximityBias is provided (from map click)
-    if (widget.proximityBias != null) {
-      _latitudeController.text = widget.proximityBias!.latitude.toStringAsFixed(6);
-      _longitudeController.text = widget.proximityBias!.longitude.toStringAsFixed(6);
-      _showCoordinates = true; // Show coordinates section
-      _hasSearchedOrExtracted = true; // Show waypoint details fields
+    // Handle edit mode - load existing waypoint data FIRST
+    if (widget.existingWaypoint != null) {
+      final wp = widget.existingWaypoint!;
+      _selectedType = wp.type;
+      _accommodationType = wp.accommodationType;
+      _mealTime = wp.mealTime;
+      _activityTime = wp.activityTime;
+      _nameController.text = wp.name;
+      _descController.text = wp.description ?? '';
+      _phoneController.text = wp.phoneNumber ?? '';
+      _addressSearchController.text = wp.address ?? '';
+      _photoUrlController.text = wp.photoUrl ?? '';
+      _priceMinController.text = wp.estimatedPriceRange?.min.toString() ?? '';
+      _priceMaxController.text = wp.estimatedPriceRange?.max.toString() ?? '';
+      _ratingController.text = wp.rating?.toString() ?? '';
+      _extractedLocation = wp.position;
+      _extractedAddress = wp.address != null ? {'formatted': wp.address} : null;
+      _hasSearchedOrExtracted = true;
+      if (wp.photoUrl != null) {
+        _googlePlacePhotoUrl = wp.photoUrl;
+      }
+    }
+    // Determine waypoint type from preselected place or use default
+    else if (widget.preselectedPlace != null) {
+      final place = widget.preselectedPlace!;
+      // Determine waypoint type from place types
+      if (place.types.contains('restaurant') || 
+          place.types.contains('food') ||
+          place.types.contains('cafe')) {
+        _selectedType = WaypointType.restaurant;
+      } else if (place.types.contains('lodging') || 
+                 place.types.contains('hotel')) {
+        _selectedType = WaypointType.accommodation;
+      } else if (place.types.contains('tourist_attraction') ||
+                 place.types.contains('point_of_interest')) {
+        _selectedType = WaypointType.attraction;
+      } else {
+        _selectedType = widget.preselectedType ?? WaypointType.attraction;
+      }
+      
+      // Pre-populate fields from Google My Business data
+      _nameController.text = place.name;
+      _descController.text = place.description ?? ''; // Include description from Google My Business
+      _phoneController.text = place.phoneNumber ?? '';
+      _addressSearchController.text = place.address ?? '';
+      _ratingController.text = place.rating?.toString() ?? '';
+      
+      // Populate price range from Google My Business if available
+      if (place.priceLevel != null) {
+        // Convert priceLevel (0-4) to approximate price range
+        // This is just a guide - users can adjust manually
+        switch (place.priceLevel) {
+          case 1: // $
+            _priceMinController.text = '10';
+            _priceMaxController.text = '30';
+            break;
+          case 2: // $$
+            _priceMinController.text = '30';
+            _priceMaxController.text = '60';
+            break;
+          case 3: // $$$
+            _priceMinController.text = '60';
+            _priceMaxController.text = '120';
+            break;
+          case 4: // $$$$
+            _priceMinController.text = '120';
+            _priceMaxController.text = '300';
+            break;
+          default:
+            // Free or unknown - leave empty
+            break;
+        }
+      }
+      
+      // Set location
+      _extractedLocation = place.location;
+      _extractedAddress = place.address != null ? {'formatted': place.address} : null;
+      _hasSearchedOrExtracted = true;
+      
+      // Fetch photo if available
+      if (place.photoReference != null) {
+        _loadGooglePlacePhoto(place.photoReference!);
+      }
+    } else {
+      _selectedType = widget.preselectedType ?? WaypointType.restaurant;
     }
     
-    // Add listeners to lat/lng controllers to clear selected place when manually entering coordinates
-    _latitudeController.addListener(() {
-      if (_latitudeController.text.isNotEmpty && _selectedMapboxPlace != null) {
-        setState(() {
-          _selectedMapboxPlace = null;
-          _extractedLocation = null;
-        });
-      }
-    });
-    _longitudeController.addListener(() {
-      if (_longitudeController.text.isNotEmpty && _selectedMapboxPlace != null) {
-        setState(() {
-          _selectedMapboxPlace = null;
-          _extractedLocation = null;
-        });
-      }
-    });
+    // proximityBias is only used for biasing Google Places search results
+    // It should NOT pre-populate the location field
+    // Location should only be set when:
+    // 1. User selects a place from search (preselectedPlace)
+    // 2. User is editing an existing waypoint (existingWaypoint)
+    // 3. User explicitly clicks on the map to set location (handled separately)
+    // Do NOT auto-populate from proximityBias
   }
 
   @override
@@ -4245,17 +5071,44 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
     _nameController.dispose();
     _descController.dispose();
     _airbnbAddressController.dispose();
-    _urlController.dispose();
     _addressSearchController.dispose();
-    _latitudeController.dispose();
-    _longitudeController.dispose();
     _priceMinController.dispose();
     _priceMaxController.dispose();
     _photoUrlController.dispose();
     _phoneController.dispose();
+    _ratingController.dispose();
     _addressSearchDebounce?.cancel();
     super.dispose();
   }
+
+Future<void> _loadGooglePlacePhoto(String photoReference) async {
+  if (widget.preselectedPlace == null) return;
+  
+  setState(() => _loadingPhoto = true);
+  
+  try {
+    // Generate a temporary waypoint ID for photo caching
+    final tempWaypointId = const Uuid().v4();
+    final photoUrl = await _googlePlacesService.getCachedPhotoUrl(photoReference, tempWaypointId);
+    
+    if (photoUrl != null && mounted) {
+      setState(() {
+        _googlePlacePhotoUrl = photoUrl;
+        _photoUrlController.text = photoUrl;
+        _loadingPhoto = false;
+      });
+    } else {
+      if (mounted) {
+        setState(() => _loadingPhoto = false);
+      }
+    }
+  } catch (e) {
+    Log.e('waypoint_dialog', 'Failed to load Google Place photo', e);
+    if (mounted) {
+      setState(() => _loadingPhoto = false);
+    }
+  }
+}
 
 Future<void> _pickAndUploadImage() async {
   try {
@@ -4304,116 +5157,8 @@ Future<void> _pickAndUploadImage() async {
   }
 }
 
-Future<void> _extractUrlMetadata() async {
-final url = _urlController.text.trim();
-if (url.isEmpty) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Please enter a URL'), backgroundColor: Colors.orange),
-);
-return;
-}
-
-setState(() => _extractingMetadata = true);
-
-try {
-Log.i('waypoint_dialog', 'Calling fetchMeta for URL: $url');
-final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-final callable = functions.httpsCallable('fetchMeta');
-final result = await callable.call<Map<String, dynamic>>({'url': url});
-final data = result.data as Map<String, dynamic>?;
-
-Log.i('waypoint_dialog', 'fetchMeta response received: $data');
-
-if (data != null && mounted) {
-// Store the metadata including the original URL
-final metadataWithUrl = Map<String, dynamic>.from(data);
-metadataWithUrl['url'] = url; // Store the original URL
-  
-// Extract values first
-final title = data['title']?.toString() ?? '';
-final description = data['description']?.toString() ?? '';
-final image = data['image']?.toString() ?? '';
-final siteName = data['siteName']?.toString() ?? '';
-
-// Extract location data
-final latitude = data['latitude'] != null ? (data['latitude'] as num).toDouble() : null;
-final longitude = data['longitude'] != null ? (data['longitude'] as num).toDouble() : null;
-final address = data['address'] as Map<String, dynamic>?;
-
-Log.i('waypoint_dialog', 'Extracted - title: "$title", description: "$description", image: "$image", siteName: "$siteName"');
-if (latitude != null && longitude != null) {
-  Log.i('waypoint_dialog', 'Extracted location: $latitude, $longitude');
-}
-if (address != null) {
-  Log.i('waypoint_dialog', 'Extracted address: ${address['formatted'] ?? address}');
-}
-
-// Always set _hasSearchedOrExtracted to true and store metadata
-setState(() {
-_extractedMetadata = metadataWithUrl;
-_extractedLocation = (latitude != null && longitude != null) ? ll.LatLng(latitude, longitude) : null;
-_extractedAddress = address;
-_hasSearchedOrExtracted = true;
-});
-
-// Update controllers AFTER setState to trigger rebuild
-if (title.isNotEmpty) {
-_nameController.text = title;
-Log.i('waypoint_dialog', 'Name field updated with: $title');
-}
-if (description.isNotEmpty) {
-_descController.text = description;
-Log.i('waypoint_dialog', 'Description field updated with: $description');
-}
-
-if (title.isEmpty && description.isEmpty && image.isEmpty) {
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Text('⚠ No metadata found for this URL'),
-backgroundColor: Colors.orange,
-duration: Duration(seconds: 3),
-),
-);
-}
-} else {
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Text('✓ Metadata extracted successfully'),
-backgroundColor: Colors.green,
-duration: Duration(seconds: 2),
-),
-);
-}
-}
-} else {
-Log.w('waypoint_dialog', 'fetchMeta returned null data');
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(
-content: Text('No metadata could be extracted'),
-backgroundColor: Colors.orange,
-duration: Duration(seconds: 3),
-),
-);
-}
-}
-} catch (e) {
-Log.e('waypoint_dialog', 'Failed to extract metadata', e);
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-SnackBar(
-content: Text('Failed to extract metadata: $e'),
-backgroundColor: Colors.red,
-duration: const Duration(seconds: 3),
-),
-);
-}
-} finally {
-if (mounted) setState(() => _extractingMetadata = false);
-}
-}
+// URL extraction method moved to legacy/waypoint_url_extraction.dart
+// Now using Google Places API for all waypoint data extraction
 
 // Google Places search methods removed - using Mapbox search and URL extraction instead
 
@@ -4547,86 +5292,142 @@ Future<void> _geocodeExtractedAddress() async {
   }
 }
 
-/// Perform Mapbox address search (unified method for all waypoint types)
-Future<void> _performMapboxSearch(String query) async {
+/// Perform Google Places search
+Future<void> _performGooglePlacesSearch(String query) async {
   final trimmedQuery = query.trim();
-  if (trimmedQuery.isEmpty || trimmedQuery.length < 3) {
+  if (trimmedQuery.isEmpty || trimmedQuery.length < 2) {
     if (mounted) {
       setState(() {
-        _mapboxSearchResults = [];
-        _mapboxSearching = false;
+        _googlePlacesSearchResults = [];
+        _googlePlacesSearching = false;
       });
     }
     return;
   }
 
-  if (mounted) setState(() => _mapboxSearching = true);
+  if (mounted) setState(() => _googlePlacesSearching = true);
 
   try {
-    final functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
-    final callable = functions.httpsCallable('geocodeAddressMapbox');
-    final result = await callable.call<Map<String, dynamic>>({
-      'query': trimmedQuery,
-      'proximity': widget.proximityBias != null
-          ? {'lng': widget.proximityBias!.longitude, 'lat': widget.proximityBias!.latitude}
-          : null,
-    });
+    final predictions = await _googlePlacesService.searchPlaces(
+      query: trimmedQuery,
+      proximity: widget.proximityBias,
+    );
 
-    final data = result.data as Map<String, dynamic>?;
     if (mounted) {
-      if (data != null && data['results'] != null && (data['results'] as List).isNotEmpty) {
-        setState(() {
-          _mapboxSearchResults = (data['results'] as List).cast<Map<String, dynamic>>();
-        });
-      } else {
-        setState(() => _mapboxSearchResults = []);
-      }
+      setState(() {
+        _googlePlacesSearchResults = predictions;
+      });
     }
   } catch (e) {
-    Log.e('waypoint_dialog', 'Failed to search Mapbox', e);
+    Log.e('waypoint_dialog', 'Failed to search Google Places', e);
     if (mounted) {
-      setState(() => _mapboxSearchResults = []);
+      setState(() => _googlePlacesSearchResults = []);
     }
   } finally {
-    if (mounted) setState(() => _mapboxSearching = false);
+    if (mounted) setState(() => _googlePlacesSearching = false);
   }
 }
 
-/// Handle selection of a Mapbox search result
-void _selectMapboxResult(Map<String, dynamic> result) {
-  final lat = result['latitude'] as num?;
-  final lng = result['longitude'] as num?;
-  final name = result['name'] as String? ?? '';
-  final formattedAddress = result['formattedAddress'] as String? ?? '';
+/// Handle selection of a Google Places search result
+Future<void> _selectGooglePlacesResult(PlacePrediction prediction) async {
+  setState(() {
+    _googlePlacesSearchResults = [];
+    _googlePlacesSearching = true;
+  });
 
-  if (lat != null && lng != null) {
-    final place = MapboxPlace(
-      name: name,
-      formattedAddress: formattedAddress,
-      latitude: lat.toDouble(),
-      longitude: lng.toDouble(),
-    );
+  try {
+    // Fetch full place details
+    final placeDetails = await _googlePlacesService.getPlaceDetails(prediction.placeId);
+    
+    if (placeDetails == null) {
+      if (mounted) {
+        setState(() => _googlePlacesSearching = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not fetch place details'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Determine waypoint type from place types
+    WaypointType? determinedType;
+    if (placeDetails.types.contains('restaurant') || 
+        placeDetails.types.contains('food') ||
+        placeDetails.types.contains('cafe')) {
+      determinedType = WaypointType.restaurant;
+    } else if (placeDetails.types.contains('lodging') || 
+               placeDetails.types.contains('hotel')) {
+      determinedType = WaypointType.accommodation;
+    } else if (placeDetails.types.contains('tourist_attraction') ||
+               placeDetails.types.contains('point_of_interest')) {
+      determinedType = WaypointType.attraction;
+    }
+
+    if (determinedType != null) {
+      _selectedType = determinedType;
+    }
     
     setState(() {
-      _selectedMapboxPlace = place;
-      _extractedLocation = place.location;
-      _extractedAddress = {'formatted': formattedAddress};
-      _mapboxSearchResults = [];
-      _addressSearchController.text = formattedAddress; // Keep the address in the search field
-      _hasSearchedOrExtracted = true;
+      _nameController.text = placeDetails.name;
+      _descController.text = placeDetails.description ?? ''; // Include description from Google My Business
+      _phoneController.text = placeDetails.phoneNumber ?? '';
+      _addressSearchController.text = placeDetails.address ?? '';
+      _ratingController.text = placeDetails.rating?.toString() ?? '';
       
-      // Populate lat/lng fields
-      _latitudeController.text = place.latitude.toStringAsFixed(6);
-      _longitudeController.text = place.longitude.toStringAsFixed(6);
-      
-      // Auto-fill name if empty
-      if (_nameController.text.trim().isEmpty && name.isNotEmpty) {
-        _nameController.text = name;
+      // Populate price range from Google My Business if available
+      if (placeDetails.priceLevel != null) {
+        // Convert priceLevel (0-4) to approximate price range
+        switch (placeDetails.priceLevel) {
+          case 1: // $
+            _priceMinController.text = '10';
+            _priceMaxController.text = '30';
+            break;
+          case 2: // $$
+            _priceMinController.text = '30';
+            _priceMaxController.text = '60';
+            break;
+          case 3: // $$$
+            _priceMinController.text = '60';
+            _priceMaxController.text = '120';
+            break;
+          case 4: // $$$$
+            _priceMinController.text = '120';
+            _priceMaxController.text = '300';
+            break;
+          default:
+            // Free or unknown - leave empty
+            break;
+        }
       }
+      
+      _extractedLocation = placeDetails.location;
+      _extractedAddress = placeDetails.address != null ? {'formatted': placeDetails.address} : null;
+      _hasSearchedOrExtracted = true;
+      _googlePlacesSearching = false;
     });
+
+    // Fetch photo if available
+    if (placeDetails.photoReference != null) {
+      _loadGooglePlacePhoto(placeDetails.photoReference!);
+    }
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Location selected! ✓'), backgroundColor: Colors.green),
+      );
+    }
+  } catch (e) {
+    Log.e('waypoint_dialog', 'Failed to fetch place details', e);
+    if (mounted) {
+      setState(() => _googlePlacesSearching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load place details: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -4635,25 +5436,12 @@ void _selectMapboxResult(Map<String, dynamic> result) {
 @override
 Widget build(BuildContext context) {
   return ScrollBlockingDialog(
-    child: MouseRegion(
-      // Force standard cursor (arrow) to override Mapbox's grabbing hand cursor
-      // This ensures form fields and buttons show the correct cursor
-      cursor: SystemMouseCursors.basic,
-      child: Listener(
-        // CRITICAL: Only intercept scroll events to prevent map zoom
-        // Do NOT block pointer down/up events - they need to reach child widgets (like the X button)
-        // The ScrollBlockingDialog barrier and CSS pointer-events handle blocking background clicks
-        onPointerSignal: (event) {
-          if (event is PointerScrollEvent) {
-            // Event is consumed by this handler, preventing it from reaching the map
-          }
-        },
-        child: Container(
-          width: 480,
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.95,
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
-          ),
+            child: Container(
+            width: 480,
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.95,
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
@@ -4672,9 +5460,9 @@ Widget build(BuildContext context) {
             ],
           ),
           child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.max,
         children: [
-// Modern header
+// Modern header (fixed at top)
 Container(
 padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
 decoration: BoxDecoration(
@@ -4708,7 +5496,7 @@ child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
 children: [
 Text(
-'Add Waypoint',
+widget.existingWaypoint != null ? 'Edit Waypoint' : 'Add Waypoint',
 style: TextStyle(
 fontSize: 20,
 fontWeight: FontWeight.w700,
@@ -4724,18 +5512,12 @@ style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
 ],
 ),
 ),
-GestureDetector(
-  behavior: HitTestBehavior.opaque, // Ensure button receives all events
-  onTap: () {
-    debugPrint('🔴 [RouteBuilder] Add Waypoint X button tapped - closing dialog');
-    Navigator.pop(context);
-  },
-  child: Material(
+Material(
     color: Colors.transparent,
     child: InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () {
-        debugPrint('🔴 [RouteBuilder] Add Waypoint InkWell tapped - closing dialog');
+      debugPrint('🔴 [RouteBuilder] Add Waypoint X button tapped - closing dialog');
         Navigator.pop(context);
       },
       child: Container(
@@ -4746,7 +5528,6 @@ GestureDetector(
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(Icons.close_rounded, size: 20, color: Colors.grey.shade600),
-      ),
     ),
   ),
 ),
@@ -4754,146 +5535,16 @@ GestureDetector(
 ),
 ),
 
+// Scrollable content area (middle)
 Expanded(
 child: ScrollBlockingScrollView(
 padding: const EdgeInsets.all(20),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.stretch,
+mainAxisSize: MainAxisSize.min,
 children: [
-// Google Maps search section removed - using Mapbox search and URL extraction instead
-// URL/Link metadata extraction section - always show, even after extraction
+// Search location section
 const SizedBox(height: 20),
-Row(
-  children: [
-    Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-    const SizedBox(width: 8),
-    Text('Add URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-    if (_extractedMetadata != null) ...[
-      const SizedBox(width: 8),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: Colors.green.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.shade200),
-        ),
-        child: Text('Metadata extracted', style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.w500)),
-      ),
-    ],
-  ],
-),
-const SizedBox(height: 12),
-Container(
-decoration: BoxDecoration(
-color: Colors.white,
-borderRadius: BorderRadius.circular(14),
-border: Border.all(color: Colors.grey.shade200),
-boxShadow: [
-BoxShadow(
-color: Colors.black.withValues(alpha: 0.04),
-blurRadius: 8,
-offset: const Offset(0, 2),
-),
-],
-),
-child: TextField(
-controller: _urlController,
-decoration: InputDecoration(
-hintText: 'Paste URL or link...',
-hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
-prefixIcon: Container(
-padding: const EdgeInsets.all(12),
-child: Icon(Icons.link_rounded, color: Colors.grey.shade400, size: 22),
-),
-suffixIcon: _urlController.text.isNotEmpty
-? IconButton(
-icon: const Icon(Icons.clear_rounded, size: 20),
-color: Colors.grey.shade400,
-onPressed: () {
-_urlController.clear();
-setState(() => _extractedMetadata = null);
-},
-)
-: null,
-border: InputBorder.none,
-contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-),
-onChanged: (value) => setState(() {}),
-),
-),
-const SizedBox(height: 12),
-SizedBox(
-width: double.infinity,
-child: ElevatedButton.icon(
-onPressed: _extractingMetadata || _urlController.text.isEmpty ? null : _extractUrlMetadata,
-icon: _extractingMetadata
-? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)))
-: const Icon(Icons.auto_awesome, size: 20),
-label: Text(_extractingMetadata ? 'Extracting...' : 'Extract Metadata'),
-style: ElevatedButton.styleFrom(
-backgroundColor: const Color(0xFF428A13),
-disabledBackgroundColor: Colors.grey.shade200,
-foregroundColor: Colors.white,
-disabledForegroundColor: Colors.grey.shade400,
-padding: const EdgeInsets.symmetric(vertical: 14),
-shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-),
-),
-),
-if (_extractedMetadata != null) ...[
-const SizedBox(height: 12),
-Container(
-padding: const EdgeInsets.all(12),
-decoration: BoxDecoration(
-color: const Color(0xFFE8F5E9),
-borderRadius: BorderRadius.circular(8),
-border: Border.all(color: Colors.green.shade200),
-),
-child: Row(
-children: [
-Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
-const SizedBox(width: 8),
-Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-if (_extractedMetadata!['title'] != null && _extractedMetadata!['title'].toString().isNotEmpty)
-Text(
-_extractedMetadata!['title'],
-style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-maxLines: 1,
-overflow: TextOverflow.ellipsis,
-),
-if (_extractedMetadata!['siteName'] != null && _extractedMetadata!['siteName'].toString().isNotEmpty)
-Text(
-_extractedMetadata!['siteName'],
-style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-),
-],
-),
-),
-IconButton(
-icon: const Icon(Icons.close, size: 18),
-onPressed: () {
-_urlController.clear();
-_nameController.clear();
-_descController.clear();
-setState(() {
-  _extractedMetadata = null;
-  // Only reset if no place is selected either
-  if (_selectedMapboxPlace == null) {
-    _hasSearchedOrExtracted = false;
-  }
-});
-},
-),
-],
-),
-),
-],
-// Location section - only show after URL extraction
-if (_extractedMetadata != null) ...[
-  const SizedBox(height: 20),
   Row(
     children: [
       Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
@@ -4908,7 +5559,7 @@ if (_extractedMetadata != null) ...[
   ),
   const SizedBox(height: 12),
   // Show extracted location status if available
-  if (_extractedLocation != null && _selectedMapboxPlace == null) ...[
+  if (_extractedLocation != null && widget.preselectedPlace == null) ...[
   Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
@@ -4972,11 +5623,11 @@ Row(
                     onPressed: () {
                       _addressSearchController.clear();
                       setState(() {
-                        _mapboxSearchResults = [];
+                        _googlePlacesSearchResults = [];
                       });
                     },
                   )
-                : (_mapboxSearching
+                : (_googlePlacesSearching
                     ? const Padding(
                         padding: EdgeInsets.all(12),
                         child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
@@ -4988,7 +5639,7 @@ Row(
           onChanged: (value) {
             _addressSearchDebounce?.cancel();
             _addressSearchDebounce = Timer(const Duration(milliseconds: 600), () {
-              if (mounted) _performMapboxSearch(value);
+              if (mounted) _performGooglePlacesSearch(value);
             });
             setState(() {}); // Update UI to show/hide clear button
           },
@@ -4997,7 +5648,7 @@ Row(
     ),
   ],
 ),
-if (_mapboxSearchResults.isNotEmpty)
+if (_googlePlacesSearchResults.isNotEmpty)
   Container(
     constraints: const BoxConstraints(maxHeight: 200),
     decoration: BoxDecoration(
@@ -5015,21 +5666,18 @@ if (_mapboxSearchResults.isNotEmpty)
     margin: const EdgeInsets.only(top: 8),
     child: ListView.builder(
       shrinkWrap: true,
-      itemCount: _mapboxSearchResults.length,
+      itemCount: _googlePlacesSearchResults.length,
       itemBuilder: (context, index) {
-        final result = _mapboxSearchResults[index];
-        final name = result['name'] as String? ?? '';
-        final formattedAddress = result['formattedAddress'] as String? ?? '';
+        final prediction = _googlePlacesSearchResults[index];
         return ListTile(
           leading: Icon(Icons.location_on_rounded, color: Colors.blue.shade600, size: 20),
-          title: Text(name, style: const TextStyle(fontWeight: FontWeight.w500)),
-          subtitle: Text(formattedAddress, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-          onTap: () => _selectMapboxResult(result),
+          title: Text(prediction.text, style: const TextStyle(fontWeight: FontWeight.w500)),
+          onTap: () => _selectGooglePlacesResult(prediction),
         );
       },
     ),
   ),
-if (_selectedMapboxPlace != null)
+if (widget.preselectedPlace != null && widget.preselectedPlace!.address != null)
   Padding(
     padding: const EdgeInsets.only(top: 12),
     child: Container(
@@ -5048,7 +5696,7 @@ if (_selectedMapboxPlace != null)
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Location selected', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.green.shade700)),
-                Text(_selectedMapboxPlace!.formattedAddress, style: TextStyle(fontSize: 12, color: Colors.green.shade700.withOpacity(0.8))),
+                Text(widget.preselectedPlace!.address!, style: TextStyle(fontSize: 12, color: Colors.green.shade700.withOpacity(0.8))),
               ],
             ),
           ),
@@ -5072,97 +5720,33 @@ if (_selectedMapboxPlace != null)
       ],
     ),
   ],
-],
-// Manual latitude/longitude input fields - collapsible section
-if (_extractedMetadata != null || widget.proximityBias != null) ...[
-  const SizedBox(height: 12),
-  InkWell(
-    onTap: () {
-      setState(() {
-        _showCoordinates = !_showCoordinates;
-      });
-    },
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _showCoordinates ? Icons.expand_less : Icons.expand_more,
-            size: 20,
-            color: Colors.grey.shade600,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'Advanced: Manual Coordinates',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade700,
-            ),
-          ),
-        ],
-      ),
-    ),
-  ),
-  if (_showCoordinates) ...[
-    const SizedBox(height: 12),
-    Row(
-      children: [
-        Expanded(
-          child: _ModernTextField(
-            label: 'Latitude',
-            isRequired: false,
-            controller: _latitudeController,
-            hintText: 'e.g., 68.3496',
-            prefixIcon: Icons.north_rounded,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _ModernTextField(
-            label: 'Longitude',
-            isRequired: false,
-            controller: _longitudeController,
-            hintText: 'e.g., 18.8300',
-            prefixIcon: Icons.east_rounded,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-        ),
-      ],
-    ),
-    if (_latitudeController.text.isNotEmpty && _longitudeController.text.isNotEmpty)
-      Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline_rounded, size: 16, color: Colors.grey.shade600),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                'Manual coordinates will override search results',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-            ),
-          ],
-        ),
-      ),
-  ],
-],
+// Only show Type and Sub-type fields after location is selected (when adding via + button)
+// Always show them when editing or when preselectedPlace is provided
+if (widget.existingWaypoint != null || 
+    widget.preselectedPlace != null || 
+    _hasSearchedOrExtracted) ...[
 const SizedBox(height: 20),
+Row(
+  children: [
 Text('Type', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700, letterSpacing: 0.3)),
+    const SizedBox(width: 4),
+    const Text('*', style: TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.w600)),
+  ],
+),
 const SizedBox(height: 12),
 Wrap(
 spacing: 10,
 runSpacing: 10,
 children: WaypointType.values
-.where((type) => !widget.excludeRoutePoint || type != WaypointType.routePoint)
+.where((type) {
+  // Exclude routePoint if excludeRoutePoint is true
+  if (widget.excludeRoutePoint && type == WaypointType.routePoint) return false;
+  // Exclude deprecated types (activity is duplicate of attraction, servicePoint is duplicate of service)
+  if (type == WaypointType.activity || type == WaypointType.servicePoint) return false;
+  // Exclude viewingPoint as requested
+  if (type == WaypointType.viewingPoint) return false;
+  return true;
+})
 .map((type) => _ModernTypeChip(
 type: type,
 isSelected: _selectedType == type,
@@ -5285,6 +5869,140 @@ onTap: () => setState(() => _activityTime = time),
 )).toList(),
 ),
 ],
+], // End of conditional Type/Sub-type section
+// Show price range indicator if available from Google Places (display only, not input)
+Builder(
+  builder: (context) {
+final priceLevel = widget.preselectedPlace?.priceLevel;
+    if (priceLevel != null && widget.preselectedPlace!.priceRangeString != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+          const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+              color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+                Icon(Icons.euro_rounded, size: 18, color: Colors.green.shade700),
+            const SizedBox(width: 6),
+            Text(
+                  'Price Range: ${widget.preselectedPlace!.priceRangeString!}',
+                style: TextStyle(
+                  fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green.shade800,
+                ),
+              ),
+          ],
+        ),
+      ),
+    ],
+      );
+    }
+    return const SizedBox.shrink();
+  },
+),
+// Show reviews if available (from Google Places or existing waypoint)
+Builder(
+  builder: (context) {
+final reviews = widget.preselectedPlace?.reviews ?? [];
+    if (reviews.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+  const SizedBox(height: 20),
+  Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.grey.shade50,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.grey.shade200),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.reviews_rounded, size: 18, color: Colors.grey.shade700),
+            const SizedBox(width: 8),
+            Text(
+              'Reviews',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...reviews.take(3).map((review) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (review.rating != null) ...[
+                    Row(
+                      children: [
+                        Icon(Icons.star_rounded, size: 14, color: Colors.amber.shade600),
+                        const SizedBox(width: 2),
+                        Text(
+                          review.rating!.toStringAsFixed(1),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (review.authorName != null)
+                    Expanded(
+                      child: Text(
+                        review.authorName!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+              ),
+              if (review.text != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  review.text!.length > 150 ? '${review.text!.substring(0, 150)}...' : review.text!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        )).toList(),
+      ],
+    ),
+  ),
+],
+      );
+    }
+    return const SizedBox.shrink();
+  },
+),
 // Only show waypoint details fields after search or extraction
 if (_hasSearchedOrExtracted) ...[
 const SizedBox(height: 20),
@@ -5352,14 +6070,6 @@ Row(
 ],
 // Photo URL
 const SizedBox(height: 16),
-Row(
-  children: [
-    Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-    const SizedBox(width: 8),
-    Text('Photo URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-  ],
-),
-const SizedBox(height: 12),
 _ModernTextField(
   label: 'Photo URL',
   isRequired: false,
@@ -5369,14 +6079,6 @@ _ModernTextField(
 ),
 // Phone Number
 const SizedBox(height: 16),
-Row(
-  children: [
-    Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
-    const SizedBox(width: 8),
-    Text('Phone Number', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
-  ],
-),
-const SizedBox(height: 12),
 _ModernTextField(
   label: 'Phone Number',
   isRequired: false,
@@ -5384,6 +6086,16 @@ _ModernTextField(
   hintText: '+1 234 567 8900',
   prefixIcon: Icons.phone_rounded,
   keyboardType: TextInputType.phone,
+),
+// Rating/Review Score
+const SizedBox(height: 16),
+_ModernTextField(
+  label: 'Rating / Review Score',
+  isRequired: false,
+  controller: _ratingController,
+  hintText: 'e.g., 4.5',
+  prefixIcon: Icons.star_rounded,
+  keyboardType: const TextInputType.numberWithOptions(decimal: true),
 ),
 // Image section - show extracted image or allow upload
 const SizedBox(height: 16),
@@ -5395,8 +6107,8 @@ Text('Image', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color:
 ],
 ),
 const SizedBox(height: 8),
-// Show extracted image if available
-if (_extractedMetadata != null && _extractedMetadata!['image'] != null && _extractedMetadata!['image'].toString().isNotEmpty) ...[
+// Show Google Place photo if available
+if (_googlePlacePhotoUrl != null && !_loadingPhoto) ...[
 Container(
 height: 120,
 width: double.infinity,
@@ -5407,7 +6119,7 @@ border: Border.all(color: Colors.grey.shade200),
 child: ClipRRect(
 borderRadius: BorderRadius.circular(12),
 child: Image.network(
-_extractedMetadata!['image'],
+_googlePlacePhotoUrl!,
 fit: BoxFit.cover,
 errorBuilder: (_, __, ___) => Container(
 color: Colors.grey.shade100,
@@ -5515,8 +6227,8 @@ shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
 side: BorderSide(color: Colors.grey.shade300),
 ),
 ),
-// Show address, latitude, and longitude below image if metadata is extracted
-if (_extractedMetadata != null) ...[
+// Show address, latitude, and longitude if location is set
+if (_extractedLocation != null || widget.preselectedPlace != null) ...[
 const SizedBox(height: 16),
 if (_extractedAddress != null && _extractedAddress!['formatted'] != null) ...[
 Row(
@@ -5549,81 +6261,83 @@ style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
 ),
 const SizedBox(height: 12),
 ],
-if (_extractedLocation != null) ...[
-Row(
-children: [
-Expanded(
-child: Container(
-padding: const EdgeInsets.all(12),
-decoration: BoxDecoration(
-color: Colors.grey.shade50,
-borderRadius: BorderRadius.circular(12),
-border: Border.all(color: Colors.grey.shade200),
-),
-child: Row(
-children: [
-Icon(Icons.north_rounded, size: 18, color: Colors.grey.shade500),
-const SizedBox(width: 10),
-Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text('Latitude', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-const SizedBox(height: 2),
-Text(
-_extractedLocation!.latitude.toStringAsFixed(6),
-style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey.shade800),
-),
-],
-),
-),
-],
-),
-),
-),
-const SizedBox(width: 12),
-Expanded(
-child: Container(
-padding: const EdgeInsets.all(12),
-decoration: BoxDecoration(
-color: Colors.grey.shade50,
-borderRadius: BorderRadius.circular(12),
-border: Border.all(color: Colors.grey.shade200),
-),
-child: Row(
-children: [
-Icon(Icons.east_rounded, size: 18, color: Colors.grey.shade500),
-const SizedBox(width: 10),
-Expanded(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text('Longitude', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-const SizedBox(height: 2),
-Text(
-_extractedLocation!.longitude.toStringAsFixed(6),
-style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey.shade800),
-),
-],
-),
-),
-],
-),
-),
-),
-],
-),
-],
-],
-],
-// Show URL if available from extraction
-if (_extractedMetadata != null && _extractedMetadata!['url'] != null && _extractedMetadata!['url'].toString().isNotEmpty) ...[
+// Duplicate coordinates display removed - coordinates only shown in Advanced: Manual Coordinates section
+// if (_extractedLocation != null) ...[
+// Row(
+// children: [
+// Expanded(
+// child: Container(
+// padding: const EdgeInsets.all(12),
+// decoration: BoxDecoration(
+// color: Colors.grey.shade50,
+// borderRadius: BorderRadius.circular(12),
+// border: Border.all(color: Colors.grey.shade200),
+// ),
+// child: Row(
+// children: [
+// Icon(Icons.north_rounded, size: 18, color: Colors.grey.shade500),
+// const SizedBox(width: 10),
+// Expanded(
+// child: Column(
+// crossAxisAlignment: CrossAxisAlignment.start,
+// children: [
+// Text('Latitude', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+// const SizedBox(height: 2),
+// Text(
+// _extractedLocation!.latitude.toStringAsFixed(6),
+// style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey.shade800),
+// ),
+// ],
+// ),
+// ),
+// ],
+// ),
+// ),
+// ),
+// ),
+// const SizedBox(width: 12),
+// Expanded(
+// child: Container(
+// padding: const EdgeInsets.all(12),
+// decoration: BoxDecoration(
+// color: Colors.grey.shade50,
+// borderRadius: BorderRadius.circular(12),
+// border: Border.all(color: Colors.grey.shade200),
+// ),
+// child: Row(
+// children: [
+// Icon(Icons.east_rounded, size: 18, color: Colors.grey.shade500),
+// const SizedBox(width: 10),
+// Expanded(
+// child: Column(
+// crossAxisAlignment: CrossAxisAlignment.start,
+// children: [
+// Text('Longitude', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+// const SizedBox(height: 2),
+// Text(
+// _extractedLocation!.longitude.toStringAsFixed(6),
+// style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey.shade800),
+// ),
+// ],
+// ),
+// ),
+// ],
+// ),
+// ),
+// ),
+// ],
+// ),
+// ],
+// ],
+// ],
+// Show website URL if available from Google Places
+if (widget.preselectedPlace?.website != null) ...[
 const SizedBox(height: 16),
 Row(
 children: [
 Container(width: 4, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, shape: BoxShape.circle)),
 const SizedBox(width: 8),
-Text('URL', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+Text('Website', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
 ],
 ),
 const SizedBox(height: 8),
@@ -5640,7 +6354,7 @@ Icon(Icons.link_rounded, size: 18, color: Colors.grey.shade500),
 const SizedBox(width: 10),
 Expanded(
 child: Text(
-_extractedMetadata!['url'],
+widget.preselectedPlace!.website!,
 style: TextStyle(fontSize: 13, color: Colors.blue.shade700),
 maxLines: 2,
 overflow: TextOverflow.ellipsis,
@@ -5650,104 +6364,46 @@ overflow: TextOverflow.ellipsis,
 ),
 ),
 ],
-],
+], // Close website section
+], // Close _hasSearchedOrExtracted section
+], // Close children array
 ),
 ),
 ),
+// Footer with buttons (fixed at bottom)
 Container(
-padding: const EdgeInsets.all(20),
+padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
 decoration: BoxDecoration(
 color: Colors.grey.shade50,
 borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
-border: Border(top: BorderSide(color: Colors.grey.shade100)),
+border: Border(top: BorderSide(color: Colors.grey.shade100, width: 1)),
 ),
 child: Row(
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
   children: [
-    if (_selectedMapboxPlace != null)
+    // Status indicator (left side) - only show if location is set
+    if (widget.preselectedPlace != null || _extractedLocation != null || (_accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed) || _selectedType == WaypointType.routePoint)
       Expanded(
         child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: const Color(0xFFE8F5E9),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF428A13)),
+              child: const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF428A13)),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Location selected', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
-                  Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                ],
+              child: Text(
+                widget.preselectedPlace != null || _extractedLocation != null || (_accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed)
+                    ? 'Location selected'
+                    : 'Location set from map',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ],
-        ),
-      )
-    else if (_extractedLocation != null || (_extractedMetadata != null && widget.proximityBias != null))
-Expanded(
-child: Row(
-children: [
-Container(
-width: 36,
-height: 36,
-decoration: BoxDecoration(
-color: const Color(0xFFE8F5E9),
-borderRadius: BorderRadius.circular(10),
-),
-child: const Icon(Icons.link_rounded, size: 18, color: Color(0xFF428A13)),
-),
-const SizedBox(width: 10),
-const Flexible(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text('URL metadata extracted', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
-Text('Ready to add', style: TextStyle(fontSize: 11, color: Colors.grey)),
-],
-),
-),
-],
-),
-)
-else if (_accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed)
-Expanded(
-child: Row(
-children: [
-Container(
-width: 36,
-height: 36,
-decoration: BoxDecoration(
-color: const Color(0xFFE8F5E9),
-borderRadius: BorderRadius.circular(10),
-),
-child: const Icon(Icons.location_on_rounded, size: 18, color: Color(0xFF428A13)),
-),
-const SizedBox(width: 10),
-const Flexible(
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text('Location set', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32))),
-],
-),
-),
-],
-),
-)
-else if (_selectedType == WaypointType.routePoint)
-Expanded(
-child: Row(
-children: [
-Icon(Icons.check_circle_outline, size: 16, color: Colors.green.shade600),
-const SizedBox(width: 8),
-Flexible(
-child: Text('Location set from map', style: TextStyle(fontSize: 13, color: Colors.green.shade600)),
 ),
 ],
 ),
@@ -5759,37 +6415,63 @@ children: [
 Icon(Icons.info_outline_rounded, size: 16, color: Colors.orange.shade600),
 const SizedBox(width: 8),
 Flexible(
-child: Text('Search or set location first', style: TextStyle(fontSize: 13, color: Colors.orange.shade600)),
+              child: Text(
+                'Search or set location first',
+                style: TextStyle(fontSize: 12, color: Colors.orange.shade600),
+                overflow: TextOverflow.ellipsis,
+              ),
 ),
 ],
 ),
 ),
-const SizedBox(width: 16),
+    const SizedBox(width: 12),
+    // Action buttons (right side)
+    if (widget.existingWaypoint != null)
+  TextButton(
+    onPressed: () {
+      Navigator.of(context).pop(RouteWaypoint(
+        id: widget.existingWaypoint!.id,
+        type: widget.existingWaypoint!.type,
+        position: widget.existingWaypoint!.position,
+        name: '', // Empty name signals deletion
+        order: widget.existingWaypoint!.order,
+      ));
+    },
+    style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+        child: Text('Delete', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.red.shade700)),
+  ),
+    if (widget.existingWaypoint != null) const SizedBox(width: 8),
 TextButton(
-onPressed: () => Navigator.of(context).pop(),
+onPressed: () => Navigator.of(context).pop(widget.existingWaypoint),
 style: TextButton.styleFrom(
-padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
 ),
-child: Text('Cancel', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Colors.grey.shade600)),
+      child: Text('Cancel', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey.shade600)),
 ),
-const SizedBox(width: 10),
+    const SizedBox(width: 8),
 ElevatedButton(
 onPressed: _canSave() ? _save : null,
 style: ElevatedButton.styleFrom(
 backgroundColor: const Color(0xFF428A13),
 disabledBackgroundColor: Colors.grey.shade200,
-padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
 elevation: 0,
 shadowColor: Colors.transparent,
 ),
 child: Row(
 mainAxisSize: MainAxisSize.min,
 children: [
-Icon(Icons.add_rounded, size: 18, color: _canSave() ? Colors.white : Colors.grey.shade400),
+          Icon(Icons.check_rounded, size: 18, color: _canSave() ? Colors.white : Colors.grey.shade400),
 const SizedBox(width: 6),
-Text('Add Waypoint', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _canSave() ? Colors.white : Colors.grey.shade400)),
+          Text(
+            widget.existingWaypoint != null ? 'Save Changes' : 'Add Waypoint',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _canSave() ? Colors.white : Colors.grey.shade400),
+          ),
 ],
 ),
 ),
@@ -5797,14 +6479,20 @@ Text('Add Waypoint', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
 ),
 ),
         ],
-          ),
-        ),
       ),
     ),
   );
 }
 
 bool _canSave() {
+// Type is mandatory - should always be set, but validate anyway
+// Ensure type is not one of the excluded types
+if (_selectedType == WaypointType.activity || 
+    _selectedType == WaypointType.servicePoint || 
+    _selectedType == WaypointType.viewingPoint) {
+  return false;
+}
+
 if (_nameController.text.trim().isEmpty) return false;
 
 // Route points don't need Google Place selection - just name and location from proximity bias
@@ -5815,43 +6503,17 @@ return widget.proximityBias != null; // Must have a location set
 if (_selectedType == WaypointType.accommodation && _accommodationType == null) return false;
 if (_accommodationType == POIAccommodationType.airbnb && !_airbnbAddressConfirmed) return false;
 
-// Check for manual latitude/longitude input
-final latText = _latitudeController.text.trim();
-final lngText = _longitudeController.text.trim();
-bool hasManualCoordinates = false;
-if (latText.isNotEmpty && lngText.isNotEmpty) {
-  try {
-    final lat = double.parse(latText);
-    final lng = double.parse(lngText);
-    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-      hasManualCoordinates = true;
-    }
-  } catch (_) {
-    // Invalid coordinates
-  }
-}
-
 // Allow saving if:
-// 1. Manual coordinates entered (highest priority)
-// 2. Mapbox place is selected (has location)
-// 3. Location extracted from URL metadata (with coordinates)
-// 4. Metadata is extracted AND we have a proximity bias (map location)
-// 5. Airbnb with confirmed address
-// 6. Address extracted from URL (even without coordinates, if user selects a place)
-final hasMapboxPlace = _selectedMapboxPlace != null;
+// 1. Google Places preselected place
+// 2. Location extracted from URL metadata
+// 3. Airbnb with confirmed address
+// 4. Proximity bias (map tap location)
+final hasPreselectedPlace = widget.preselectedPlace != null;
 final hasExtractedLocation = _extractedLocation != null;
-final hasMetadataWithLocation = _extractedMetadata != null && widget.proximityBias != null;
 final hasAirbnbLocation = _accommodationType == POIAccommodationType.airbnb && _airbnbAddressConfirmed;
-// If metadata was extracted but no address found, require location selection
-final hasExtractedAddress = _extractedAddress != null && _extractedAddress!['formatted'] != null;
-
-// If metadata was extracted but no address was found, location is mandatory
-if (_extractedMetadata != null && !hasExtractedAddress && !hasManualCoordinates && !hasMapboxPlace && !hasExtractedLocation && !hasMetadataWithLocation && !hasAirbnbLocation) {
-  return false;
-}
 
 // For other cases, check if we have any location
-if (!hasManualCoordinates && !hasMapboxPlace && !hasExtractedLocation && !hasMetadataWithLocation && !hasAirbnbLocation) return false;
+if (!hasPreselectedPlace && !hasExtractedLocation && !hasAirbnbLocation && widget.proximityBias == null) return false;
 
 return true;
 }
@@ -5860,13 +6522,13 @@ void _save() async {
   if (!_canSave()) return;
 
   String? photoUrl;
-  // Priority: 1. Uploaded image, 2. Photo URL field, 3. Extracted metadata image
+  // Priority: 1. Uploaded image, 2. Photo URL field, 3. Google Place photo
   if (_uploadedImageUrl != null) {
     photoUrl = _uploadedImageUrl;
   } else if (_photoUrlController.text.trim().isNotEmpty) {
     photoUrl = _photoUrlController.text.trim();
-  } else if (_extractedMetadata != null && _extractedMetadata!['image'] != null) {
-    photoUrl = _extractedMetadata!['image'] as String?;
+  } else if (_googlePlacePhotoUrl != null) {
+    photoUrl = _googlePlacePhotoUrl;
   }
 
   // Calculate price range
@@ -5893,41 +6555,15 @@ void _save() async {
   String? address;
   
   // Priority order for position:
-  // 1. Manual latitude/longitude input (highest priority - user override)
-  // 2. Selected Mapbox place (from search)
-  // 3. Extracted location from URL metadata
-  // 4. Airbnb geocoded location
-  // 5. Route point proximity bias
-  // 6. Proximity bias (map tap location) as fallback
+  // 1. Google Places preselected place
+  // 2. Extracted location from URL metadata
+  // 3. Airbnb geocoded location
+  // 4. Route point proximity bias
+  // 5. Proximity bias (map tap location) as fallback
   
-  // Check for manual coordinates first
-  final latText = _latitudeController.text.trim();
-  final lngText = _longitudeController.text.trim();
-  if (latText.isNotEmpty && lngText.isNotEmpty) {
-    try {
-      final lat = double.parse(latText);
-      final lng = double.parse(lngText);
-      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-        position = ll.LatLng(lat, lng);
-        address = _addressSearchController.text.trim().isEmpty ? null : _addressSearchController.text.trim();
-      } else {
-        throw 'Coordinates out of range';
-      }
-    } catch (e) {
-      // Invalid coordinates, fall through to other options
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Invalid coordinates: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-  } else if (_selectedMapboxPlace != null) {
-    position = _selectedMapboxPlace!.location;
-    address = _selectedMapboxPlace!.formattedAddress;
+  if (widget.preselectedPlace != null) {
+    position = widget.preselectedPlace!.location;
+    address = widget.preselectedPlace!.address;
   } else if (_extractedLocation != null) {
     // Use location extracted from URL metadata
     position = _extractedLocation!;
@@ -5939,6 +6575,10 @@ void _save() async {
   } else if (_accommodationType == POIAccommodationType.airbnb && _airbnbLocation != null) {
     position = _airbnbLocation!;
     address = _airbnbAddressController.text.trim().isEmpty ? null : _airbnbAddressController.text.trim();
+  } else if (widget.existingWaypoint != null) {
+    // Use existing waypoint's position when editing
+    position = widget.existingWaypoint!.position;
+    address = widget.existingWaypoint!.address;
   } else if (widget.proximityBias != null) {
     // Use proximity bias (map tap location) for extracted metadata waypoints
     position = widget.proximityBias!;
@@ -5947,24 +6587,37 @@ void _save() async {
     return;
   }
 
+  // Parse rating from controller
+  double? rating;
+  final ratingText = _ratingController.text.trim();
+  if (ratingText.isNotEmpty) {
+    rating = double.tryParse(ratingText.replaceAll(',', '.'));
+  }
+  // Priority: 1. Manual entry, 2. Preselected place, 3. Existing waypoint
+  final finalRating = rating ?? widget.preselectedPlace?.rating ?? widget.existingWaypoint?.rating;
+
   final waypoint = RouteWaypoint(
+    id: widget.existingWaypoint?.id, // Preserve ID when editing
     type: _selectedType,
     position: position,
     name: _nameController.text.trim(),
     description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
-    order: 0,
-    googlePlaceId: null, // No longer using Google Places
-    address: address,
-    rating: null, // No longer using Google Places rating
-    website: null, // No longer using Google Places website
-    phoneNumber: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-    photoUrl: photoUrl,
+    order: widget.existingWaypoint?.order ?? 0, // Preserve order when editing
+    googlePlaceId: widget.preselectedPlace?.placeId ?? widget.existingWaypoint?.googlePlaceId,
+    address: address ?? widget.existingWaypoint?.address,
+    rating: finalRating,
+    website: widget.preselectedPlace?.website ?? widget.existingWaypoint?.website,
+    phoneNumber: _phoneController.text.trim().isEmpty 
+        ? (widget.preselectedPlace?.phoneNumber ?? widget.existingWaypoint?.phoneNumber)
+        : _phoneController.text.trim(),
+    photoUrl: photoUrl ?? _googlePlacePhotoUrl ?? widget.existingWaypoint?.photoUrl,
     accommodationType: _selectedType == WaypointType.accommodation ? _accommodationType : null,
     mealTime: _selectedType == WaypointType.restaurant ? _mealTime : null,
     activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
-    linkUrl: _extractedMetadata != null ? _urlController.text.trim() : null,
-    linkImageUrl: _extractedMetadata != null ? (_extractedMetadata!['image'] as String?) : null,
-    estimatedPriceRange: priceRange,
+    linkUrl: null, // URL extraction moved to legacy
+    linkImageUrl: null, // URL extraction moved to legacy
+    estimatedPriceRange: priceRange ?? widget.existingWaypoint?.estimatedPriceRange,
+    timeSlotCategory: widget.existingWaypoint?.timeSlotCategory, // Preserve timeSlotCategory when editing
   );
 
   Navigator.of(context).pop(waypoint);
@@ -6176,632 +6829,5 @@ contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
 }
 }
 
-/// Enhanced waypoint editor dialog
-class _WaypointEditorDialog extends StatefulWidget {
-final RouteWaypoint? existingWaypoint;
-final WaypointType type;
-final ll.LatLng position;
-
-const _WaypointEditorDialog({
-this.existingWaypoint,
-required this.type,
-required this.position,
-});
-
-@override
-State<_WaypointEditorDialog> createState() => _WaypointEditorDialogState();
-}
-
-class _WaypointEditorDialogState extends State<_WaypointEditorDialog> {
-late WaypointType _selectedType;
-late final TextEditingController _nameController;
-late final TextEditingController _descriptionController;
-late final TextEditingController _photoUrlController;
-late final TextEditingController _websiteController;
-late final TextEditingController _phoneController;
-late final TextEditingController _addressController;
-late final TextEditingController _hotelChainController;
-late final TextEditingController _bookingUrlController;
-late final TextEditingController _airbnbUrlController;
-late final TextEditingController _priceMinController;
-late final TextEditingController _priceMaxController;
-
-POIAccommodationType? _accommodationType;
-MealTime? _mealTime;
-ActivityTime? _activityTime;
-
-@override
-void initState() {
-super.initState();
-final wp = widget.existingWaypoint;
-_selectedType = wp?.type ?? widget.type;
-_accommodationType = wp?.accommodationType;
-_mealTime = wp?.mealTime;
-_activityTime = wp?.activityTime;
-_nameController = TextEditingController(text: wp?.name ?? '');
-_descriptionController = TextEditingController(text: wp?.description ?? '');
-_photoUrlController = TextEditingController(text: wp?.photoUrl ?? '');
-_websiteController = TextEditingController(text: wp?.website ?? '');
-_phoneController = TextEditingController(text: wp?.phoneNumber ?? '');
-_addressController = TextEditingController(text: wp?.address ?? '');
-_hotelChainController = TextEditingController(text: wp?.hotelChain ?? '');
-_bookingUrlController = TextEditingController(text: wp?.bookingComUrl ?? '');
-_airbnbUrlController = TextEditingController(text: wp?.airbnbPropertyUrl ?? '');
-_priceMinController = TextEditingController(text: wp?.estimatedPriceRange?.min.toString() ?? '');
-_priceMaxController = TextEditingController(text: wp?.estimatedPriceRange?.max.toString() ?? '');
-}
-
-@override
-void dispose() {
-_nameController.dispose();
-_descriptionController.dispose();
-_photoUrlController.dispose();
-_websiteController.dispose();
-_phoneController.dispose();
-_addressController.dispose();
-_hotelChainController.dispose();
-_bookingUrlController.dispose();
-_airbnbUrlController.dispose();
-_priceMinController.dispose();
-_priceMaxController.dispose();
-super.dispose();
-}
-
-@override
-Widget build(BuildContext context) {
-  return ScrollBlockingDialog(
-    child: MouseRegion(
-      // Force standard cursor (arrow) to override Mapbox's grabbing hand cursor
-      cursor: SystemMouseCursors.basic,
-      child: Listener(
-        // CRITICAL: Only intercept scroll events to prevent map zoom
-        onPointerSignal: (event) {
-          if (event is PointerScrollEvent) {
-            // Event is consumed by this handler, preventing it from reaching the map
-          }
-        },
-        child: Container(
-          width: 480,
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.95,
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 40,
-                offset: const Offset(0, 20),
-                spreadRadius: 0,
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Modern header
-              Container(
-                padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF428A13), Color(0xFF2D5A27)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF428A13).withValues(alpha: 0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Icon(getWaypointIcon(_selectedType), color: Colors.white, size: 24),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.existingWaypoint == null ? 'Add Waypoint' : 'Edit Waypoint',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade900,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Search or tap on map to set location',
-                            style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-                          ),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque, // Ensure button receives all events
-                      onTap: () {
-                        debugPrint('🔴 [RouteBuilder] Edit Waypoint X button tapped - closing dialog');
-                        Navigator.of(context).pop();
-                      },
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () {
-                            debugPrint('🔴 [RouteBuilder] Edit Waypoint InkWell tapped - closing dialog');
-                            Navigator.of(context).pop();
-                          },
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(Icons.close_rounded, size: 20, color: Colors.grey.shade600),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-Expanded(
-child: ScrollBlockingScrollView(
-padding: const EdgeInsets.all(20),
-child: Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-_buildCommonFields(),
-const SizedBox(height: 16),
-if (_selectedType != WaypointType.accommodation) _buildPoiFields(),
-if (_selectedType == WaypointType.accommodation) _buildAccommodationFields(),
-],
-),
-),
-),
-Container(
-padding: const EdgeInsets.all(20),
-decoration: BoxDecoration(
-color: Colors.grey.shade50,
-borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(24), bottomRight: Radius.circular(24)),
-border: Border(top: BorderSide(color: Colors.grey.shade100)),
-),
-child: Row(
-mainAxisAlignment: MainAxisAlignment.spaceBetween,
-children: [
-if (widget.existingWaypoint != null)
-TextButton(
-onPressed: () => Navigator.of(context).pop(),
-style: TextButton.styleFrom(foregroundColor: Colors.red),
-child: const Text('Delete'),
-)
-else
-const SizedBox.shrink(),
-Row(
-children: [
-TextButton(
-onPressed: () => Navigator.of(context).pop(widget.existingWaypoint),
-child: const Text('Cancel'),
-),
-const SizedBox(width: 8),
-FilledButton(
-onPressed: _saveWaypoint,
-child: const Text('Save'),
-),
-],
-),
-],
-),
-),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-Widget _buildCommonFields() => Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-const Text('Type', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-DropdownButtonFormField<WaypointType>(
-value: _selectedType,
-decoration: InputDecoration(
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-),
-items: WaypointType.values
-.map((type) => DropdownMenuItem(
-value: type,
-child: Row(
-children: [
-Icon(getWaypointIcon(type), color: getWaypointColor(type), size: 20),
-const SizedBox(width: 8),
-Text(getWaypointLabel(type)),
-],
-),
-))
-.toList(),
-onChanged: (value) {
-if (value != null) setState(() => _selectedType = value);
-},
-),
-if (_selectedType == WaypointType.accommodation) ...[
-const SizedBox(height: 16),
-const Text('Accommodation Type *', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-Row(
-children: [
-Expanded(
-child: ChoiceChip(
-label: const Row(
-mainAxisSize: MainAxisSize.min,
-children: [
-Icon(Icons.hotel, size: 16),
-SizedBox(width: 4),
-Text('Hotel'),
-],
-),
-selected: _accommodationType == POIAccommodationType.hotel,
-onSelected: (selected) {
-if (selected) setState(() => _accommodationType = POIAccommodationType.hotel);
-},
-),
-),
-const SizedBox(width: 8),
-Expanded(
-child: ChoiceChip(
-label: const Row(
-mainAxisSize: MainAxisSize.min,
-children: [
-Icon(Icons.home, size: 16),
-SizedBox(width: 4),
-Text('Airbnb'),
-],
-),
-selected: _accommodationType == POIAccommodationType.airbnb,
-onSelected: (selected) {
-if (selected) setState(() => _accommodationType = POIAccommodationType.airbnb);
-},
-),
-),
-],
-),
-],
-if (_selectedType == WaypointType.restaurant) ...[
-const SizedBox(height: 16),
-const Text('Meal Time', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-Wrap(
-spacing: 8,
-runSpacing: 8,
-children: MealTime.values.map((time) => ChoiceChip(
-label: Row(
-mainAxisSize: MainAxisSize.min,
-children: [
-Icon(getMealTimeIcon(time), size: 16),
-const SizedBox(width: 4),
-Text(getMealTimeLabel(time)),
-],
-),
-selected: _mealTime == time,
-onSelected: (selected) {
-setState(() => _mealTime = selected ? time : null);
-},
-)).toList(),
-),
-],
-if (_selectedType == WaypointType.activity) ...[
-const SizedBox(height: 16),
-const Text('Activity Time', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-Wrap(
-spacing: 8,
-runSpacing: 8,
-children: ActivityTime.values.map((time) => ChoiceChip(
-label: Row(
-mainAxisSize: MainAxisSize.min,
-children: [
-Icon(getActivityTimeIcon(time), size: 16),
-const SizedBox(width: 4),
-Text(getActivityTimeLabel(time)),
-],
-),
-selected: _activityTime == time,
-onSelected: (selected) {
-setState(() => _activityTime = selected ? time : null);
-},
-)).toList(),
-),
-],
-const SizedBox(height: 16),
-const Text('Name *', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _nameController,
-decoration: InputDecoration(
-hintText: 'e.g., Mountain View Café',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-const SizedBox(height: 16),
-const Text('Description', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _descriptionController,
-maxLines: 3,
-decoration: InputDecoration(
-hintText: 'Add details...',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-// Price estimation for restaurant, accommodation, activity, and servicePoint (exclude viewingPoint)
-if (_selectedType == WaypointType.restaurant ||
-    _selectedType == WaypointType.accommodation ||
-    _selectedType == WaypointType.activity ||
-    _selectedType == WaypointType.servicePoint) ...[
-const SizedBox(height: 16),
-Text(
-_selectedType == WaypointType.accommodation
-    ? 'Estimated Price Range (per night)'
-    : 'Estimated Price Range (optional)',
-style: const TextStyle(fontWeight: FontWeight.w600),
-),
-const SizedBox(height: 8),
-Row(
-children: [
-Expanded(
-child: TextField(
-controller: _priceMinController,
-keyboardType: TextInputType.number,
-decoration: InputDecoration(
-labelText: 'Min €',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-),
-const SizedBox(width: 12),
-Expanded(
-child: TextField(
-controller: _priceMaxController,
-keyboardType: TextInputType.number,
-decoration: InputDecoration(
-labelText: 'Max €',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-),
-],
-),
-],
-const SizedBox(height: 16),
-const Text('Photo URL', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _photoUrlController,
-decoration: InputDecoration(
-hintText: 'https://example.com/image.jpg',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-],
-);
-
-Widget _buildPoiFields() => Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-const Divider(),
-const SizedBox(height: 16),
-const Text('POI Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-const SizedBox(height: 16),
-const Text('Address', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _addressController,
-decoration: InputDecoration(
-hintText: 'Enter address',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-const SizedBox(height: 16),
-const Text('Website', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _websiteController,
-decoration: InputDecoration(
-hintText: 'https://example.com',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-const SizedBox(height: 16),
-const Text('Phone Number', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _phoneController,
-decoration: InputDecoration(
-hintText: '+1 234 567 8900',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-],
-);
-
-Widget _buildAccommodationFields() => Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-const Divider(),
-const SizedBox(height: 16),
-const Text('Accommodation Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-const SizedBox(height: 16),
-if (_accommodationType == POIAccommodationType.hotel) ...[
-const Text('Hotel Chain', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _hotelChainController,
-decoration: InputDecoration(
-hintText: 'e.g., Marriott, Hilton',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-const SizedBox(height: 16),
-],
-const Text('Address', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _addressController,
-decoration: InputDecoration(
-hintText: 'Enter address',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-if (_accommodationType == POIAccommodationType.hotel) ...[
-const Text('Booking.com URL', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _bookingUrlController,
-decoration: InputDecoration(
-hintText: 'https://booking.com/...',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-],
-if (_accommodationType == POIAccommodationType.airbnb) ...[
-const Text('Airbnb Property URL *', style: TextStyle(fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-TextField(
-controller: _airbnbUrlController,
-decoration: InputDecoration(
-hintText: 'https://airbnb.com/rooms/...',
-border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-),
-),
-],
-],
-);
-
-void _saveWaypoint() {
-if (_nameController.text.trim().isEmpty) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Please enter a name')),
-);
-return;
-}
-
-if (_selectedType == WaypointType.accommodation && _accommodationType == null) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Please select accommodation type')),
-);
-return;
-}
-
-if (_accommodationType == POIAccommodationType.airbnb && _airbnbUrlController.text.trim().isEmpty) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Please enter Airbnb URL')),
-);
-return;
-}
-
-// Basic URL validation
-final bookingUrl = _bookingUrlController.text.trim();
-final airbnbUrl = _airbnbUrlController.text.trim();
-final websiteUrl = _websiteController.text.trim();
-
-if (bookingUrl.isNotEmpty && !bookingUrl.startsWith('http')) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Booking URL must start with http:// or https://')),
-);
-return;
-}
-
-if (airbnbUrl.isNotEmpty && !airbnbUrl.startsWith('http')) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Airbnb URL must start with http:// or https://')),
-);
-return;
-}
-
-if (websiteUrl.isNotEmpty && !websiteUrl.startsWith('http')) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Website URL must start with http:// or https://')),
-);
-return;
-}
-
-PriceRange? priceRange;
-final minPriceText = _priceMinController.text.trim();
-final maxPriceText = _priceMaxController.text.trim();
-if (minPriceText.isNotEmpty || maxPriceText.isNotEmpty) {
-final minPrice = double.tryParse(minPriceText.replaceAll(',', '.')) ?? 0.0;
-final maxPrice = double.tryParse(maxPriceText.replaceAll(',', '.')) ?? 0.0;
-if (minPrice > 0 || maxPrice > 0) {
-// If only one value is provided, use it for both min and max
-// Ensure min <= max
-final actualMin = minPrice > 0 ? minPrice : (maxPrice > 0 ? maxPrice : 0.0);
-final actualMax = maxPrice > 0 ? maxPrice : (minPrice > 0 ? minPrice : 0.0);
-priceRange = PriceRange(
-min: actualMin <= actualMax ? actualMin : actualMax,
-max: actualMax >= actualMin ? actualMax : actualMin,
-currency: 'EUR',
-);
-}
-}
-
-final waypoint = RouteWaypoint(
-id: widget.existingWaypoint?.id,
-type: _selectedType,
-position: widget.position,
-name: _nameController.text.trim(),
-description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
-order: widget.existingWaypoint?.order ?? 0,
-photoUrl: _photoUrlController.text.trim().isEmpty ? null : _photoUrlController.text.trim(),
-rating: null, // No longer using rating
-website: websiteUrl.isEmpty ? null : websiteUrl,
-phoneNumber: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
-accommodationType: _selectedType == WaypointType.accommodation ? _accommodationType : null,
-hotelChain: _hotelChainController.text.trim().isEmpty ? null : _hotelChainController.text.trim(),
-amenities: null, // No longer using amenities
-estimatedPriceRange: priceRange,
-bookingComUrl: bookingUrl.isEmpty ? null : bookingUrl,
-airbnbPropertyUrl: airbnbUrl.isEmpty ? null : airbnbUrl,
-mealTime: _selectedType == WaypointType.restaurant ? _mealTime : null,
-activityTime: _selectedType == WaypointType.activity ? _activityTime : null,
-);
-Navigator.of(context).pop(waypoint);
-}
-}
+// _WaypointEditorDialog removed - now using unified _AddWaypointDialog for both add and edit
 

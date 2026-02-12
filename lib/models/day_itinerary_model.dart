@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/models/route_info_model.dart';
 
 /// Full day itinerary data stored in subcollection
 /// Stored in: plans/{planId}/versions/{versionId}/days/{dayNum}
@@ -23,6 +24,9 @@ class DayItineraryDoc {
   final double? endLat;
   final double? endLng;
   final DayRoute? route;
+  final String? komootLink;
+  final String? allTrailsLink;
+  final RouteInfo? routeInfo;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -45,6 +49,9 @@ class DayItineraryDoc {
     this.endLat,
     this.endLng,
     this.route,
+    this.komootLink,
+    this.allTrailsLink,
+    this.routeInfo,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -80,6 +87,11 @@ class DayItineraryDoc {
     route: json['route'] != null
         ? DayRoute.fromJson(json['route'] as Map<String, dynamic>)
         : null,
+    komootLink: json['komoot_link'] as String?,
+    allTrailsLink: json['all_trails_link'] as String?,
+    routeInfo: json['route_info'] != null
+        ? RouteInfo.fromJson(json['route_info'] as Map<String, dynamic>)
+        : null,
     createdAt: (json['created_at'] as Timestamp).toDate(),
     updatedAt: (json['updated_at'] as Timestamp).toDate(),
   );
@@ -103,6 +115,9 @@ class DayItineraryDoc {
     if (endLat != null) 'end_lat': endLat,
     if (endLng != null) 'end_lng': endLng,
     if (route != null) 'route': route!.toJson(),
+    if (komootLink != null && komootLink!.isNotEmpty) 'komoot_link': komootLink,
+    if (allTrailsLink != null && allTrailsLink!.isNotEmpty) 'all_trails_link': allTrailsLink,
+    if (routeInfo != null) 'route_info': routeInfo!.toJson(),
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
   };
@@ -126,6 +141,9 @@ class DayItineraryDoc {
     double? endLat,
     double? endLng,
     DayRoute? route,
+    String? komootLink,
+    String? allTrailsLink,
+    RouteInfo? routeInfo,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => DayItineraryDoc(
@@ -147,6 +165,9 @@ class DayItineraryDoc {
     endLat: endLat ?? this.endLat,
     endLng: endLng ?? this.endLng,
     route: route ?? this.route,
+    komootLink: komootLink ?? this.komootLink,
+    allTrailsLink: allTrailsLink ?? this.allTrailsLink,
+    routeInfo: routeInfo ?? this.routeInfo,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -175,6 +196,8 @@ class DayItineraryDoc {
     endLat: day.endLat,
     endLng: day.endLng,
     route: day.route,
+    komootLink: day.komootLink,
+    allTrailsLink: day.allTrailsLink,
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
@@ -196,6 +219,8 @@ class DayItineraryDoc {
     endLat: endLat,
     endLng: endLng,
     route: route,
+    komootLink: komootLink,
+    allTrailsLink: allTrailsLink,
   );
 }
 

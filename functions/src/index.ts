@@ -9,6 +9,7 @@ export {placesSearch, placeDetails, geocodeAddress, placePhoto} from "./google-p
 export {googleDirections} from "./google-directions";
 export {googleDistanceMatrix} from "./google-distance-matrix";
 export {getOutdoorPOIs} from "./osm-pois";
+export {extractRouteMetadata} from "./route-metadata";
 
 // Simple callable function to fetch OpenGraph/Twitter meta tags for a given URL.
 // Returns: { title, description, image, siteName }

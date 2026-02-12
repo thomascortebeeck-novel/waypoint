@@ -156,14 +156,25 @@ export const googleDirections = onCall(
         timeout: 8000,
       });
 
+      // Handle different API response statuses
+      if (response.data.status === "ZERO_RESULTS") {
+        // ZERO_RESULTS is a valid response - just means no route found
+        // This can happen for various reasons (points too far, no road connection, etc.)
+        console.log(`⚠️ No route found between waypoints (ZERO_RESULTS)`);
+        return null;
+      }
+
       if (response.data.status !== "OK") {
+        // Other statuses (like OVER_QUERY_LIMIT, REQUEST_DENIED, etc.) are actual errors
         throw new Error(`Google Directions API error: ${response.data.status}`);
       }
 
       // Parse response
       const route = response.data.routes[0];
       if (!route) {
-        throw new Error("No route found");
+        // This shouldn't happen if status is OK, but handle it gracefully
+        console.log(`⚠️ No route found in response`);
+        return null;
       }
 
       const leg = route.legs[0];

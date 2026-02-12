@@ -102,10 +102,16 @@ class PlanMeta {
   final AccommodationType? accommodationType;
   /// Lightweight version summaries for dropdown display (loaded without full version data)
   final List<VersionSummary> versionSummaries;
-  /// Best season start month (1-12, where 1 = January)
+  /// Best season start month (1-12, where 1 = January) - DEPRECATED: use bestSeasons instead
+  @Deprecated('Use bestSeasons instead')
   final int? bestSeasonStartMonth;
-  /// Best season end month (1-12, where 1 = January)
+  /// Best season end month (1-12, where 1 = January) - DEPRECATED: use bestSeasons instead
+  @Deprecated('Use bestSeasons instead')
   final int? bestSeasonEndMonth;
+  /// List of best season ranges (multiple seasons supported)
+  final List<SeasonRange> bestSeasons;
+  /// Whether the adventure is available year-round
+  final bool isEntireYear;
   /// Whether to show price estimates from waypoints on detail pages
   final bool showPrices;
 
@@ -131,6 +137,8 @@ class PlanMeta {
     this.versionSummaries = const [],
     this.bestSeasonStartMonth,
     this.bestSeasonEndMonth,
+    this.bestSeasons = const [],
+    this.isEntireYear = false,
     this.showPrices = false,
   });
 
@@ -170,6 +178,17 @@ class PlanMeta {
         .toList() ?? [],
     bestSeasonStartMonth: json['best_season_start_month'] as int?,
     bestSeasonEndMonth: json['best_season_end_month'] as int?,
+    bestSeasons: (json['best_seasons'] as List<dynamic>?)
+        ?.map((s) => SeasonRange.fromJson(s as Map<String, dynamic>))
+        .toList() ??
+        // Backward compatibility: convert old format to new format
+        (json['best_season_start_month'] != null && json['best_season_end_month'] != null
+            ? [SeasonRange(
+                startMonth: json['best_season_start_month'] as int,
+                endMonth: json['best_season_end_month'] as int,
+              )]
+            : []),
+    isEntireYear: json['is_entire_year'] as bool? ?? false,
     showPrices: json['show_prices'] as bool? ?? false,
   );
 
@@ -193,8 +212,12 @@ class PlanMeta {
     'activity_category': activityCategory?.name,
     'accommodation_type': accommodationType?.name,
     'version_summaries': versionSummaries.map((v) => v.toJson()).toList(),
+    // Keep old fields for backward compatibility
     if (bestSeasonStartMonth != null) 'best_season_start_month': bestSeasonStartMonth,
     if (bestSeasonEndMonth != null) 'best_season_end_month': bestSeasonEndMonth,
+    // New format
+    if (bestSeasons.isNotEmpty) 'best_seasons': bestSeasons.map((s) => s.toJson()).toList(),
+    if (isEntireYear) 'is_entire_year': isEntireYear,
     'show_prices': showPrices,
   };
 
@@ -220,6 +243,8 @@ class PlanMeta {
     List<VersionSummary>? versionSummaries,
     int? bestSeasonStartMonth,
     int? bestSeasonEndMonth,
+    List<SeasonRange>? bestSeasons,
+    bool? isEntireYear,
     bool? showPrices,
   }) => PlanMeta(
     id: id ?? this.id,
@@ -243,6 +268,8 @@ class PlanMeta {
     versionSummaries: versionSummaries ?? this.versionSummaries,
     bestSeasonStartMonth: bestSeasonStartMonth ?? this.bestSeasonStartMonth,
     bestSeasonEndMonth: bestSeasonEndMonth ?? this.bestSeasonEndMonth,
+    bestSeasons: bestSeasons ?? this.bestSeasons,
+    isEntireYear: isEntireYear ?? this.isEntireYear,
     showPrices: showPrices ?? this.showPrices,
   );
 
@@ -272,6 +299,8 @@ class PlanMeta {
           .toList(),
       bestSeasonStartMonth: plan.bestSeasonStartMonth,
       bestSeasonEndMonth: plan.bestSeasonEndMonth,
+      bestSeasons: plan.bestSeasons,
+      isEntireYear: plan.isEntireYear,
       showPrices: plan.showPrices,
     );
   }

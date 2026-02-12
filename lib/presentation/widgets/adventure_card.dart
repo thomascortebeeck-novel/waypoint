@@ -265,7 +265,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                   ],
                 ),
               // Season badge below location
-              if (widget.plan.bestSeasonStartMonth != null && widget.plan.bestSeasonEndMonth != null) ...[
+              if (_hasSeason(widget.plan)) ...[
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -275,19 +275,23 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                       size: 12,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      _formatSeasonRange(widget.plan.bestSeasonStartMonth!, widget.plan.bestSeasonEndMonth!),
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w400,
-                        shadows: const [
-                          Shadow(
-                            color: Colors.black26,
-                            blurRadius: 4,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
+                    Flexible(
+                      child: Text(
+                        _formatSeasons(widget.plan),
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                          shadows: const [
+                            Shadow(
+                              color: Colors.black26,
+                              blurRadius: 4,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -300,7 +304,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     );
   }
 
-  /// Format season range as "Feb - Apr"
+  /// Format season range as "Feb - Apr" or "Year-round" or "Feb - Apr, Sep - Nov"
   String _formatSeasonRange(int startMonth, int endMonth) {
     const monthAbbreviations = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -313,6 +317,31 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
       return '$start - $end';
     }
     return '';
+  }
+
+  /// Format seasons for display (handles multiple seasons and entire year)
+  String _formatSeasons(Plan plan) {
+    if (plan.isEntireYear) {
+      return 'Year-round';
+    }
+    
+    if (plan.bestSeasons.isNotEmpty) {
+      return plan.bestSeasons.map((s) => _formatSeasonRange(s.startMonth, s.endMonth)).join(', ');
+    }
+    
+    // Backward compatibility with old format
+    if (plan.bestSeasonStartMonth != null && plan.bestSeasonEndMonth != null) {
+      return _formatSeasonRange(plan.bestSeasonStartMonth!, plan.bestSeasonEndMonth!);
+    }
+    
+    return '';
+  }
+
+  /// Check if plan has season information
+  bool _hasSeason(Plan plan) {
+    return plan.isEntireYear || 
+           plan.bestSeasons.isNotEmpty ||
+           (plan.bestSeasonStartMonth != null && plan.bestSeasonEndMonth != null);
   }
 
   // Mapping helpers kept intact
@@ -511,7 +540,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   Widget _buildBadgeRow(BuildContext context, bool isDark) {
     final activity = widget.plan.activityCategory;
     final accom = widget.plan.accommodationType;
-    final hasSeason = widget.plan.bestSeasonStartMonth != null && widget.plan.bestSeasonEndMonth != null;
+    final hasSeason = _hasSeason(widget.plan);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -531,7 +560,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         if (hasSeason)
           _buildInfoBadge(
             icon: '📅',
-            label: _formatSeasonRange(widget.plan.bestSeasonStartMonth!, widget.plan.bestSeasonEndMonth!),
+            label: _formatSeasons(widget.plan),
             isDark: isDark,
           ),
       ],

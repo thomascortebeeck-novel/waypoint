@@ -12,10 +12,13 @@ class TravelCalculatorService {
 
   /// Calculate travel information between two consecutive waypoints
   /// Automatically selects travel mode based on distance, or uses provided mode
+  /// [includeGeometry] - If true, uses Directions API to get route polyline geometry.
+  ///                     If false, uses Distance Matrix API for faster/cheaper calculation.
   Future<TravelInfo?> calculateTravel({
     required ll.LatLng from,
     required ll.LatLng to,
     TravelMode? travelMode,
+    bool includeGeometry = false,
   }) async {
     try {
       TravelMode mode;
@@ -28,9 +31,29 @@ class TravelCalculatorService {
         mode = _selectTravelMode(distance);
       }
       
-      Log.i('travel_calculator', '📏 Distance: ${_calculateStraightLineDistance(from, to).toStringAsFixed(2)}km, Mode: ${mode.name}');
+      Log.i('travel_calculator', '📏 Distance: ${_calculateStraightLineDistance(from, to).toStringAsFixed(2)}km, Mode: ${mode.name}, Geometry: $includeGeometry');
 
-      // Use Distance Matrix API for quick calculation
+      // If geometry is needed, use Directions API (which includes distance/duration + polyline)
+      if (includeGeometry) {
+        final route = await _directionsService.getRoute(
+          waypoints: [from, to],
+          travelMode: mode,
+        );
+
+        if (route != null) {
+          return TravelInfo(
+            from: from,
+            to: to,
+            distanceMeters: route.distanceMeters.toInt(),
+            durationSeconds: route.durationSeconds,
+            travelMode: mode,
+            routeGeometry: route.geometry,
+          );
+        }
+        return null;
+      }
+
+      // Otherwise, use Distance Matrix API for quick/cheap calculation (no geometry)
       final matrixResult = await _getDistanceMatrix(from, to, mode);
       
       if (matrixResult != null) {
@@ -40,6 +63,7 @@ class TravelCalculatorService {
           distanceMeters: matrixResult.distanceMeters,
           durationSeconds: matrixResult.durationSeconds,
           travelMode: mode,
+          routeGeometry: null, // Distance Matrix doesn't provide geometry
         );
       }
 
@@ -56,6 +80,7 @@ class TravelCalculatorService {
           distanceMeters: route.distanceMeters.toInt(),
           durationSeconds: route.durationSeconds,
           travelMode: mode,
+          routeGeometry: route.geometry,
         );
       }
 
@@ -144,6 +169,7 @@ class TravelInfo {
   final int distanceMeters;
   final int durationSeconds;
   final TravelMode travelMode;
+  final List<ll.LatLng>? routeGeometry; // Route polyline geometry (from Directions API)
 
   TravelInfo({
     required this.from,
@@ -151,6 +177,7 @@ class TravelInfo {
     required this.distanceMeters,
     required this.durationSeconds,
     required this.travelMode,
+    this.routeGeometry,
   });
 
   /// Distance in kilometers

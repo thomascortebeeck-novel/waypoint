@@ -82,7 +82,7 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
           icon: gmaps_mobile.BitmapDescriptor.defaultMarkerWithHue(
             _getMarkerHue(annotation.color),
           ),
-          infoWindow: annotation.label != null
+          infoWindow: annotation.showInfoWindow && annotation.label != null
               ? gmaps_mobile.InfoWindow(title: annotation.label!)
               : gmaps_mobile.InfoWindow.noText,
           draggable: annotation.draggable,

@@ -14,11 +14,12 @@ mixin DayPlanOrderingMixin<T extends StatefulWidget> on State<T> {
   
   /// Initialize ordering from waypoints
   void initializeOrdering() {
-    final waypointsByDay = <int, List<RouteWaypoint>>{};
+    // Initialize map explicitly to avoid JavaScript compilation issues
+    final waypointsByDay = Map<int, List<RouteWaypoint>>();
     
     for (final wp in waypoints) {
       final day = wp.dayNumber ?? 1;
-      waypointsByDay.putIfAbsent(day, () => []).add(wp);
+      waypointsByDay.putIfAbsent(day, () => <RouteWaypoint>[]).add(wp);
     }
     
     for (final entry in waypointsByDay.entries) {
@@ -67,12 +68,18 @@ mixin DayPlanOrderingMixin<T extends StatefulWidget> on State<T> {
   /// Build waypoints map by section ID
   Map<String, List<RouteWaypoint>> buildWaypointsBySectionId(int day) {
     final dayWaypoints = waypoints.where((wp) => (wp.dayNumber ?? 1) == day).toList();
-    final map = <String, List<RouteWaypoint>>{};
+    // Initialize map explicitly to avoid JavaScript compilation issues
+    final map = Map<String, List<RouteWaypoint>>();
+    
+    // Handle empty waypoints
+    if (dayWaypoints.isEmpty) {
+      return map;
+    }
     
     for (final wp in dayWaypoints) {
       final sectionId = _getSectionIdForWaypoint(wp);
       if (sectionId != null) {
-        map.putIfAbsent(sectionId, () => []).add(wp);
+        map.putIfAbsent(sectionId, () => <RouteWaypoint>[]).add(wp);
       }
     }
     

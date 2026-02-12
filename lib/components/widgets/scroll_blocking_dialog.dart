@@ -1,22 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// A dialog wrapper that prevents scroll events from propagating to the background map.
 /// 
-/// This widget wraps a dialog and ensures that:
-/// - Scroll notifications are consumed and don't reach parent widgets
-/// - Pointer scroll events (mouse wheel, trackpad) are intercepted
-/// - Touch gestures within the dialog still work normally
-/// 
-/// Usage:
-/// ```dart
-/// showDialog(
-///   context: context,
-///   builder: (context) => ScrollBlockingDialog(
-///     child: YourDialogContent(),
-///   ),
-/// );
-/// ```
+/// Uses [PointerInterceptor] to block browser-level DOM events from reaching
+/// Platform Views (Google Maps HtmlElementView) on Flutter web.
+/// Flutter's standard gesture system (GestureDetector, Listener, AbsorbPointer)
+/// cannot intercept events targeting Platform Views because they are HTML elements
+/// that receive browser events directly, bypassing Flutter's rendering pipeline.
 class ScrollBlockingDialog extends StatelessWidget {
   final Widget child;
   final Color? barrierColor;
@@ -38,35 +31,27 @@ class ScrollBlockingDialog extends StatelessWidget {
       onNotification: (_) => true,
       child: Stack(
         children: [
-          // CRITICAL: Create a full-screen invisible barrier that blocks events from reaching the Mapbox canvas
-          // This barrier is NOT the Mapbox canvas - it's a Flutter layer that intercepts all events
-          // By using HitTestBehavior.opaque, we force the browser to focus on the Flutter layer
+          // CRITICAL: Full-screen barrier using PointerInterceptor to block
+          // browser-level DOM events from reaching the Google Maps Platform View.
+          // PointerInterceptor creates an invisible HTML element that sits above
+          // the Platform View in the DOM, intercepting events before they reach it.
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque, // Blocks all events from passing through
-              onTap: barrierDismissible ? () => Navigator.of(context).pop() : null,
-              onScaleUpdate: (_) {}, // Consumes pinch/zoom/pan gestures (scale is a superset of pan)
-              child: Container(
-                color: barrierColor ?? Colors.black12, // Subtle dimming to show dialog is active
+            child: PointerInterceptor(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: barrierDismissible ? () => Navigator.of(context).pop() : null,
+                child: Container(
+                  color: barrierColor ?? Colors.black12,
+                ),
               ),
             ),
           ),
-          // Dialog content centered on top of the barrier
+          // Dialog content - also wrapped in PointerInterceptor to ensure
+          // scroll events within the dialog don't leak to the map
           Center(
-            child: MouseRegion(
-              // Force standard cursor (arrow) instead of map's grabbing hand cursor
-              // This ensures form fields show the correct cursor
-              cursor: SystemMouseCursors.basic,
-              child: Listener(
-                // CRITICAL: Only intercept scroll events to prevent map zoom
-                // Do NOT block pointer down/up events - they need to reach child widgets (like the X button)
-                // The barrier GestureDetector and CSS pointer-events handle blocking background clicks
-                onPointerSignal: (event) {
-                  if (event is PointerScrollEvent) {
-                    // Event is consumed by this handler, preventing it from reaching the map
-                    // The dialog's scrollable content will still handle scrolling normally
-                  }
-                },
+            child: PointerInterceptor(
+              child: MouseRegion(
+                cursor: SystemMouseCursors.basic,
                 child: Dialog(
                   backgroundColor: Colors.transparent,
                   elevation: 0,
@@ -102,24 +87,16 @@ class ScrollBlockingScrollView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return NotificationListener<ScrollNotification>(
-      // Consume all scroll notifications to prevent map zoom
       onNotification: (_) => true,
-      child: Listener(
-        // Intercept mouse wheel/trackpad scrolling to prevent map zoom
-        onPointerSignal: (event) {
-          if (event is PointerScrollEvent) {
-            // Absorb the scroll event to prevent it from reaching the map
-            // The SingleChildScrollView will still handle touch/drag gestures normally
-          }
-        },
+      child: NotificationListener<OverscrollNotification>(
+        onNotification: (_) => true,
         child: SingleChildScrollView(
           controller: controller,
           padding: padding,
-          physics: physics,
+          physics: physics ?? const ClampingScrollPhysics(),
           child: child,
         ),
       ),
     );
   }
 }
-
