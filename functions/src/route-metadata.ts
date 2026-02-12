@@ -364,10 +364,21 @@ export const extractRouteMetadata = onCall(
         
         if (response.status === 403 || response.status === 401) {
           logger.warn("[extractRouteMetadata] Got 403/401, but trying to parse response anyway");
-          // Try to parse anyway - sometimes sites return HTML even with 403
-          if (!html || html.length < 100) {
+          // Check if this is a bot detection page
+          const htmlLower = html?.toLowerCase() || "";
+          const isBotPage = htmlLower.includes("access denied") || 
+                           htmlLower.includes("blocked") || 
+                           htmlLower.includes("captcha") ||
+                           htmlLower.includes("cloudflare") ||
+                           htmlLower.includes("bot detection") ||
+                           htmlLower.includes("please verify you are human");
+          
+          if (isBotPage || !html || html.length < 100) {
+            logger.warn("[extractRouteMetadata] Response appears to be a bot detection page");
             return {error: "Could not retrieve route info. The site may be blocking automated requests. You can enter it manually."};
           }
+          // Log a sample of the HTML for debugging
+          logger.info("[extractRouteMetadata] HTML sample (first 500 chars):", html.substring(0, 500));
         }
       } catch (e: any) {
         logger.error("[extractRouteMetadata] Fetch failed", e);
@@ -426,7 +437,13 @@ export const extractRouteMetadata = onCall(
       
       // Return error if nothing was extracted
       if (!metadata.distance_km && !metadata.elevation_m && !metadata.estimated_time && !metadata.difficulty) {
-        return {error: "Could not extract route metadata. You can enter it manually."};
+        logger.warn("[extractRouteMetadata] No metadata extracted. HTML length:", html?.length || 0);
+        // Log a sample to help debug
+        if (html && html.length > 0) {
+          const sample = html.substring(0, 1000);
+          logger.info("[extractRouteMetadata] HTML sample for debugging:", sample);
+        }
+        return {error: "Could not extract route metadata. The page structure may have changed or the site is blocking access. You can enter it manually."};
       }
       
       logger.info("[extractRouteMetadata] Success", metadata);
