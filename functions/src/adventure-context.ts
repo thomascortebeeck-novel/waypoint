@@ -1,8 +1,44 @@
 import {onCall} from "firebase-functions/v2/https";
 import {defineSecret} from "firebase-functions/params";
 
-// Define the OpenRouter API key as a secret
-const openRouterApiKey = defineSecret("OPENROUTER_API_KEY");
+// Define the OpenRouter API key as a secret (Firebase Functions v2)
+// Falls back to environment variable for local development
+const openRouterApiKeySecret = defineSecret("OPENROUTER_API_KEY");
+
+// 🔒 SECURITY: API key stored as Firebase secret or environment variable
+// Never commit to git - use .env file for local development
+function getOpenRouterApiKey(): string {
+  // Try Firebase secret first (production)
+  try {
+    const secretValue = openRouterApiKeySecret.value();
+    if (secretValue) {
+      return secretValue;
+    }
+  } catch (e) {
+    // Secret not available (e.g., local development)
+  }
+  
+  // Fallback to environment variable (local development)
+  const envKey = process.env.OPENROUTER_API_KEY;
+  if (envKey) {
+    return envKey;
+  }
+  
+  throw new Error("OPENROUTER_API_KEY not set. Set it as a Firebase secret or environment variable.");
+}
+
+// Type definitions for OpenRouter API response
+interface OpenRouterMessage {
+  content: string;
+}
+
+interface OpenRouterChoice {
+  message: OpenRouterMessage;
+}
+
+interface OpenRouterResponse {
+  choices?: OpenRouterChoice[];
+}
 
 const SYSTEM_PROMPT = `You are the Waypoint Travel Context API. You generate structured travel information for adventure plans.
 
@@ -119,7 +155,7 @@ export const generateAdventureContext = onCall(
     region: "europe-west1",
     timeoutSeconds: 60,
     cors: true,
-    secrets: [openRouterApiKey],
+    secrets: [openRouterApiKeySecret],
   },
   async (request) => {
     const {location, title, description, activity_type, accommodation_type} = request.data as {
@@ -152,7 +188,7 @@ export const generateAdventureContext = onCall(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${openRouterApiKey.value()}`,
+          "Authorization": `Bearer ${getOpenRouterApiKey()}`,
           "HTTP-Referer": "https://waypoint.app", // Optional: for OpenRouter analytics
           "X-Title": "Waypoint Adventure Context Generator", // Optional: for OpenRouter analytics
         },
@@ -173,7 +209,7 @@ export const generateAdventureContext = onCall(
         return {error: `API request failed: ${response.status}`};
       }
 
-      const responseData = await response.json();
+      const responseData = await response.json() as OpenRouterResponse;
       const content = responseData.choices?.[0]?.message?.content;
 
       if (!content) {
