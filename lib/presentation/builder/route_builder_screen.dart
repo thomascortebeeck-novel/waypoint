@@ -36,6 +36,10 @@ import 'package:waypoint/services/storage_service.dart';
 import 'package:waypoint/components/builder/sequential_waypoint_list.dart';
 import 'package:waypoint/services/waypoint_grouping_service.dart';
 import 'package:waypoint/services/travel_calculator_service.dart';
+import 'package:waypoint/services/gpx_waypoint_snapper.dart';
+import 'package:waypoint/models/gpx_route_model.dart';
+import 'package:waypoint/utils/haversine_utils.dart';
+import 'package:waypoint/utils/activity_utils.dart';
 import 'package:waypoint/integrations/google_directions_service.dart';
 
 /// Unified item type for sidebar reorderable list
@@ -135,6 +139,9 @@ double? _currentCameraZoom;
 // Mapbox controller reference for camera commands
 WaypointMapController? _mapboxController;
 
+// Track if this is a GPX route (for conditional logic)
+bool _isGpxRoute = false;
+
 @override
 void initState() {
 super.initState();
@@ -194,7 +201,15 @@ _previewGeometry = widget.initial!.geometry;
 _previewDistance = widget.initial!.distance;
 _previewDuration = widget.initial!.duration;
 // Convert legacy route points to waypoints for backward compatibility
-if (widget.initial!.routePoints.isNotEmpty) {
+// BUT: Skip this for GPX routes - GPX geometry is the trail itself, not user-placed waypoints
+// Defensive check: Also detect GPX routes even if routeType is missing (routePoints empty + many geometry points)
+_isGpxRoute = widget.initial!.routeType == RouteType.gpx ||
+    (widget.initial!.routeType == null &&
+     widget.initial!.routePoints.isEmpty &&
+     widget.initial!.geometry['coordinates'] is List &&
+     (widget.initial!.geometry['coordinates'] as List).length > 100);
+
+if (!_isGpxRoute && widget.initial!.routePoints.isNotEmpty) {
 final convertedWaypoints = widget.initial!.routePoints.asMap().entries.map((entry) {
 final index = entry.key;
 final point = entry.value;
@@ -210,21 +225,66 @@ return waypoint.copyWith(timeSlotCategory: autoCategory);
 }).toList();
 _poiWaypoints.addAll(convertedWaypoints);
 Log.i('route_builder', '🔄 Converted ${convertedWaypoints.length} route points to waypoints for backward compatibility');
+} else if (_isGpxRoute) {
+Log.i('route_builder', '📍 GPX route detected (routeType=${widget.initial!.routeType?.name ?? "null"}) - skipping routePoints conversion (geometry is the trail)');
 }
 // Load existing POI waypoints and auto-assign categories if missing
 if (widget.initial!.poiWaypoints.isNotEmpty) {
 final loadedWaypoints = widget.initial!.poiWaypoints.map((w) {
 final waypoint = RouteWaypoint.fromJson(w);
+// For GPX routes, use snap point position ONLY if snap info is valid
+// Invalid snap info (distanceAlongRouteKm == 0 for multiple waypoints) means they were incorrectly snapped
+// In that case, use the original position instead
+final hasValidSnapInfo = waypoint.waypointSnapInfo != null && 
+    waypoint.waypointSnapInfo!.distanceAlongRouteKm > 0;
+final position = (hasValidSnapInfo && _isGpxRoute) 
+    ? waypoint.waypointSnapInfo!.snapPoint 
+    : waypoint.position;
 // Auto-assign time slot category if not set
-if (waypoint.timeSlotCategory == null) {
-final autoCategory = autoAssignTimeSlotCategory(waypoint);
-return waypoint.copyWith(timeSlotCategory: autoCategory);
-}
-return waypoint;
+final updatedWaypoint = waypoint.timeSlotCategory == null
+    ? waypoint.copyWith(
+        position: position,
+        timeSlotCategory: autoAssignTimeSlotCategory(waypoint),
+      )
+    : waypoint.copyWith(position: position);
+return updatedWaypoint;
 }).toList();
+
+// For GPX routes, filter out route points (they're in geometry, not waypoints)
+final filteredWaypoints = _isGpxRoute
+    ? loadedWaypoints.where((w) => w.type != WaypointType.routePoint).toList()
+    : loadedWaypoints;
+
 // Sort by order field to preserve the order from builder screen
-loadedWaypoints.sort((a, b) => a.order.compareTo(b.order));
-_poiWaypoints.addAll(loadedWaypoints);
+filteredWaypoints.sort((a, b) => a.order.compareTo(b.order));
+_poiWaypoints.addAll(filteredWaypoints);
+Log.i('route_builder', '📍 Loaded ${filteredWaypoints.length} POI waypoints (GPX route: $_isGpxRoute, filtered from ${loadedWaypoints.length} total)');
+
+// For GPX routes, check if waypoints need snapping
+if (_isGpxRoute && _poiWaypoints.isNotEmpty) {
+  final needsSnapping = _poiWaypoints.any((wp) => 
+    wp.waypointSnapInfo == null || 
+    wp.waypointSnapInfo!.distanceAlongRouteKm == 0.0
+  );
+  
+  if (needsSnapping) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _snapWaypointsToGpxRoute();
+      }
+    });
+  }
+}
+
+// Calculate travel times if we have 2+ waypoints
+if (_poiWaypoints.length >= 2) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) {
+      _calculateTravelTimes();
+      _updatePreview();
+    }
+  });
+}
 }
 // Initialize route ordering based on waypoints
 _initializeRouteOrdering();
@@ -257,6 +317,63 @@ ll.LatLng _getCameraCenter() {
          _poiWaypoints.firstOrNull?.position ?? 
          widget.start ?? 
          const ll.LatLng(61.0, 8.5);
+}
+
+/// Get GPX route points from geometry coordinates
+List<ll.LatLng> _getGpxRoutePointsFromGeometry() {
+  if (widget.initial?.geometry['coordinates'] is! List) return [];
+  final coords = widget.initial!.geometry['coordinates'] as List;
+  return _coordsToLatLng(coords);
+}
+
+/// Snap waypoints to GPX route if snap info is missing or invalid
+void _snapWaypointsToGpxRoute() {
+  final routePoints = _getGpxRoutePointsFromGeometry();
+  if (routePoints.isEmpty) {
+    Log.w('route_builder', '⚠️ Cannot snap waypoints: no GPX route points found');
+    return;
+  }
+  
+  Log.i('route_builder', '🔧 Snapping ${_poiWaypoints.length} waypoints to GPX route (${routePoints.length} points)');
+  
+  final snapper = GpxWaypointSnapper();
+  bool anyUpdated = false;
+  
+  for (int i = 0; i < _poiWaypoints.length; i++) {
+    final wp = _poiWaypoints[i];
+    // Only snap if missing snap info or distanceAlongRouteKm is 0
+    if (wp.waypointSnapInfo == null || wp.waypointSnapInfo!.distanceAlongRouteKm == 0.0) {
+      Log.i('route_builder', '🔍 Snapping waypoint: ${wp.name}, hasSnapInfo=${wp.waypointSnapInfo != null}, distanceAlongRoute=${wp.waypointSnapInfo?.distanceAlongRouteKm ?? 0.0}km');
+      
+      final snapResult = snapper.snapToRoute(wp.position, routePoints);
+      final snapInfo = WaypointSnapInfo(
+        snapPoint: snapResult.snapPoint,
+        originalPosition: wp.position,
+        distanceFromRouteM: snapResult.distanceFromRoute,
+        distanceAlongRouteKm: snapResult.distanceAlongRoute,
+        segmentIndex: snapResult.segmentIndex,
+      );
+      
+      _poiWaypoints[i] = wp.copyWith(
+        position: snapResult.snapPoint,
+        waypointSnapInfo: snapInfo,
+      );
+      
+      anyUpdated = true;
+      Log.i('route_builder', '✅ Snapped ${wp.name}: distanceAlongRoute=${snapResult.distanceAlongRoute.toStringAsFixed(3)}km, distanceFromRoute=${snapResult.distanceFromRoute.toStringAsFixed(0)}m');
+    }
+  }
+  
+  if (anyUpdated) {
+    setState(() {});
+    // Recalculate travel times after snapping
+    if (_poiWaypoints.length >= 2) {
+      _calculateTravelTimes();
+      _updatePreview();
+    }
+  } else {
+    Log.i('route_builder', 'ℹ️ All waypoints already have valid snap info');
+  }
 }
 
 /// Get current camera zoom - works in both flutter_map and Mapbox modes  
@@ -430,21 +547,42 @@ void _moveCamera(ll.LatLng position, [double? zoom]) {
 void _handleBackPress() {
 // If we have waypoints or route data, return the current state
 if (_poiWaypoints.isNotEmpty || _previewGeometry != null) {
-// CRITICAL: Always preserve preview geometry (contains snapped route)
+// CRITICAL: For GPX routes with supported activities, always preserve the original GPX trail geometry
+// This prevents creating waypoint-to-waypoint straight lines
+final isGpxBack = widget.initial?.routeType == RouteType.gpx || _isGpxRoute;
+final supportsGpxBack = supportsGpxRoute(widget.activityCategory);
+  final requiresGpx = requiresGpxRoute(widget.activityCategory);
+
 Map<String, dynamic> geometry;
-if (_previewGeometry != null) {
-geometry = _previewGeometry!;
+if (isGpxBack && supportsGpxBack && widget.initial?.geometry != null) {
+  // CRITICAL: Use the original GPX trail geometry, NOT waypoint connections
+  geometry = widget.initial!.geometry;
+  Log.i('route_builder', '✅ Back: preserving GPX trail geometry (${(widget.initial!.geometry['coordinates'] as List?)?.length ?? 0} points)');
+} else if (requiresGpx) {
+  // For GPX-required activities, never create geometry from waypoint positions
+  if (widget.initial?.geometry != null) {
+    // Use existing GPX geometry if available
+    geometry = widget.initial!.geometry;
+    Log.i('route_builder', '✅ Back: using existing GPX geometry for GPX-required activity');
+  } else {
+    // GPX is required but not found - just pop without geometry
+    Log.w('route_builder', '⚠️ GPX route required but not found in _handleBackPress');
+    context.pop();
+    return;
+  }
+} else if (_previewGeometry != null) {
+  geometry = _previewGeometry!;
 } else if (_poiWaypoints.isNotEmpty) {
-// Create empty geometry centered on first waypoint as last resort
-final firstWp = _poiWaypoints.first;
-geometry = {
-'type': 'LineString',
-'coordinates': [[firstWp.position.longitude, firstWp.position.latitude]],
-};
+  // Create empty geometry centered on first waypoint as last resort (only for non-GPX-required activities)
+  final firstWp = _poiWaypoints.first;
+  geometry = {
+    'type': 'LineString',
+    'coordinates': [[firstWp.position.longitude, firstWp.position.latitude]],
+  };
 } else {
-// Nothing to save, just pop
-context.pop();
-return;
+  // Nothing to save, just pop
+  context.pop();
+  return;
 }
 
 // Apply ordering one final time to ensure waypoints are in correct order
@@ -459,13 +597,14 @@ for (int i = 0; i < _poiWaypoints.length; i++) {
 
 final route = DayRoute(
 geometry: geometry,
-distance: _previewDistance ?? 0,
-duration: _previewDuration ?? 0,
+distance: _previewDistance ?? widget.initial?.distance ?? 0,  // Preserve GPX distance
+duration: _previewDuration ?? widget.initial?.duration ?? 0,  // Preserve GPX duration
 routePoints: [], // Route points removed - routes are built from waypoints only
-elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : null,
-ascent: _previewAscent,
-descent: _previewDescent,
+elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : widget.initial?.elevationProfile,
+ascent: _previewAscent ?? widget.initial?.ascent,
+descent: _previewDescent ?? widget.initial?.descent,
 poiWaypoints: _poiWaypoints.map((w) => w.toJson()).toList(),
+routeType: isGpxBack ? RouteType.gpx : widget.initial?.routeType,  // Preserve routeType
 );
 context.pop(route);
 } else {
@@ -493,7 +632,6 @@ scrolledUnderElevation: 0,
 elevation: 0,
 toolbarHeight: 56,
 leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: _handleBackPress),
-title: Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
 actions: [
 // Legacy: Snap to trail toggle removed
 ],
@@ -547,12 +685,38 @@ onWaypointUpdated: (updatedWp) {
     }
   });
 },
+onBulkWaypointUpdate: (updatedWps) {
+  Log.i('route_builder', '📦 onBulkWaypointUpdate called with ${updatedWps.length} waypoints');
+  for (final wp in updatedWps) {
+    Log.i('route_builder', '  → ${wp.name} (id=${wp.id.substring(0, 8)}) order=${wp.order} choiceGroupId=${wp.choiceGroupId}');
+  }
+  setState(() {
+    for (final updatedWp in updatedWps) {
+      final index = _poiWaypoints.indexWhere((w) => w.id == updatedWp.id);
+      if (index != -1) {
+        _poiWaypoints[index] = updatedWp;
+      }
+    }
+    _renumberWaypoints();
+  });
+  Log.i('route_builder', '📦 After renumber:');
+  for (final wp in _poiWaypoints) {
+    Log.i('route_builder', '  → ${wp.name} (id=${wp.id.substring(0, 8)}) order=${wp.order} choiceGroupId=${wp.choiceGroupId}');
+  }
+  _calculateTravelTimes();
+  if (_poiWaypoints.length >= 2) {
+    _updatePreview();
+  }
+},
 onOrderChanged: () {
   _renumberWaypoints(); // Normalize orders to 1,2,3...
   _calculateTravelTimes(); // Recalculate travel times
   if (_poiWaypoints.length >= 2) {
     _updatePreview(); // Update route preview
   }
+},
+onUngroup: (choiceGroupId) {
+  _ungroupChoiceGroup(choiceGroupId);
 },
 onMoveUp: (itemId) {
 if (_routeOrderManager == null) {
@@ -752,6 +916,10 @@ onAddWaypoint: _showAddWaypointDialog,
 onEditWaypoint: _editWaypoint,
 onPreview: _poiWaypoints.length < 2 ? null : _updatePreview,
 onSave: _poiWaypoints.isEmpty ? null : _buildAndSave,
+skipTravelSegments: _isGpxRoute && (widget.activityCategory == ActivityCategory.hiking ||
+                                   widget.activityCategory == ActivityCategory.skis ||
+                                   widget.activityCategory == ActivityCategory.cycling ||
+                                   widget.activityCategory == ActivityCategory.climbing),
 onReorder: (oldIndex, newIndex) {
 setState(() {
 if (newIndex > oldIndex) newIndex -= 1;
@@ -784,12 +952,38 @@ onWaypointUpdated: (updatedWp) {
     }
   });
 },
+onBulkWaypointUpdate: (updatedWps) {
+  Log.i('route_builder', '📦 onBulkWaypointUpdate called with ${updatedWps.length} waypoints');
+  for (final wp in updatedWps) {
+    Log.i('route_builder', '  → ${wp.name} (id=${wp.id.substring(0, 8)}) order=${wp.order} choiceGroupId=${wp.choiceGroupId}');
+  }
+  setState(() {
+    for (final updatedWp in updatedWps) {
+      final index = _poiWaypoints.indexWhere((w) => w.id == updatedWp.id);
+      if (index != -1) {
+        _poiWaypoints[index] = updatedWp;
+      }
+    }
+    _renumberWaypoints();
+  });
+  Log.i('route_builder', '📦 After renumber:');
+  for (final wp in _poiWaypoints) {
+    Log.i('route_builder', '  → ${wp.name} (id=${wp.id.substring(0, 8)}) order=${wp.order} choiceGroupId=${wp.choiceGroupId}');
+  }
+  _calculateTravelTimes();
+  if (_poiWaypoints.length >= 2) {
+    _updatePreview();
+  }
+},
 onOrderChanged: () {
   _renumberWaypoints(); // Normalize orders to 1,2,3...
   _calculateTravelTimes(); // Recalculate travel times
   if (_poiWaypoints.length >= 2) {
     _updatePreview(); // Update route preview
   }
+},
+onUngroup: (choiceGroupId) {
+  _ungroupChoiceGroup(choiceGroupId);
 },
 onMoveUp: (itemId) {
 if (_routeOrderManager == null) {
@@ -839,43 +1033,138 @@ Widget _buildMapWidget(ll.LatLng center) {
   return _buildMapboxEditor(center);
 }
 
-/// NEW: Mapbox-powered editor using AdaptiveMapWidget
+/// Helper to filter out waypoint connections (2-3 points = direct lines)
+/// Only filters for GPX-required activities to avoid false positives on short legitimate routes
+bool _isWaypointConnection(List<ll.LatLng> points, ActivityCategory? activityCategory) {
+  // Waypoint connections have 2-3 points, GPX trails have 50+ points
+  // Only filter for GPX-required activities to avoid false positives
+  if (!requiresGpxRoute(activityCategory)) {
+    return false; // Don't filter for city trips/tours
+  }
+  return points.length >= 2 && points.length <= 3;
+}
+
+// Helper functions moved to lib/utils/activity_utils.dart
+
+/// NEW: Google Maps-powered editor using AdaptiveMapWidget
 Widget _buildMapboxEditor(ll.LatLng center) {
   // Convert preview geometry to polyline
   final polylines = <MapPolyline>[];
-  // Use per-segment routes if available (with travel mode colors), otherwise fallback to legacy single route
-  if (_previewRouteSegments != null && _previewRouteSegments!.isNotEmpty) {
-    for (int i = 0; i < _previewRouteSegments!.length; i++) {
-      final segment = _previewRouteSegments![i];
-      final mode = segment['travelMode'] as String;
-      final coords = segment['geometry'] as List;
-      final points = _coordsToLatLng(coords);
-      final isChoiceRoute = segment['isChoiceRoute'] as bool? ?? false;
-      
-      if (points.isNotEmpty) {
-        final color = _getTravelModeColor(mode);
+  
+  // Check if this is a GPX route with supported activities
+  final isGpxRoute = widget.initial?.routeType == RouteType.gpx ||
+      (widget.initial?.routeType == null &&
+       widget.initial?.routePoints.isEmpty == true &&
+       widget.initial?.geometry['coordinates'] is List &&
+       (widget.initial?.geometry['coordinates'] as List).length > 100);
+  
+  final supportsGpx = supportsGpxRoute(widget.activityCategory);
+  
+  // Validate GPX requirement
+  final requiresGpx = requiresGpxRoute(widget.activityCategory);
+  if (requiresGpx && !isGpxRoute && widget.initial?.geometry == null) {
+    Log.w('route_builder', '⚠️ GPX route required for ${widget.activityCategory?.name} but no GPX route found');
+  }
+  
+  // For GPX routes with supported activities, ONLY show the GPX trail (no waypoint connections)
+  // Completely ignore _previewRouteSegments and _previewGeometry for GPX routes
+  if (isGpxRoute && supportsGpx && widget.initial?.geometry['coordinates'] is List && (widget.initial?.geometry['coordinates'] as List).isNotEmpty) {
+    // Only show the GPX trail from widget.initial.geometry - this is the original trail
+    final gpxCoords = widget.initial!.geometry['coordinates'] as List;
+    final gpxPoints = _coordsToLatLng(gpxCoords);
+    // Only show if we have a substantial number of points (actual GPX trail, not waypoint connections)
+    // Waypoint connections would have 2-3 points, GPX trails have 50+ points
+    if (gpxCoords.length >= 50 && gpxPoints.length >= 50) {
+      polylines.add(MapPolyline(
+        id: 'gpx_route',
+        points: gpxPoints,
+        color: const Color(0xFF4CAF50), // Green for GPX trail
+        width: 4.0,
+        borderColor: Colors.white,
+        borderWidth: 2,
+      ));
+      Log.i('route_builder', '✅ Showing GPX trail from widget.initial.geometry: ${gpxPoints.length} points');
+    }
+    // Don't show any other routes - no waypoint connections, no preview segments
+    // Explicitly skip _previewRouteSegments and _previewGeometry even if they exist
+    // This ensures no waypoint-to-waypoint connections are rendered
+  } else {
+    // Non-GPX routes or non-supported activities: use per-segment routes if available
+    // IMPORTANT: For GPX routes (even without supported activities), don't use _previewRouteSegments
+    // as they might contain waypoint connections. Only use _previewRouteSegments for non-GPX routes.
+    if (!isGpxRoute && _poiWaypoints.length >= 2 && _previewRouteSegments != null && _previewRouteSegments!.isNotEmpty) {
+      for (int i = 0; i < _previewRouteSegments!.length; i++) {
+        final segment = _previewRouteSegments![i];
+        final mode = segment['travelMode'] as String;
+        final coords = segment['geometry'] as List;
+        final points = _coordsToLatLng(coords);
+        final isChoiceRoute = segment['isChoiceRoute'] as bool? ?? false;
+        
+        // Only add if we have enough points (not a direct waypoint connection)
+        // Direct connections would have 2-3 points, actual routes have more
+        if (points.isNotEmpty && points.length > 3) {
+          final color = _getTravelModeColor(mode);
+          polylines.add(MapPolyline(
+            id: 'route_${mode}_$i',
+            points: points,
+            color: isChoiceRoute ? color.withOpacity(0.6) : color, // Slightly transparent for choice routes
+            width: isChoiceRoute ? 3 : 5, // Thinner for choice routes
+            borderColor: Colors.white,
+            borderWidth: isChoiceRoute ? 1 : 2,
+          ));
+        }
+      }
+    } else if (!isGpxRoute && _poiWaypoints.length >= 2 && _previewGeometry != null) {
+      // IMPORTANT: Don't use _previewGeometry for GPX routes as it might contain waypoint connections
+      final previewPoints = _coordsToLatLng(_previewGeometry!['coordinates']);
+      // Only add if we have enough points (not a direct waypoint connection)
+      if (previewPoints.isNotEmpty && previewPoints.length > 3) {
+        // Legacy fallback: single route (only for non-GPX routes)
         polylines.add(MapPolyline(
-          id: 'route_${mode}_$i',
-          points: points,
-          color: isChoiceRoute ? color.withOpacity(0.6) : color, // Slightly transparent for choice routes
-          width: isChoiceRoute ? 3 : 5, // Thinner for choice routes
+          id: 'route',
+          points: previewPoints,
+          color: const Color(0xFF4CAF50),
+          width: 5,
           borderColor: Colors.white,
-          borderWidth: isChoiceRoute ? 1 : 2,
-          // Note: MapPolyline may not support dash patterns directly
-          // If needed, we'd need to use a different approach or extend MapPolyline
+          borderWidth: 2,
         ));
       }
     }
-  } else if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty) {
-    // Legacy fallback: single route
-    polylines.add(MapPolyline(
-      id: 'route',
-      points: _coordsToLatLng(_previewGeometry!['coordinates']),
-      color: const Color(0xFF4CAF50),
-      width: 5,
-      borderColor: Colors.white,
-      borderWidth: 2,
-    ));
+    
+    // For GPX routes without supported activities, add green lines from waypoints to their snap points (if off-trail)
+    if (isGpxRoute && !supportsGpx) {
+      for (final wp in _poiWaypoints) {
+        if (wp.waypointSnapInfo != null && wp.waypointSnapInfo!.distanceFromRouteM > 0) {
+          // Waypoint is off-trail - draw green dashed line from original position to snap point
+          polylines.add(MapPolyline(
+            id: 'snap_${wp.id}',
+            points: [wp.waypointSnapInfo!.originalPosition, wp.waypointSnapInfo!.snapPoint],
+            color: const Color(0xFF4CAF50), // Green
+            width: 2.0,
+            isDashed: true,
+            dashPattern: [5, 5],
+          ));
+        }
+      }
+    }
+  }
+  
+  // CRITICAL: Filter out any polylines that look like waypoint connections
+  // This is a defensive measure to catch any contaminated geometry
+  // Only filter for GPX-required activities (hiking/cycling/skiing/climbing)
+  // Note: requiresGpx is already declared above in this method
+  final filteredPolylines = polylines.where((polyline) {
+    final isConnection = _isWaypointConnection(polyline.points, widget.activityCategory);
+    if (isConnection) {
+      Log.w('route_builder', '⚠️ Filtered out waypoint connection polyline: ${polyline.id} (${polyline.points.length} points)');
+      return false; // Remove this polyline
+    }
+    return true; // Keep this polyline
+  }).toList();
+  
+  // Only log if filtering actually removed something (reduce noise)
+  if (filteredPolylines.length < polylines.length) {
+    Log.i('route_builder', '📊 Polylines after filtering: ${filteredPolylines.length} (removed ${polylines.length - filteredPolylines.length} waypoint connections)');
   }
   
   // Convert waypoints to annotations
@@ -927,7 +1216,7 @@ Widget _buildMapboxEditor(ll.LatLng center) {
       // OSM POIs are no longer used in the application
     },
     annotations: annotations,
-    polylines: polylines,
+    polylines: filteredPolylines,
   );
 }
 
@@ -954,7 +1243,7 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
         userAgentPackageName: 'com.waypoint.app',
       ),
       // Use per-segment routes if available (with travel mode colors), otherwise fallback to legacy single route
-      if (_previewRouteSegments != null && _previewRouteSegments!.isNotEmpty)
+      if (_poiWaypoints.length >= 2 && _previewRouteSegments != null && _previewRouteSegments!.isNotEmpty)
         fm.PolylineLayer(
           polylines: _previewRouteSegments!.asMap().entries.map((entry) {
             final i = entry.key;
@@ -965,18 +1254,34 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
             final isChoiceRoute = segment['isChoiceRoute'] as bool? ?? false;
             final color = _getTravelModeColor(mode);
             
+            final routeType = segment['routeType'] as String? ?? 'directions';
+            final isStraightLine = routeType == 'straightLine';
+            final isGpx = routeType == 'gpx';
+            
+            // Determine color based on route type
+            Color polyColor;
+            if (isStraightLine) {
+              polyColor = Colors.grey.shade600; // Muted grey for straight-line
+            } else if (isGpx) {
+              polyColor = const Color(0xFF2E7D32); // Trail green for GPX
+            } else {
+              polyColor = color;
+            }
+            
             return fm.Polyline(
               points: points,
-              color: isChoiceRoute ? color.withOpacity(0.6) : color, // Slightly transparent for choice routes
-              strokeWidth: isChoiceRoute ? 3 : 5, // Thinner for choice routes
-              borderColor: Colors.white,
-              borderStrokeWidth: isChoiceRoute ? 1 : 2,
-              // Note: flutter_map doesn't support strokePattern/dashed lines directly
-              // Visual distinction is achieved through opacity and width differences
+              color: isChoiceRoute 
+                  ? polyColor.withOpacity(0.6) 
+                  : (isStraightLine ? polyColor.withOpacity(0.6) : polyColor),
+              strokeWidth: isChoiceRoute ? 3 : (isStraightLine ? 4 : 5),
+              borderColor: isStraightLine ? Colors.transparent : Colors.white,
+              borderStrokeWidth: isStraightLine ? 0 : (isChoiceRoute ? 1 : 2),
+              // Note: flutter_map doesn't support dash patterns directly
+              // Visual distinction for straight-line routes is achieved through opacity and color
             );
           }).toList(),
         )
-      else if (_previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
+      else if (_poiWaypoints.length >= 2 && _previewGeometry != null && _coordsToLatLng(_previewGeometry!['coordinates']).isNotEmpty)
         fm.PolylineLayer(
           polylines: [
             fm.Polyline(
@@ -1585,6 +1890,32 @@ color: Colors.grey.shade600,
 }
 
 Future<void> _updatePreview() async {
+  // Check if this is a GPX route with supported activities
+  // For GPX routes with supported activities, we don't need to calculate route segments
+  // The GPX trail is already in widget.initial.geometry, and waypoints are just POIs
+  final isGpxRoute = widget.initial?.routeType == RouteType.gpx ||
+      (widget.initial?.routeType == null &&
+       widget.initial?.routePoints.isEmpty == true &&
+       widget.initial?.geometry['coordinates'] is List &&
+       (widget.initial?.geometry['coordinates'] as List).length > 100);
+  
+  final supportsGpx = supportsGpxRoute(widget.activityCategory);
+  
+  // For GPX routes with supported activities, clear preview segments and return early
+  // The map will use widget.initial.geometry directly (the GPX trail)
+  if (isGpxRoute && supportsGpx) {
+    setState(() {
+      _previewGeometry = null;
+      _previewRouteSegments = null; // Clear segments - we'll use GPX trail directly
+      _previewDistance = widget.initial?.distance;
+      _previewDuration = widget.initial?.duration;
+      _previewElevation = [];
+      _previewAscent = null;
+      _previewDescent = null;
+    });
+    return; // Don't calculate route segments - waypoints are just POIs along the trail
+  }
+  
   // Group waypoints by order for choice group handling
   final grouped = <int, List<RouteWaypoint>>{};
   for (final wp in _poiWaypoints) {
@@ -1631,12 +1962,87 @@ try {
         for (final toWp in toWaypoints) {
           // Use stored geometry if available, otherwise fetch
           List<ll.LatLng>? segmentGeometry = toWp.travelRouteGeometry;
+          TravelInfo? travelInfo;
+          String routeType = 'directions';
           
           // Check if we have stored geometry for this specific segment
           // (Note: currently geometry is stored on toWp, but we need per-segment storage)
           // For now, fetch if not available
           if (segmentGeometry == null || segmentGeometry.isEmpty) {
-            // Fetch route geometry
+            // Check if this is a GPX route and waypoints have snap info
+            final isGpxRoute = widget.initial?.routeType == RouteType.gpx ||
+                (widget.initial?.routeType == null &&
+                 widget.initial?.routePoints.isEmpty == true &&
+                 widget.initial?.geometry['coordinates'] is List &&
+                 (widget.initial?.geometry['coordinates'] as List).length > 100);
+            
+            // Check if activity supports GPX (hike/ski/biking/climbing)
+            final supportsGpx = supportsGpxRoute(widget.activityCategory);
+            
+            if (isGpxRoute && supportsGpx) {
+              // GPX Flow: Skip distance calculations for supported activities
+              // Waypoints are just POIs along the route, not route segments
+              // Use GPX total distance and duration instead
+              final gpxDistanceM = widget.initial?.distance ?? 0.0;
+              final gpxDurationS = widget.initial?.duration ?? 0;
+              
+              // Create simple route geometry from GPX trail
+              final routeGeometry = _getGpxRoutePointsFromGeometry();
+              
+              travelInfo = TravelInfo(
+                from: fromWp.position,
+                to: toWp.position,
+                distanceMeters: gpxDistanceM.round(),
+                durationSeconds: gpxDurationS,
+                travelMode: TravelMode.walking,
+                routeGeometry: routeGeometry,
+                routeType: RouteType.gpx,
+              );
+              segmentGeometry = routeGeometry;
+              routeType = 'gpx';
+            } else if (isGpxRoute) {
+              // Legacy GPX behavior for non-supported activities
+              // Use calculateTravelWithGpx() service method which handles this correctly
+              if (widget.initial?.geometry['coordinates'] is List) {
+                final coords = widget.initial!.geometry['coordinates'] as List;
+                final trackPoints = _coordsToLatLng(coords);
+                
+                // Create GpxRoute model from widget.initial data
+                final gpxRoute = GpxRoute(
+                  name: widget.initial?.routeType == RouteType.gpx ? 'GPX Route' : null,
+                  trackPoints: trackPoints,
+                  simplifiedPoints: trackPoints, // Use same points for now
+                  totalDistanceKm: (widget.initial?.distance ?? 0.0) / 1000.0,
+                  totalElevationGainM: widget.initial?.ascent,
+                  estimatedDuration: widget.initial?.duration != null 
+                      ? Duration(seconds: widget.initial!.duration) 
+                      : null,
+                  bounds: GpxRoute.createBounds(trackPoints),
+                  importedAt: DateTime.now(),
+                  fileName: 'route',
+                );
+                
+                // Use the service method which correctly calculates segment distances
+                travelInfo = await travelService.calculateTravelWithGpx(
+                  from: fromWp.position,
+                  to: toWp.position,
+                  gpxRoute: gpxRoute,
+                  activityCategory: widget.activityCategory,
+                );
+                
+                if (travelInfo != null) {
+                  segmentGeometry = travelInfo.routeGeometry;
+                  routeType = 'gpx';
+                } else {
+                  // Service returned null - skip this segment
+                  continue;
+                }
+              } else {
+                // No geometry available - skip
+                continue;
+              }
+            } else {
+              // Fetch route geometry using Directions API
             final travelMode = toWp.travelMode != null
                 ? TravelMode.values.firstWhere(
                     (tm) => tm.name == toWp.travelMode,
@@ -1644,24 +2050,28 @@ try {
                   )
                 : null;
             
-            final travelInfo = await travelService.calculateTravel(
+            travelInfo = await travelService.calculateTravel(
               from: fromWp.position,
               to: toWp.position,
               travelMode: travelMode,
               includeGeometry: true, // Request geometry
+              activityCategory: widget.activityCategory,
             );
+            }
             
             if (travelInfo != null && travelInfo.routeGeometry != null) {
               segmentGeometry = travelInfo.routeGeometry;
+              routeType = travelInfo.routeType.name;
               
               // Store geometry on waypoint (for the primary route)
               // Note: For choice groups, we may need per-segment storage in the future
               if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
                 final index = _poiWaypoints.indexWhere((w) => w.id == toWp.id);
                 if (index >= 0) {
+                  final modeName = toWp.travelMode ?? travelInfo.travelMode.name;
                   _poiWaypoints[index] = _poiWaypoints[index].copyWith(
                     travelRouteGeometry: segmentGeometry,
-                    travelMode: travelMode?.name ?? travelInfo.travelMode.name,
+                    travelMode: modeName,
                     travelTime: travelInfo.durationSeconds,
                     travelDistance: travelInfo.distanceMeters.toDouble(),
                   );
@@ -1676,6 +2086,10 @@ try {
             }
           } else {
             // Use stored values (only count once)
+            // Infer route type from geometry: if only 2 points, likely straight-line
+            if (segmentGeometry.length == 2) {
+              routeType = 'straightLine';
+            }
             if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
               if (toWp.travelDistance != null) totalDistance += toWp.travelDistance!;
               if (toWp.travelTime != null) totalDuration += toWp.travelTime!;
@@ -1687,6 +2101,7 @@ try {
               'geometry': segmentGeometry.map((p) => [p.longitude, p.latitude]).toList(),
               'travelMode': toWp.travelMode ?? 'walking',
               'isChoiceRoute': isChoiceRoute, // Flag for visual distinction
+              'routeType': routeType, // Store route type for rendering
             });
             // Only add to allRoutePoints once (for legacy single route)
             if (fromWp == fromWaypoints.first && toWp == toWaypoints.first) {
@@ -1768,33 +2183,63 @@ return;
 
 setState(() => _busy = true);
 try {
-// CRITICAL: Always use preview geometry if it exists (it contains the snapped route)
-// Only create fallback geometry if there's no preview at all
+// CRITICAL: For GPX routes with supported activities, always preserve the original GPX trail geometry
+// This prevents creating waypoint-to-waypoint straight lines
+final isGpxSave = widget.initial?.routeType == RouteType.gpx || _isGpxRoute;
+final supportsGpxSave = widget.activityCategory == ActivityCategory.hiking ||
+                        widget.activityCategory == ActivityCategory.skis ||
+                        widget.activityCategory == ActivityCategory.cycling ||
+                        widget.activityCategory == ActivityCategory.climbing;
+  final requiresGpx = requiresGpxRoute(widget.activityCategory);
+
 Map<String, dynamic> geometry;
-if (_previewGeometry != null) {
-geometry = _previewGeometry!;
+if (isGpxSave && supportsGpxSave && widget.initial?.geometry != null) {
+  // CRITICAL: Use the original GPX trail geometry, NOT waypoint connections
+  geometry = widget.initial!.geometry;
+  Log.i('route_builder', '✅ Saving GPX route with original trail geometry (${(widget.initial!.geometry['coordinates'] as List?)?.length ?? 0} points)');
+} else if (requiresGpx) {
+  // For GPX-required activities, never create geometry from waypoint positions
+  if (widget.initial?.geometry != null) {
+    // Use existing GPX geometry if available
+    geometry = widget.initial!.geometry;
+    Log.i('route_builder', '✅ Using existing GPX geometry for GPX-required activity');
+  } else {
+    // GPX is required but not found - show error
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('GPX route is required for ${widget.activityCategory?.name}. Please import a GPX file.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    setState(() => _busy = false);
+    return;
+  }
+} else if (_previewGeometry != null) {
+  geometry = _previewGeometry!;
 } else if (sortedWaypoints.length >= 2) {
-// Create geometry from waypoints if no preview exists
-final waypointPoints = sortedWaypoints.map((wp) => wp.position).toList();
-geometry = {
-'type': 'LineString',
-'coordinates': waypointPoints.map((p) => [p.longitude, p.latitude]).toList(),
-};
+  // Create geometry from waypoints if no preview exists (only for non-GPX-required activities)
+  final waypointPoints = sortedWaypoints.map((wp) => wp.position).toList();
+  geometry = {
+    'type': 'LineString',
+    'coordinates': waypointPoints.map((p) => [p.longitude, p.latitude]).toList(),
+  };
 } else if (_poiWaypoints.isNotEmpty) {
-// Create empty geometry centered on first waypoint as last resort
-final firstWp = _poiWaypoints.first;
-geometry = {
-'type': 'LineString',
-'coordinates': [[firstWp.position.longitude, firstWp.position.latitude]],
-};
+  // Create empty geometry centered on first waypoint as last resort
+  final firstWp = _poiWaypoints.first;
+  geometry = {
+    'type': 'LineString',
+    'coordinates': [[firstWp.position.longitude, firstWp.position.latitude]],
+  };
 } else {
-if (mounted) {
-ScaffoldMessenger.of(context).showSnackBar(
-const SnackBar(content: Text('Please add waypoints or route points first')),
-);
-}
-setState(() => _busy = false);
-return;
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please add waypoints or route points first')),
+    );
+  }
+  setState(() => _busy = false);
+  return;
 }
 
 // Apply ordering one final time to ensure waypoints are in correct order
@@ -1809,13 +2254,14 @@ for (int i = 0; i < _poiWaypoints.length; i++) {
 
 final route = DayRoute(
 geometry: geometry,
-distance: _previewDistance ?? 0,
-duration: _previewDuration ?? 0,
+distance: _previewDistance ?? widget.initial?.distance ?? 0,  // Preserve GPX distance
+duration: _previewDuration ?? widget.initial?.duration ?? 0,  // Preserve GPX duration
 routePoints: [], // Route points removed - routes are built from waypoints only
-elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : null,
-ascent: _previewAscent,
-descent: _previewDescent,
+elevationProfile: _previewElevation.isNotEmpty ? _previewElevation : widget.initial?.elevationProfile,
+ascent: _previewAscent ?? widget.initial?.ascent,
+descent: _previewDescent ?? widget.initial?.descent,
 poiWaypoints: _poiWaypoints.map((w) => w.toJson()).toList(),
+routeType: isGpxSave ? RouteType.gpx : widget.initial?.routeType,  // Preserve routeType
 );
 
 if (!mounted) return;
@@ -2016,9 +2462,40 @@ if (!mounted) return;
 // Handle deletion (empty name signals deletion)
 if (result != null && result.name.isEmpty) {
   setState(() {
+    final deletedWp = waypoint;
     _poiWaypoints.removeWhere((w) => w.id == waypoint.id);
+    
+    // Clean up orphaned choice groups
+    if (deletedWp.choiceGroupId != null) {
+      final remaining = _poiWaypoints
+          .where((w) => w.choiceGroupId == deletedWp.choiceGroupId)
+          .toList();
+      if (remaining.length <= 1) {
+        for (final wp in remaining) {
+          final idx = _poiWaypoints.indexWhere((w) => w.id == wp.id);
+          if (idx >= 0) {
+            _poiWaypoints[idx] = _poiWaypoints[idx].copyWith(
+              choiceGroupId: null,
+              choiceLabel: null,
+            );
+          }
+        }
+      }
+    }
+    
+    _renumberWaypoints();
     _initializeRouteOrdering();
   });
+  
+  // Clear route preview if fewer than 2 waypoints remain
+  if (_poiWaypoints.length < 2) {
+    _clearRoutePreview();
+    Log.i('route_builder', '🧹 Cleared route preview after deletion (${_poiWaypoints.length} waypoints remaining)');
+  } else {
+    // Recalculate route with remaining waypoints
+    _calculateTravelTimes();
+    _updatePreview();
+  }
 }
 // Only update if user saved changes (result is not null and has a name)
 else if (result != null && result.name.isNotEmpty) {
@@ -2308,6 +2785,11 @@ Widget _buildWaypointsSection() {
 /// Renumber waypoints sequentially (1, 2, 3...)
 /// Handles choice groups by keeping waypoints with same choiceGroupId at same order
 void _renumberWaypoints() {
+  Log.i('route_builder', '🔢 _renumberWaypoints called with ${_poiWaypoints.length} waypoints');
+  for (final wp in _poiWaypoints) {
+    Log.i('route_builder', '  BEFORE: ${wp.name} order=${wp.order} choiceGroupId=${wp.choiceGroupId}');
+  }
+  
   // Sort by current order first
   _poiWaypoints.sort((a, b) {
     final orderCompare = a.order.compareTo(b.order);
@@ -2316,12 +2798,16 @@ void _renumberWaypoints() {
     return a.id.compareTo(b.id);
   });
   
+  // Work on a snapshot to avoid read-during-mutation issues
+  final snapshot = List<RouteWaypoint>.from(_poiWaypoints);
+  
   // Assign sequential order numbers, keeping choice groups together
   int order = 1;
   String? lastChoiceGroupId;
   int? lastAssignedOrder;
   
-  for (final wp in _poiWaypoints) {
+  for (int i = 0; i < snapshot.length; i++) {
+    final wp = snapshot[i];
     // If this waypoint is in a choice group
     if (wp.choiceGroupId != null) {
       // If this is a new choice group, assign current order first, then increment
@@ -2331,21 +2817,35 @@ void _renumberWaypoints() {
         order++; // Increment for next group
       }
       // Assign the same order as other waypoints in this choice group
-      final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
-      if (index >= 0) {
-        _poiWaypoints[index] = _poiWaypoints[index].copyWith(order: lastAssignedOrder!);
-      }
+      _poiWaypoints[i] = _poiWaypoints[i].copyWith(order: lastAssignedOrder!);
     } else {
       // Individual waypoint - assign current order, then increment
-      final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
-      if (index >= 0) {
-        _poiWaypoints[index] = _poiWaypoints[index].copyWith(order: order);
-      }
+      _poiWaypoints[i] = _poiWaypoints[i].copyWith(order: order);
       lastAssignedOrder = order;
       lastChoiceGroupId = null;
       order++; // Increment for next waypoint
     }
   }
+  
+  Log.i('route_builder', '🔢 _renumberWaypoints complete:');
+  for (final wp in _poiWaypoints) {
+    Log.i('route_builder', '  AFTER: ${wp.name} order=${wp.order} choiceGroupId=${wp.choiceGroupId}');
+  }
+}
+
+/// Clear all route preview data (geometry, segments, distance, duration, elevation)
+/// Called when waypoints are deleted and route is no longer valid
+void _clearRoutePreview() {
+  Log.i('route_builder', '🧹 Clearing route preview data');
+  setState(() {
+    _previewGeometry = null;
+    _previewRouteSegments = null;
+    _previewDistance = null;
+    _previewDuration = null;
+    _previewElevation = const [];
+    _previewAscent = null;
+    _previewDescent = null;
+  });
 }
 
 /// Calculate travel times and distances between consecutive waypoints
@@ -2376,6 +2876,64 @@ Future<void> _calculateTravelTimes() async {
     // Cartesian product: every fromWp → every toWp
     for (final fromWp in fromWaypoints) {
       for (final toWp in toWaypoints) {
+        TravelInfo? travelInfo;
+        
+        // Check if this is a GPX route and waypoints have snap info
+        final isGpxRoute = widget.initial?.routeType == RouteType.gpx ||
+            (widget.initial?.routeType == null &&
+             widget.initial?.routePoints.isEmpty == true &&
+             widget.initial?.geometry['coordinates'] is List &&
+             (widget.initial?.geometry['coordinates'] as List).length > 100);
+        
+        // Check if activity supports GPX (hike/ski/biking/climbing)
+        final supportsGpx = supportsGpxRoute(widget.activityCategory);
+        
+        if (isGpxRoute && supportsGpx) {
+          // GPX Flow: Skip per-segment distance calculations for supported activities
+          // Waypoints are just POIs along the route, not route-defining points
+          // Total distance/duration come from the GPX itself
+          // Don't assign travel info to individual waypoints - they're not route segments
+          continue; // Skip this segment calculation
+        } else if (isGpxRoute) {
+          // Legacy GPX behavior for non-supported activities
+          // Use calculateTravelWithGpx() service method which handles this correctly
+          if (widget.initial?.geometry['coordinates'] is List) {
+            final coords = widget.initial!.geometry['coordinates'] as List;
+            final trackPoints = _coordsToLatLng(coords);
+            
+            // Create GpxRoute model from widget.initial data
+            final gpxRoute = GpxRoute(
+              name: widget.initial?.routeType == RouteType.gpx ? 'GPX Route' : null,
+              trackPoints: trackPoints,
+              simplifiedPoints: trackPoints, // Use same points for now
+              totalDistanceKm: (widget.initial?.distance ?? 0.0) / 1000.0,
+              totalElevationGainM: widget.initial?.ascent,
+              estimatedDuration: widget.initial?.duration != null 
+                  ? Duration(seconds: widget.initial!.duration) 
+                  : null,
+              bounds: GpxRoute.createBounds(trackPoints),
+              importedAt: DateTime.now(),
+              fileName: 'route',
+            );
+            
+            // Use the service method which correctly calculates segment distances
+            travelInfo = await travelService.calculateTravelWithGpx(
+              from: fromWp.position,
+              to: toWp.position,
+              gpxRoute: gpxRoute,
+              activityCategory: widget.activityCategory,
+            );
+            
+            if (travelInfo == null) {
+              // Service returned null - skip this waypoint
+              continue;
+            }
+          } else {
+            // No geometry available - skip
+            continue;
+          }
+        } else {
+          // Use standard Directions API calculation
     // Use existing travel mode if set, otherwise let service choose
         final travelMode = toWp.travelMode != null
         ? TravelMode.values.firstWhere(
@@ -2384,12 +2942,14 @@ Future<void> _calculateTravelTimes() async {
           )
         : null;
     
-    final travelInfo = await travelService.calculateTravel(
+          travelInfo = await travelService.calculateTravel(
           from: fromWp.position,
           to: toWp.position,
       travelMode: travelMode,
           includeGeometry: true, // Request geometry for route preview
+          activityCategory: widget.activityCategory,
     );
+        }
     
     if (travelInfo != null && mounted) {
                         setState(() {
@@ -2398,13 +2958,15 @@ Future<void> _calculateTravelTimes() async {
               // Store geometry and travel info on the destination waypoint
               // For choice groups, we store the primary route (first combination)
               // In the future, we may need per-segment storage
-              if (fromWp == fromWaypoints.first) {
-          _poiWaypoints[index] = _poiWaypoints[index].copyWith(
-            travelMode: travelMode?.name ?? travelInfo.travelMode.name,
+          if (fromWp == fromWaypoints.first && travelInfo != null) {
+            final updatedWaypoint = _poiWaypoints[index].copyWith(
+              travelMode: toWp.travelMode ?? travelInfo.travelMode.name,
             travelTime: travelInfo.durationSeconds,
             travelDistance: travelInfo.distanceMeters.toDouble(),
                   travelRouteGeometry: travelInfo.routeGeometry,
           );
+            _poiWaypoints[index] = updatedWaypoint;
+            Log.i('route_builder', '✅ Updated ${toWp.name}: distance=${travelInfo.distanceMeters}m, time=${travelInfo.durationSeconds}s');
               }
         }
       });
@@ -2447,6 +3009,7 @@ Future<void> _recalculateTravelForWaypoint(RouteWaypoint waypoint, String newMod
     to: waypoint.position,
     travelMode: travelMode,
     includeGeometry: true, // Request geometry for route preview
+    activityCategory: widget.activityCategory,
   );
   
   if (travelInfo != null && mounted) {
@@ -2556,6 +3119,53 @@ Future<void> _handleNewWaypoint(RouteWaypoint newWaypoint) async {
     if (_poiWaypoints.length >= 2) {
       _updatePreview();
     }
+  }
+}
+
+/// Ungroup a choice group - removes choiceGroupId and choiceLabel from all waypoints in the group
+/// and assigns sequential order numbers
+void _ungroupChoiceGroup(String choiceGroupId) {
+  Log.i('route_builder', '🔴 Ungrouping choice group: $choiceGroupId');
+  
+  // Find all waypoints in this choice group
+  final waypointsInGroup = _poiWaypoints
+      .where((w) => w.choiceGroupId == choiceGroupId)
+      .toList();
+  
+  Log.i('route_builder', 'Found ${waypointsInGroup.length} waypoints in group');
+  
+  if (waypointsInGroup.isEmpty) {
+    Log.w('route_builder', 'No waypoints found in group, returning');
+    return;
+  }
+  
+  // Get the base order (the order of the first waypoint in the group)
+  final baseOrder = waypointsInGroup.first.order;
+  
+  // Single setState for consistent state - ungroup and renumber together
+  setState(() {
+    // Remove choice group info and assign sequential orders
+    for (int i = 0; i < waypointsInGroup.length; i++) {
+      final wp = waypointsInGroup[i];
+      final index = _poiWaypoints.indexWhere((w) => w.id == wp.id);
+      if (index >= 0) {
+        _poiWaypoints[index] = _poiWaypoints[index].copyWith(
+          choiceGroupId: null,
+          choiceLabel: null,
+          order: baseOrder + i,
+        );
+      }
+    }
+    // Renumber all waypoints to ensure sequential ordering
+    _renumberWaypoints();
+  });
+  
+  // Recalculate travel times after ungrouping
+  _calculateTravelTimes();
+  
+  // Auto-update preview to show route line when there are 2+ waypoints
+  if (_poiWaypoints.length >= 2) {
+    _updatePreview();
   }
 }
 
@@ -2679,35 +3289,30 @@ Future<void> _addAlternativeWaypoint(RouteWaypoint sourceWaypoint) async {
           sourceWaypoint.activityTime,
         );
 
-    // Update source waypoint if it doesn't have choiceGroupId yet
-    if (sourceWaypoint.choiceGroupId == null) {
+    // Consolidate all updates into a single setState
       final sourceIndex = _poiWaypoints.indexWhere((w) => w.id == sourceWaypoint.id);
-      if (sourceIndex >= 0) {
+    final selectedIndex = _poiWaypoints.indexWhere((w) => w.id == selectedWaypoint.id);
+    
+    if (selectedIndex >= 0) {
         setState(() {
+        // 1. Update source waypoint if it doesn't have choiceGroupId yet
+        if (sourceIndex >= 0 && sourceWaypoint.choiceGroupId == null) {
           _poiWaypoints[sourceIndex] = sourceWaypoint.copyWith(
             choiceGroupId: choiceGroupId,
             choiceLabel: choiceLabel,
           );
-        });
-      }
-    }
-
-    // Update selected waypoint to join the choice group
-    final selectedIndex = _poiWaypoints.indexWhere((w) => w.id == selectedWaypoint.id);
-    if (selectedIndex >= 0) {
-      setState(() {
-        // Store old choice group ID if it exists
-        final oldChoiceGroupId = selectedWaypoint.choiceGroupId;
+        }
         
+        // 2. Update selected waypoint to join the choice group
+        final oldChoiceGroupId = selectedWaypoint.choiceGroupId;
         _poiWaypoints[selectedIndex] = selectedWaypoint.copyWith(
           order: sourceWaypoint.order, // Same order as source waypoint
           choiceGroupId: choiceGroupId,
           choiceLabel: choiceLabel,
         );
         
-        // Clean up orphaned choice groups
+        // 3. Clean up orphaned choice groups
         if (oldChoiceGroupId != null && oldChoiceGroupId != choiceGroupId) {
-          // Check if old group has any remaining members
           final remainingInOldGroup = _poiWaypoints
               .where((w) => w.choiceGroupId == oldChoiceGroupId)
               .toList();
@@ -2726,7 +3331,8 @@ Future<void> _addAlternativeWaypoint(RouteWaypoint sourceWaypoint) async {
           }
         }
         
-        _renumberWaypoints(); // Ensure sequential ordering
+        // 4. Renumber ONCE after all mutations
+        _renumberWaypoints();
       });
     }
 
@@ -3080,7 +3686,10 @@ final VoidCallback onInitializeOrdering;
 final Future<void> Function(RouteWaypoint waypoint, String newMode) onTravelModeChanged;
 final Future<void> Function(RouteWaypoint waypoint) onAddAlternative;
 final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+final void Function(List<RouteWaypoint> updatedWaypoints)? onBulkWaypointUpdate;
 final VoidCallback? onOrderChanged;
+final void Function(String choiceGroupId)? onUngroup;
+final bool skipTravelSegments; // Skip travel segments for GPX routes with supported activities
 
 const _BottomPanel({
 required this.poiWaypoints,
@@ -3104,7 +3713,10 @@ required this.onInitializeOrdering,
 required this.onTravelModeChanged,
 required this.onAddAlternative,
 this.onWaypointUpdated,
+this.onBulkWaypointUpdate,
 this.onOrderChanged,
+this.onUngroup,
+this.skipTravelSegments = false,
 });
 
 @override
@@ -3173,7 +3785,10 @@ onInitializeOrdering: onInitializeOrdering,
 onTravelModeChanged: onTravelModeChanged,
 onAddAlternative: onAddAlternative,
 onWaypointUpdated: onWaypointUpdated,
+onBulkWaypointUpdate: onBulkWaypointUpdate,
 onOrderChanged: onOrderChanged,
+onUngroup: onUngroup,
+skipTravelSegments: skipTravelSegments,
 ),
 ),
 // Legacy: Route stats section removed (Length, Elev. gain, Est. time, Activity)
@@ -3245,7 +3860,10 @@ final ValueChanged<PlaceSuggestion> onSidebarSearchSelect;
 final Future<void> Function(RouteWaypoint waypoint, String newMode) onTravelModeChanged;
 final Future<void> Function(RouteWaypoint waypoint) onAddAlternative;
 final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+final void Function(List<RouteWaypoint> updatedWaypoints)? onBulkWaypointUpdate;
 final VoidCallback? onOrderChanged;
+final void Function(String choiceGroupId)? onUngroup;
+final bool skipTravelSegments; // Skip travel segments for GPX routes with supported activities
 
 const _DesktopSidebar({
 required this.poiWaypoints,
@@ -3273,7 +3891,10 @@ required this.onSidebarSearchSelect,
 required this.onTravelModeChanged,
 required this.onAddAlternative,
 this.onWaypointUpdated,
+this.onBulkWaypointUpdate,
 this.onOrderChanged,
+this.onUngroup,
+this.skipTravelSegments = false,
 });
 
 @override
@@ -3291,28 +3912,12 @@ Container(
 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
 decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
 child: Row(children: [
-Text('Build Route', style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+IconButton(
+icon: const Icon(Icons.arrow_back),
+onPressed: onCancel,
+tooltip: 'Go back',
+),
 ]),
-),
-// Search bar for adding waypoints
-Container(
-padding: const EdgeInsets.all(16),
-decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
-child: Column(
-mainAxisSize: MainAxisSize.min,
-children: [
-_FloatingSearchBar(
-controller: sidebarSearchController,
-focusNode: sidebarSearchFocusNode,
-searching: sidebarSearching,
-results: sidebarSearchResults,
-onChanged: onSidebarSearchChanged,
-onClear: onSidebarSearchClear,
-onSelect: onSidebarSearchSelect,
-usePositioned: false, // Don't use Positioned in Column
-),
-],
-),
 ),
 Expanded(
 child: ListView(
@@ -3371,7 +3976,10 @@ onInitializeOrdering: onInitializeOrdering,
 onTravelModeChanged: onTravelModeChanged,
 onAddAlternative: onAddAlternative,
 onWaypointUpdated: onWaypointUpdated,
+onBulkWaypointUpdate: onBulkWaypointUpdate,
 onOrderChanged: onOrderChanged,
+onUngroup: onUngroup,
+skipTravelSegments: skipTravelSegments,
 ),
 ],
 ],
@@ -3429,67 +4037,151 @@ default:
 // Legacy: _getActivityLabelStatic removed
 
 class _SidebarWaypointTile extends StatelessWidget {
-final RouteWaypoint waypoint; 
-final VoidCallback onEdit; 
-final VoidCallback? onMoveUp; 
-final VoidCallback? onMoveDown;
-final VoidCallback? onAddAlternative;
+  final RouteWaypoint waypoint; 
+  final VoidCallback onEdit; 
+  final VoidCallback? onMoveUp; 
+  final VoidCallback? onMoveDown;
+  final VoidCallback? onAddAlternative;
+  final int? waypointNumber; // Number badge for this waypoint
+  final bool showConnectingLine; // Whether to show connecting line below
+  final bool isLastInGroup; // Whether this is the last waypoint in its order group
 
-const _SidebarWaypointTile({
-  super.key, 
-  required this.waypoint, 
-  required this.onEdit, 
-  this.onMoveUp, 
-  this.onMoveDown,
-  this.onAddAlternative,
-});
-@override
-Widget build(BuildContext context) => Container(
-height: 56,
-decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
-child: Row(children: [
-Container(width: 28, height: 28, decoration: BoxDecoration(color: getWaypointColor(waypoint.type), borderRadius: BorderRadius.circular(8)),
-child: Icon(getWaypointIcon(waypoint.type), color: Colors.white, size: 16)),
-const SizedBox(width: 10),
-Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-Text(waypoint.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-Text(getWaypointLabel(waypoint.type), style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-])),
-// Reorder controls for individual waypoints
-if (onMoveUp != null || onMoveDown != null)
-  Padding(
-    padding: const EdgeInsets.only(left: 8),
-    child: ReorderControlsVertical(
-      canMoveUp: onMoveUp != null,
-      canMoveDown: onMoveDown != null,
-      onMoveUp: onMoveUp,
-      onMoveDown: onMoveDown,
-    ),
-  ),
-PopupMenuButton<String>(
-icon: const Icon(Icons.more_vert, size: 18),
-onSelected: (value) {
-if (value == 'edit') {
-  onEdit();
-} else if (value == 'add_alternative' && onAddAlternative != null) {
-  onAddAlternative?.call();
-}
-},
-itemBuilder: (context) => [
-const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
-if (onAddAlternative != null)
-  const PopupMenuItem(
-    value: 'add_alternative',
-    child: Row(children: [
-      Icon(Icons.alt_route, size: 18),
-      SizedBox(width: 8),
-      Text('Add OR alternative'),
-    ]),
-  ),
-],
-),
-]),
-);
+  const _SidebarWaypointTile({
+    super.key, 
+    required this.waypoint, 
+    required this.onEdit, 
+    this.onMoveUp, 
+    this.onMoveDown,
+    this.onAddAlternative,
+    this.waypointNumber,
+    this.showConnectingLine = false,
+    this.isLastInGroup = true,
+  });
+  
+  @override
+  Widget build(BuildContext context) {
+    final waypointColor = getWaypointColor(waypoint.type);
+    
+    return Column(
+      children: [
+        Container(
+          height: 56,
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+          child: Row(children: [
+            // Number badge and icon container
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                // Connecting line (vertical line on the left)
+                if (waypointNumber != null)
+                  Positioned(
+                    left: 14,
+                    top: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 2,
+                      color: Colors.grey.shade300,
+                    ),
+                  ),
+                // Number badge circle
+                if (waypointNumber != null)
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: waypointColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '$waypointNumber',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  // Fallback: icon without number
+                  Container(
+                    width: 28, 
+                    height: 28, 
+                    decoration: BoxDecoration(
+                      color: waypointColor, 
+                      borderRadius: BorderRadius.circular(8)
+                    ),
+                    child: Icon(getWaypointIcon(waypoint.type), color: Colors.white, size: 16)
+                  ),
+              ],
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center, 
+                crossAxisAlignment: CrossAxisAlignment.start, 
+                children: [
+                  Text(
+                    waypoint.name, 
+                    maxLines: 1, 
+                    overflow: TextOverflow.ellipsis, 
+                    style: const TextStyle(fontWeight: FontWeight.w600)
+                  ),
+                  Text(
+                    getWaypointLabel(waypoint.type), 
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600)
+                  ),
+                ]
+              )
+            ),
+            // Reorder controls for individual waypoints
+            if (onMoveUp != null || onMoveDown != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: ReorderControlsVertical(
+                  canMoveUp: onMoveUp != null,
+                  canMoveDown: onMoveDown != null,
+                  onMoveUp: onMoveUp,
+                  onMoveDown: onMoveDown,
+                ),
+              ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 18),
+              onSelected: (value) {
+                if (value == 'edit') {
+                  onEdit();
+                } else if (value == 'add_alternative' && onAddAlternative != null) {
+                  onAddAlternative?.call();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                if (onAddAlternative != null)
+                  const PopupMenuItem(
+                    value: 'add_alternative',
+                    child: Row(children: [
+                      Icon(Icons.alt_route, size: 18),
+                      SizedBox(width: 8),
+                      Text('Add OR alternative'),
+                    ]),
+                  ),
+              ],
+            ),
+          ]),
+        ),
+        // Connecting line below waypoint (if not last in group or if showConnectingLine is true)
+        if (showConnectingLine && (waypointNumber != null || !isLastInGroup))
+          Container(
+            width: 2,
+            height: 8,
+            margin: const EdgeInsets.only(left: 14),
+            color: Colors.grey.shade300,
+          ),
+      ],
+    );
+  }
 }
 
 /// Sidebar waypoint list using the same ordering system as builder page
@@ -3507,7 +4199,10 @@ class _SidebarWaypointOrderedList extends StatefulWidget {
   final Future<void> Function(RouteWaypoint waypoint)? onAddAlternative;
   // New callbacks for sequential ordering (by order number, not itemId)
   final void Function(RouteWaypoint updatedWaypoint)? onWaypointUpdated;
+  final void Function(List<RouteWaypoint> updatedWaypoints)? onBulkWaypointUpdate;
   final VoidCallback? onOrderChanged;
+  final void Function(String choiceGroupId)? onUngroup;
+  final bool skipTravelSegments; // Skip travel segments for GPX routes with supported activities
   
   const _SidebarWaypointOrderedList({
     required this.waypoints,
@@ -3521,7 +4216,10 @@ class _SidebarWaypointOrderedList extends StatefulWidget {
     this.onTravelModeChanged,
     this.onAddAlternative,
     this.onWaypointUpdated,
+    this.onBulkWaypointUpdate,
     this.onOrderChanged,
+    this.onUngroup,
+    this.skipTravelSegments = false,
   });
 
   @override
@@ -3639,8 +4337,6 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
   /// Move a waypoint (or its entire choice group) up by swapping orders
   /// with the previous order group.
   void _moveWaypointUp(RouteWaypoint waypoint) {
-    if (widget.onWaypointUpdated == null) return;
-    
     final orders = _getDistinctOrders();
     final currentOrderIndex = orders.indexOf(waypoint.order);
     if (currentOrderIndex <= 0) return;
@@ -3648,27 +4344,34 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
     final currentOrder = orders[currentOrderIndex];
     final previousOrder = orders[currentOrderIndex - 1];
 
-    // Get all waypoints at both order positions
     final currentGroup = widget.waypoints.where((w) => w.order == currentOrder).toList();
     final previousGroup = widget.waypoints.where((w) => w.order == previousOrder).toList();
 
-    // Swap orders: current group gets previousOrder, previous group gets currentOrder
-    for (final wp in currentGroup) {
-      widget.onWaypointUpdated!(wp.copyWith(order: previousOrder));
-    }
-    for (final wp in previousGroup) {
-      widget.onWaypointUpdated!(wp.copyWith(order: currentOrder));
-    }
+    Log.i('route_builder', '⬆️ _moveWaypointUp: "${waypoint.name}" (order=$currentOrder → $previousOrder)');
+    Log.i('route_builder', '  currentGroup (order=$currentOrder): ${currentGroup.map((w) => "${w.name}(cg=${w.choiceGroupId})").join(", ")}');
+    Log.i('route_builder', '  previousGroup (order=$previousOrder): ${previousGroup.map((w) => "${w.name}(cg=${w.choiceGroupId})").join(", ")}');
 
-    // Trigger route recalculation
+    // Collect ALL updates — preserve choiceGroupId, only change order
+    final updates = <RouteWaypoint>[
+      for (final wp in currentGroup) wp.copyWith(order: previousOrder),
+      for (final wp in previousGroup) wp.copyWith(order: currentOrder),
+    ];
+
+    Log.i('route_builder', '  updates: ${updates.map((w) => "${w.name}→order=${w.order}(cg=${w.choiceGroupId})").join(", ")}');
+
+    if (widget.onBulkWaypointUpdate != null) {
+      widget.onBulkWaypointUpdate!(updates);
+    } else if (widget.onWaypointUpdated != null) {
+      for (final updated in updates) {
+        widget.onWaypointUpdated!(updated);
+      }
     widget.onOrderChanged?.call();
+    }
   }
 
   /// Move a waypoint (or its entire choice group) down by swapping orders
   /// with the next order group.
   void _moveWaypointDown(RouteWaypoint waypoint) {
-    if (widget.onWaypointUpdated == null) return;
-    
     final orders = _getDistinctOrders();
     final currentOrderIndex = orders.indexOf(waypoint.order);
     if (currentOrderIndex >= orders.length - 1) return;
@@ -3676,20 +4379,28 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
     final currentOrder = orders[currentOrderIndex];
     final nextOrder = orders[currentOrderIndex + 1];
 
-    // Get all waypoints at both order positions
     final currentGroup = widget.waypoints.where((w) => w.order == currentOrder).toList();
     final nextGroup = widget.waypoints.where((w) => w.order == nextOrder).toList();
 
-    // Swap orders
-    for (final wp in currentGroup) {
-      widget.onWaypointUpdated!(wp.copyWith(order: nextOrder));
-    }
-    for (final wp in nextGroup) {
-      widget.onWaypointUpdated!(wp.copyWith(order: currentOrder));
-    }
+    Log.i('route_builder', '⬇️ _moveWaypointDown: "${waypoint.name}" (order=$currentOrder → $nextOrder)');
+    Log.i('route_builder', '  currentGroup (order=$currentOrder): ${currentGroup.map((w) => "${w.name}(cg=${w.choiceGroupId})").join(", ")}');
+    Log.i('route_builder', '  nextGroup (order=$nextOrder): ${nextGroup.map((w) => "${w.name}(cg=${w.choiceGroupId})").join(", ")}');
 
-    // Trigger route recalculation
+    final updates = <RouteWaypoint>[
+      for (final wp in currentGroup) wp.copyWith(order: nextOrder),
+      for (final wp in nextGroup) wp.copyWith(order: currentOrder),
+    ];
+
+    Log.i('route_builder', '  updates: ${updates.map((w) => "${w.name}→order=${w.order}(cg=${w.choiceGroupId})").join(", ")}');
+
+    if (widget.onBulkWaypointUpdate != null) {
+      widget.onBulkWaypointUpdate!(updates);
+    } else if (widget.onWaypointUpdated != null) {
+      for (final updated in updates) {
+        widget.onWaypointUpdated!(updated);
+      }
     widget.onOrderChanged?.call();
+    }
   }
 
   @override
@@ -3708,9 +4419,20 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
       groupedWaypoints.putIfAbsent(wp.order, () => <RouteWaypoint>[]).add(wp);
     }
 
+    Log.i('route_builder', '🏗️ Building sidebar: ${sortedWaypoints.length} waypoints, ${groupedWaypoints.length} order groups');
+    for (final entry in groupedWaypoints.entries) {
+      final wps = entry.value;
+      final isChoice = wps.first.choiceGroupId != null && wps.length > 1;
+      Log.i('route_builder', '  order=${entry.key}: ${wps.map((w) => "${w.name}(cg=${w.choiceGroupId})").join(", ")} ${isChoice ? "→ CHOICE GROUP" : ""}');
+    }
+
     final orderedGroups = groupedWaypoints.keys.toList()..sort();
 
     final widgets = <Widget>[];
+    
+    // Calculate waypoint numbers based on order groups (not individual waypoints)
+    // Each order group gets one number, and choice groups share that number
+    int waypointNumber = 1;
     
     for (int i = 0; i < orderedGroups.length; i++) {
       final order = orderedGroups[i];
@@ -3719,6 +4441,7 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
       // Check if this is a choice group (multiple waypoints with same order and choiceGroupId)
       final firstWp = waypointsAtOrder.first;
       final isChoiceGroup = firstWp.choiceGroupId != null && waypointsAtOrder.length > 1;
+      final isLastGroup = i == orderedGroups.length - 1;
       
       if (isChoiceGroup) {
         // Get previous order group's waypoints (for per-option travel display)
@@ -3739,11 +4462,19 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
             onMoveDown: _canMoveDown(firstWp) ? () => _moveWaypointDown(firstWp) : null,
             previousWaypoints: previousWaypoints,
             onTravelModeChanged: widget.onTravelModeChanged,
+            onUngroup: widget.onUngroup != null && firstWp.choiceGroupId != null 
+                ? () => widget.onUngroup!(firstWp.choiceGroupId!) 
+                : null,
+            groupNumber: waypointNumber, // All waypoints in group share this number
+            showConnectingLine: !isLastGroup, // Show line if not last group
           ),
-          );
+        );
+        waypointNumber++; // Increment for next group
       } else {
         // Display individual waypoint with move arrows
-        for (final wp in waypointsAtOrder) {
+        for (int j = 0; j < waypointsAtOrder.length; j++) {
+          final wp = waypointsAtOrder[j];
+          final isLastInOrderGroup = j == waypointsAtOrder.length - 1;
           // Check if there are other waypoints available to group with
           final availableForGrouping = widget.waypoints.where((other) {
             if (other.id == wp.id) return false; // Exclude self
@@ -3761,50 +4492,16 @@ class _SidebarWaypointOrderedListState extends State<_SidebarWaypointOrderedList
               onAddAlternative: (widget.onAddAlternative != null && availableForGrouping) 
                   ? () => widget.onAddAlternative!(wp) 
                   : null,
+              waypointNumber: waypointNumber, // Individual waypoint gets its own number
+              showConnectingLine: !isLastGroup || !isLastInOrderGroup, // Show line if not last
+              isLastInGroup: isLastInOrderGroup,
             ),
           );
         }
+        waypointNumber++; // Increment for next group
       }
       
-      // Show travel segment between this group and the next one
-      if (i < orderedGroups.length - 1) {
-        final nextOrder = orderedGroups[i + 1];
-        final nextWaypoints = groupedWaypoints[nextOrder]!;
-        final nextFirstWp = nextWaypoints.first;
-        final nextIsChoiceGroup = nextFirstWp.choiceGroupId != null && nextWaypoints.length > 1;
-        
-        if (nextIsChoiceGroup) {
-          // Next group is a choice group — travel info will be shown
-          // INSIDE the choice group widget (per-option). No segment here.
-        } else {
-          // Next group is a single waypoint
-          if (isChoiceGroup) {
-            // Current = choice group, next = single → show per-origin segments
-            for (final fromWp in waypointsAtOrder) {
-              widgets.add(
-                _SidebarTravelSegmentWithLabel(
-                  key: ValueKey('travel_${fromWp.id}_${nextFirstWp.id}'),
-                  fromWaypoint: fromWp,
-                  toWaypoint: nextFirstWp,
-                  label: 'from ${fromWp.name}',
-                  onTravelModeChanged: widget.onTravelModeChanged,
-                ),
-          );
-        }
-          } else {
-            // Single → single: normal travel segment
-            final fromWp = waypointsAtOrder.last;
-            widgets.add(
-              _SidebarTravelSegment(
-                key: ValueKey('travel_${fromWp.id}_${nextFirstWp.id}'),
-                fromWaypoint: fromWp,
-                toWaypoint: nextFirstWp,
-                onTravelModeChanged: widget.onTravelModeChanged,
-              ),
-    );
-          }
-        }
-      }
+      // Travel segments removed - no longer showing duration/distance between waypoints
     }
     
     return Column(children: widgets);
@@ -3859,6 +4556,9 @@ class _SidebarChoiceGroup extends StatelessWidget {
   final VoidCallback? onMoveDown;
   final List<RouteWaypoint>? previousWaypoints;
   final void Function(RouteWaypoint waypoint, String newMode)? onTravelModeChanged;
+  final VoidCallback? onUngroup;
+  final int? groupNumber; // Number badge for this choice group
+  final bool showConnectingLine; // Whether to show connecting line below
 
   const _SidebarChoiceGroup({
     super.key,
@@ -3869,6 +4569,9 @@ class _SidebarChoiceGroup extends StatelessWidget {
     this.onMoveDown,
     this.previousWaypoints,
     this.onTravelModeChanged,
+    this.onUngroup,
+    this.groupNumber,
+    this.showConnectingLine = false,
   });
 
   String _formatTravelTime(int? seconds) {
@@ -3902,55 +4605,108 @@ class _SidebarChoiceGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.blue.shade200),
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.blue.shade50,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Choice group header with move arrows
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade100,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-            ),
-            child: Row(
-              children: [
-                // Move up arrow
-                if (onMoveUp != null)
-                  IconButton(
-                    icon: const Icon(Icons.arrow_upward, size: 18),
-                    onPressed: onMoveUp,
-                    tooltip: 'Move group up',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  ),
-                // Move down arrow
-                if (onMoveDown != null)
-                  IconButton(
-                    icon: const Icon(Icons.arrow_downward, size: 18),
-                    onPressed: onMoveDown,
-                    tooltip: 'Move group down',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  ),
-                Icon(Icons.check_circle_outline, size: 16, color: Colors.blue.shade700),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    choiceLabel,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.blue.shade900,
-                    ),
-                  ),
+    // Use the first waypoint's color for the group number badge
+    final groupColor = waypoints.isNotEmpty 
+        ? getWaypointColor(waypoints.first.type)
+        : Colors.blue;
+    
+    return Column(
+      children: [
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.blue.shade200),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.blue.shade50,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Connecting line above group (if groupNumber is set)
+              if (groupNumber != null)
+                Container(
+                  width: 2,
+                  height: 8,
+                  margin: const EdgeInsets.only(left: 14),
+                  color: Colors.grey.shade300,
                 ),
+              // Choice group header with move arrows
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade100,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                ),
+                child: Row(
+                  children: [
+                    // Number badge for the group
+                    if (groupNumber != null)
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Vertical line
+                          Positioned(
+                            left: 14,
+                            top: -8,
+                            bottom: -8,
+                            child: Container(
+                              width: 2,
+                              color: Colors.grey.shade300,
+                            ),
+                          ),
+                          // Number badge
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: groupColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '$groupNumber',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    if (groupNumber != null) const SizedBox(width: 10),
+                    // Move up arrow
+                    if (onMoveUp != null)
+                      IconButton(
+                        icon: const Icon(Icons.arrow_upward, size: 18),
+                        onPressed: onMoveUp,
+                        tooltip: 'Move group up',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                    // Move down arrow
+                    if (onMoveDown != null)
+                      IconButton(
+                        icon: const Icon(Icons.arrow_downward, size: 18),
+                        onPressed: onMoveDown,
+                        tooltip: 'Move group down',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                    Icon(Icons.check_circle_outline, size: 16, color: Colors.blue.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        choiceLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                    ),
                 Text(
                   '(${waypoints.length} options)',
                   style: TextStyle(
@@ -3959,6 +4715,18 @@ class _SidebarChoiceGroup extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                if (onUngroup != null)
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () {
+                      Log.i('route_builder', '🔴 Ungroup button clicked');
+                      onUngroup?.call();
+                    },
+                    tooltip: 'Ungroup waypoints',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    color: Colors.blue.shade700,
+                  ),
               ],
             ),
           ),
@@ -3973,8 +4741,13 @@ class _SidebarChoiceGroup extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Waypoints in choice group don't show individual numbers - they share the group number
                         Row(
                           children: [
+                            // Indent for grouped waypoints
+                            SizedBox(
+                              width: groupNumber != null ? 38 : 0, // Space for number badge
+                            ),
                             Icon(Icons.radio_button_unchecked, size: 16, color: Colors.blue.shade600),
                             const SizedBox(width: 8),
                             Expanded(
@@ -3983,75 +4756,14 @@ class _SidebarChoiceGroup extends StatelessWidget {
                                 onEdit: () => onEdit(wp),
                                 onMoveUp: null,
                                 onMoveDown: null,
+                                waypointNumber: null, // No individual number in choice group
+                                showConnectingLine: false,
+                                isLastInGroup: wp == waypoints.last,
                               ),
                             ),
                           ],
                         ),
-                        // Per-option travel info (from previous waypoint to this option)
-                        if (previousWaypoints != null &&
-                            previousWaypoints!.isNotEmpty &&
-                            wp.travelTime != null &&
-                            wp.travelDistance != null)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 24, top: 2, bottom: 4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: Colors.green.shade200.withOpacity(0.5),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _getTravelIcon(wp.travelMode),
-                                    size: 14,
-                                    color: Colors.green.shade700,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '↓ ${_formatTravelTime(wp.travelTime)} ${_getTravelModeLabel(wp.travelMode)}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.green.shade900,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '(${(wp.travelDistance! / 1000.0).toStringAsFixed(1)} km)',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.green.shade700,
-                                    ),
-                                  ),
-                                  // Travel mode picker
-                                  if (onTravelModeChanged != null) ...[
-                                    const SizedBox(width: 4),
-                                    SizedBox(
-                                      width: 24,
-                                      height: 24,
-                                      child: PopupMenuButton<String>(
-                                        icon: Icon(Icons.swap_horiz, size: 14, color: Colors.green.shade700),
-                                        tooltip: 'Change travel mode',
-                                        padding: EdgeInsets.zero,
-                                        onSelected: (newMode) => onTravelModeChanged!(wp, newMode),
-                                        itemBuilder: (_) => [
-                                          PopupMenuItem(value: 'walking', child: Row(children: [Icon(Icons.directions_walk, size: 16), const SizedBox(width: 8), const Text('Walk')])),
-                                          PopupMenuItem(value: 'transit', child: Row(children: [Icon(Icons.directions_transit, size: 16), const SizedBox(width: 8), const Text('Transit')])),
-                                          PopupMenuItem(value: 'driving', child: Row(children: [Icon(Icons.directions_car, size: 16), const SizedBox(width: 8), const Text('Drive')])),
-                                          PopupMenuItem(value: 'bicycling', child: Row(children: [Icon(Icons.directions_bike, size: 16), const SizedBox(width: 8), const Text('Bike')])),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
+                        // Travel info removed - no longer showing duration/distance
                       ],
                     ),
                   ),
@@ -4060,6 +4772,16 @@ class _SidebarChoiceGroup extends StatelessWidget {
           ),
         ],
       ),
+      ),
+      // Connecting line below group (if showConnectingLine is true)
+      if (showConnectingLine && groupNumber != null)
+        Container(
+          width: 2,
+          height: 8,
+          margin: const EdgeInsets.only(left: 14),
+          color: Colors.grey.shade300,
+        ),
+    ],
     );
   }
 }
@@ -4127,10 +4849,18 @@ class _SidebarTravelSegment extends StatelessWidget {
                           toWaypoint.travelMode != null && 
                           toWaypoint.travelDistance != null;
     
+    // Detect straight-line route: travelTime is 0 and geometry has exactly 2 points
+    final isStraightLine = hasTravelInfo && 
+                          toWaypoint.travelTime == 0 &&
+                          toWaypoint.travelRouteGeometry != null &&
+                          toWaypoint.travelRouteGeometry!.length == 2;
+    
     final distanceKm = hasTravelInfo 
         ? (toWaypoint.travelDistance! / 1000.0).toStringAsFixed(1)
         : null;
-    final timeStr = hasTravelInfo ? _formatTravelTime(toWaypoint.travelTime!) : null;
+    final timeStr = hasTravelInfo && !isStraightLine 
+        ? _formatTravelTime(toWaypoint.travelTime!) 
+        : null;
     final mode = toWaypoint.travelMode ?? 'walking';
     final modeLabel = _getTravelModeLabel(mode);
 
@@ -4138,101 +4868,156 @@ class _SidebarTravelSegment extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.green.shade50,
+        color: isStraightLine ? Colors.grey.shade100 : Colors.green.shade50,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.green.shade200),
+        border: Border.all(
+          color: isStraightLine ? Colors.grey.shade300 : Colors.green.shade200,
+        ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            _getTravelIcon(mode),
-            size: 16,
-            color: Colors.green.shade700,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Row(
-              children: [
-                if (hasTravelInfo) ...[
-                  Text(
-                    '↓ $timeStr $modeLabel',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.green.shade900,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (distanceKm != null) ...[
-                    const SizedBox(width: 4),
-                    Text(
-                      '($distanceKm km)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.green.shade700,
+          Row(
+            children: [
+              Icon(
+                _getTravelIcon(mode),
+                size: 16,
+                color: isStraightLine ? Colors.grey.shade700 : Colors.green.shade700,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(
+                  children: [
+                    if (hasTravelInfo) ...[
+                      if (isStraightLine) ...[
+                        Text(
+                          '↓ $modeLabel',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade900,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ] else if (timeStr != null) ...[
+                        Text(
+                          '↓ $timeStr $modeLabel',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade900,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      if (distanceKm != null) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          isStraightLine ? '(~$distanceKm km straight line)' : '($distanceKm km)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isStraightLine ? Colors.grey.shade600 : Colors.green.shade700,
+                            fontStyle: isStraightLine ? FontStyle.italic : FontStyle.normal,
+                          ),
+                        ),
+                      ],
+                    ] else ...[
+                      Text(
+                        'Calculating travel time...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green.shade700,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ] else ...[
+                ),
+              ),
+            ],
+          ),
+          if (isStraightLine) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.info_outline, size: 12, color: Colors.orange.shade700),
+                  const SizedBox(width: 4),
                   Text(
-                    'Calculating travel time...',
+                    'No road route — straight line shown',
                     style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.green.shade700,
+                      fontSize: 10,
+                      color: Colors.orange.shade900,
                       fontStyle: FontStyle.italic,
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
+          ],
           // Travel mode picker
           if (onTravelModeChanged != null)
-            PopupMenuButton<String>(
-              icon: Icon(Icons.swap_horiz, size: 16, color: Colors.green.shade700),
-              tooltip: 'Change travel mode',
-              onSelected: (newMode) => onTravelModeChanged!(toWaypoint, newMode),
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: 'walking',
-                  child: Row(
-                    children: [
-                      Icon(Icons.directions_walk, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Walk'),
-                    ],
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: PopupMenuButton<String>(
+                  icon: Icon(
+                    Icons.swap_horiz, 
+                    size: 16, 
+                    color: isStraightLine ? Colors.grey.shade700 : Colors.green.shade700,
                   ),
+                  tooltip: 'Change travel mode',
+                  onSelected: (newMode) => onTravelModeChanged!(toWaypoint, newMode),
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'walking',
+                      child: Row(
+                        children: [
+                          Icon(Icons.directions_walk, size: 16),
+                          const SizedBox(width: 8),
+                          const Text('Walk'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'transit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.directions_transit, size: 16),
+                          const SizedBox(width: 8),
+                          const Text('Transit'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'driving',
+                      child: Row(
+                        children: [
+                          Icon(Icons.directions_car, size: 16),
+                          const SizedBox(width: 8),
+                          const Text('Drive'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'bicycling',
+                      child: Row(
+                        children: [
+                          Icon(Icons.directions_bike, size: 16),
+                          const SizedBox(width: 8),
+                          const Text('Bike'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                PopupMenuItem(
-                  value: 'transit',
-                  child: Row(
-                    children: [
-                      Icon(Icons.directions_transit, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Transit'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'driving',
-                  child: Row(
-                    children: [
-                      Icon(Icons.directions_car, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Drive'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'bicycling',
-                  child: Row(
-                    children: [
-                      Icon(Icons.directions_bike, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Bike'),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
         ],
       ),
@@ -4950,6 +5735,7 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   bool _hasSearchedOrExtracted = false; // Track if user has searched or extracted
   ll.LatLng? _extractedLocation; // Location from URL extraction
   Map<String, dynamic>? _extractedAddress; // Address from URL extraction
+  PlaceDetails? _selectedPlace; // Place selected from Google Places search within dialog
   List<PlacePrediction> _googlePlacesSearchResults = []; // Google Places search results
   bool _googlePlacesSearching = false; // Google Places search in progress
   final _addressSearchController = TextEditingController(); // Controller for manual address search
@@ -5082,7 +5868,8 @@ class _AddWaypointDialogState extends State<_AddWaypointDialog> {
   }
 
 Future<void> _loadGooglePlacePhoto(String photoReference) async {
-  if (widget.preselectedPlace == null) return;
+  // Load photo if we have a preselected place (from map search) or selected place (from dialog search)
+  if (widget.preselectedPlace == null && _selectedPlace == null) return;
   
   setState(() => _loadingPhoto = true);
   
@@ -5405,6 +6192,7 @@ Future<void> _selectGooglePlacesResult(PlacePrediction prediction) async {
       
       _extractedLocation = placeDetails.location;
       _extractedAddress = placeDetails.address != null ? {'formatted': placeDetails.address} : null;
+      _selectedPlace = placeDetails; // Store full place details for later use
       _hasSearchedOrExtracted = true;
       _googlePlacesSearching = false;
     });
@@ -6555,15 +7343,20 @@ void _save() async {
   String? address;
   
   // Priority order for position:
-  // 1. Google Places preselected place
-  // 2. Extracted location from URL metadata
-  // 3. Airbnb geocoded location
-  // 4. Route point proximity bias
-  // 5. Proximity bias (map tap location) as fallback
+  // 1. Google Places preselected place (from map search)
+  // 2. Google Places selected place (from dialog search)
+  // 3. Extracted location from URL metadata
+  // 4. Airbnb geocoded location
+  // 5. Route point proximity bias
+  // 6. Proximity bias (map tap location) as fallback
   
   if (widget.preselectedPlace != null) {
     position = widget.preselectedPlace!.location;
     address = widget.preselectedPlace!.address;
+  } else if (_selectedPlace != null) {
+    // Use location from place selected via dialog search
+    position = _selectedPlace!.location;
+    address = _selectedPlace!.address;
   } else if (_extractedLocation != null) {
     // Use location extracted from URL metadata
     position = _extractedLocation!;
@@ -6593,8 +7386,8 @@ void _save() async {
   if (ratingText.isNotEmpty) {
     rating = double.tryParse(ratingText.replaceAll(',', '.'));
   }
-  // Priority: 1. Manual entry, 2. Preselected place, 3. Existing waypoint
-  final finalRating = rating ?? widget.preselectedPlace?.rating ?? widget.existingWaypoint?.rating;
+  // Priority: 1. Manual entry, 2. Preselected place, 3. Selected place, 4. Existing waypoint
+  final finalRating = rating ?? widget.preselectedPlace?.rating ?? _selectedPlace?.rating ?? widget.existingWaypoint?.rating;
 
   final waypoint = RouteWaypoint(
     id: widget.existingWaypoint?.id, // Preserve ID when editing
@@ -6603,12 +7396,12 @@ void _save() async {
     name: _nameController.text.trim(),
     description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
     order: widget.existingWaypoint?.order ?? 0, // Preserve order when editing
-    googlePlaceId: widget.preselectedPlace?.placeId ?? widget.existingWaypoint?.googlePlaceId,
+    googlePlaceId: widget.preselectedPlace?.placeId ?? _selectedPlace?.placeId ?? widget.existingWaypoint?.googlePlaceId,
     address: address ?? widget.existingWaypoint?.address,
     rating: finalRating,
-    website: widget.preselectedPlace?.website ?? widget.existingWaypoint?.website,
+    website: widget.preselectedPlace?.website ?? _selectedPlace?.website ?? widget.existingWaypoint?.website,
     phoneNumber: _phoneController.text.trim().isEmpty 
-        ? (widget.preselectedPlace?.phoneNumber ?? widget.existingWaypoint?.phoneNumber)
+        ? (widget.preselectedPlace?.phoneNumber ?? _selectedPlace?.phoneNumber ?? widget.existingWaypoint?.phoneNumber)
         : _phoneController.text.trim(),
     photoUrl: photoUrl ?? _googlePlacePhotoUrl ?? widget.existingWaypoint?.photoUrl,
     accommodationType: _selectedType == WaypointType.accommodation ? _accommodationType : null,

@@ -260,6 +260,34 @@ interface PlaceDetailsRequest {
 }
 
 /**
+ * Helper function to convert price level enum to number.
+ * The Google Places API (New) returns string enums like "PRICE_LEVEL_MODERATE",
+ * while the legacy API returns numeric values (0-4).
+ */
+function convertPriceLevel(priceLevel: string | number | undefined): number | null {
+  if (priceLevel == null) return null;
+  
+  // If already a number (legacy API), return it
+  if (typeof priceLevel === 'number') {
+    return priceLevel;
+  }
+  
+  // If string enum (new API), convert to number
+  if (typeof priceLevel === 'string') {
+    const mapping: Record<string, number> = {
+      'PRICE_LEVEL_FREE': 0,
+      'PRICE_LEVEL_INEXPENSIVE': 1,
+      'PRICE_LEVEL_MODERATE': 2,
+      'PRICE_LEVEL_EXPENSIVE': 3,
+      'PRICE_LEVEL_VERY_EXPENSIVE': 4,
+    };
+    return mapping[priceLevel] ?? null;
+  }
+  
+  return null;
+}
+
+/**
  * 🔒 SECURE: Get detailed place information
  */
 export const placeDetails = onCall({
@@ -322,7 +350,7 @@ export const placeDetails = onCall({
       description: place.editorialSummary?.text || null,
       userRatingCount: place.userRatingCount || null,
       reviews: reviews,
-      priceLevel: place.priceLevel || null, // 0=free, 1=$, 2=$$, 3=$$$, 4=$$$$
+      priceLevel: convertPriceLevel(place.priceLevel), // 0=free, 1=$, 2=$$, 3=$$$, 4=$$$$
     };
   } catch (error: any) {
     console.error("Place details failed:", error.response?.data || error.message);
@@ -439,9 +467,13 @@ export const placePhoto = onCall({
     }
 
     // Not cached - fetch from Google Places
-    const photoUrl = `${PLACES_BASE_URL}/${photoReference}/media?maxWidthPx=${maxWidth || 800}&key=${apiKey}`;
+    // Google Places API (New) requires API key in header, not query parameter
+    const photoUrl = `${PLACES_BASE_URL}/${photoReference}/media?maxWidthPx=${maxWidth || 800}`;
 
     const response = await axios.get(photoUrl, {
+      headers: {
+        "X-Goog-Api-Key": apiKey,
+      },
       responseType: "arraybuffer",
     });
 
