@@ -3,12 +3,19 @@ import 'package:waypoint/models/adventure_context_model.dart';
 import 'package:flutter/foundation.dart';
 
 /// Service for generating AI-powered travel context (prepare info + local tips)
+/// 
+/// @deprecated This service is deprecated. AI generation features have been removed from the UI.
+/// The service is kept for backward compatibility but should not be used in new code.
+@Deprecated('AI generation features have been removed from the UI')
 class AdventureContextService {
   static final _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
 
   /// Generate travel context using AI based on adventure details
   /// 
   /// Returns a map with 'prepare' and 'local_tips' keys, or null on error
+  /// 
+  /// @deprecated This method is deprecated. AI generation features have been removed from the UI.
+  @Deprecated('AI generation features have been removed from the UI')
   static Future<Map<String, dynamic>?> generateAdventureContext({
     required String location,
     required String title,

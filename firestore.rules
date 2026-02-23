@@ -77,6 +77,37 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow create: if isSignedIn();
       }
+      
+      // Following subcollection - user can read/write their own following list
+      match /following/{creatorId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // Followers subcollection - user can read their followers, system can write
+      match /followers/{followerId} {
+        allow read: if isOwner(userId);
+        // Allow authenticated users to write (for follow/unfollow operations)
+        allow write: if isSignedIn();
+      }
+      
+      // Feed subcollection - user can read their own feed, system can write
+      match /feed/{planId} {
+        allow read: if isOwner(userId);
+        // Allow authenticated creators to write to follower feeds (fan-out pattern)
+        allow create: if isSignedIn();
+        allow update, delete: if isSignedIn();
+      }
+      
+      // Notifications subcollection - user can read/write their own notifications
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId);
+        // Allow authenticated users to create notifications (for system notifications)
+        allow create: if isSignedIn();
+        // User can update their own notifications (mark as read)
+        allow update: if isOwner(userId);
+        // User can delete their own notifications
+        allow delete: if isOwner(userId);
+      }
     }
     
     // ============================================
@@ -152,6 +183,37 @@ service cloud.firestore {
             allow create, update, delete: if isPlanCreator(planId) || isAdmin();
           }
         }
+      }
+      
+      // ============================================
+      // COMMENTS SUBCOLLECTION
+      // ============================================
+      match /comments/{commentId} {
+        // Anyone can read comments for published plans
+        // Plan creator can read comments for their own plans (even if unpublished)
+        allow read: if get(/databases/$(database)/documents/plans/$(planId)).data.is_published == true ||
+                       isPlanCreator(planId) ||
+                       isAdmin();
+        
+        // Authenticated users can create comments
+        allow create: if isSignedIn() &&
+                       request.resource.data.user_id == request.auth.uid;
+        
+        // Only comment author can update their own comments
+        // Only creator can respond to questions (update creator_response field)
+        allow update: if isSignedIn() && (
+                       request.auth.uid == resource.data.user_id ||
+                       (isPlanCreator(planId) && 
+                        'creator_response' in request.resource.data.diff(resource.data).affectedKeys()) ||
+                       isAdmin()
+                     );
+        
+        // Comment author or plan creator can delete comments
+        allow delete: if isSignedIn() && (
+                       request.auth.uid == resource.data.user_id ||
+                       isPlanCreator(planId) ||
+                       isAdmin()
+                     );
       }
     }
     

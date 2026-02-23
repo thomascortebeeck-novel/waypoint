@@ -53,6 +53,24 @@ class Prepare {
       if (climate != null) 'climate': climate!.toJson(),
     };
   }
+
+  Prepare copyWith({
+    TravelInsurance? travelInsurance,
+    VisaInfo? visa,
+    PassportInfo? passport,
+    List<Permit>? permits,
+    VaccineInfo? vaccines,
+    ClimateData? climate,
+  }) {
+    return Prepare(
+      travelInsurance: travelInsurance ?? this.travelInsurance,
+      visa: visa ?? this.visa,
+      passport: passport ?? this.passport,
+      permits: permits ?? this.permits,
+      vaccines: vaccines ?? this.vaccines,
+      climate: climate ?? this.climate,
+    );
+  }
 }
 
 class TravelInsurance {
@@ -80,6 +98,18 @@ class TravelInsurance {
       'url': url,
       'note': note,
     };
+  }
+
+  TravelInsurance copyWith({
+    String? recommendation,
+    String? url,
+    String? note,
+  }) {
+    return TravelInsurance(
+      recommendation: recommendation ?? this.recommendation,
+      url: url ?? this.url,
+      note: note ?? this.note,
+    );
   }
 }
 
@@ -109,6 +139,18 @@ class VisaInfo {
       if (note != null) 'note': note,
     };
   }
+
+  VisaInfo copyWith({
+    String? requirement,
+    bool? medicalInsuranceRequiredForVisa,
+    String? note,
+  }) {
+    return VisaInfo(
+      requirement: requirement ?? this.requirement,
+      medicalInsuranceRequiredForVisa: medicalInsuranceRequiredForVisa ?? this.medicalInsuranceRequiredForVisa,
+      note: note ?? this.note,
+    );
+  }
 }
 
 class PassportInfo {
@@ -132,6 +174,16 @@ class PassportInfo {
       'validity_requirement': validityRequirement,
       'blank_pages_required': blankPagesRequired,
     };
+  }
+
+  PassportInfo copyWith({
+    String? validityRequirement,
+    String? blankPagesRequired,
+  }) {
+    return PassportInfo(
+      validityRequirement: validityRequirement ?? this.validityRequirement,
+      blankPagesRequired: blankPagesRequired ?? this.blankPagesRequired,
+    );
   }
 }
 
@@ -165,6 +217,20 @@ class Permit {
       if (cost != null) 'cost': cost,
     };
   }
+
+  Permit copyWith({
+    String? type,
+    String? details,
+    String? howToObtain,
+    String? cost,
+  }) {
+    return Permit(
+      type: type ?? this.type,
+      details: details ?? this.details,
+      howToObtain: howToObtain ?? this.howToObtain,
+      cost: cost ?? this.cost,
+    );
+  }
 }
 
 class VaccineInfo {
@@ -196,6 +262,18 @@ class VaccineInfo {
       'recommended': recommended,
       if (note != null) 'note': note,
     };
+  }
+
+  VaccineInfo copyWith({
+    List<String>? required,
+    List<String>? recommended,
+    String? note,
+  }) {
+    return VaccineInfo(
+      required: required ?? this.required,
+      recommended: recommended ?? this.recommended,
+      note: note ?? this.note,
+    );
   }
 }
 
@@ -324,6 +402,26 @@ class LocalTips {
       'food_warnings': foodWarnings,
     };
   }
+
+  LocalTips copyWith({
+    EmergencyInfo? emergency,
+    MessagingApp? messagingApp,
+    List<String>? etiquette,
+    TippingInfo? tipping,
+    List<BasicPhrase>? basicPhrases,
+    List<FoodSpecialty>? foodSpecialties,
+    List<String>? foodWarnings,
+  }) {
+    return LocalTips(
+      emergency: emergency ?? this.emergency,
+      messagingApp: messagingApp ?? this.messagingApp,
+      etiquette: etiquette ?? this.etiquette,
+      tipping: tipping ?? this.tipping,
+      basicPhrases: basicPhrases ?? this.basicPhrases,
+      foodSpecialties: foodSpecialties ?? this.foodSpecialties,
+      foodWarnings: foodWarnings ?? this.foodWarnings,
+    );
+  }
 }
 
 class EmergencyInfo {
@@ -360,6 +458,22 @@ class EmergencyInfo {
       if (mountainRescue != null) 'mountain_rescue': mountainRescue,
     };
   }
+
+  EmergencyInfo copyWith({
+    String? generalEmergency,
+    String? police,
+    String? ambulance,
+    String? fire,
+    String? mountainRescue,
+  }) {
+    return EmergencyInfo(
+      generalEmergency: generalEmergency ?? this.generalEmergency,
+      police: police ?? this.police,
+      ambulance: ambulance ?? this.ambulance,
+      fire: fire ?? this.fire,
+      mountainRescue: mountainRescue ?? this.mountainRescue,
+    );
+  }
 }
 
 class MessagingApp {
@@ -383,6 +497,16 @@ class MessagingApp {
       'name': name,
       'note': note,
     };
+  }
+
+  MessagingApp copyWith({
+    String? name,
+    String? note,
+  }) {
+    return MessagingApp(
+      name: name ?? this.name,
+      note: note ?? this.note,
+    );
   }
 }
 
@@ -415,6 +539,20 @@ class TippingInfo {
       'taxi': taxi,
       'hotel': hotel,
     };
+  }
+
+  TippingInfo copyWith({
+    String? practice,
+    String? restaurant,
+    String? taxi,
+    String? hotel,
+  }) {
+    return TippingInfo(
+      practice: practice ?? this.practice,
+      restaurant: restaurant ?? this.restaurant,
+      taxi: taxi ?? this.taxi,
+      hotel: hotel ?? this.hotel,
+    );
   }
 }
 
@@ -467,6 +605,16 @@ class FoodSpecialty {
       'name': name,
       'description': description,
     };
+  }
+
+  FoodSpecialty copyWith({
+    String? name,
+    String? description,
+  }) {
+    return FoodSpecialty(
+      name: name ?? this.name,
+      description: description ?? this.description,
+    );
   }
 }
 

@@ -32,6 +32,9 @@ export 'lists/settings_item.dart';
 
 // Waypoint cards
 export 'waypoint/unified_waypoint_card.dart';
+export 'waypoint/waypoint_timeline_card.dart';
+export 'waypoint/waypoint_timeline_list.dart';
+export 'waypoint/waypoint_timeline_config.dart';
 
 // Map components
 export 'map/waypoint_map_card.dart';

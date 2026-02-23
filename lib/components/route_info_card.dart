@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/models/route_info_model.dart';
 import 'package:waypoint/theme.dart';
 
-/// Card widget to display route metadata extracted from Komoot or AllTrails
+/// Card widget to display route information
 class RouteInfoCard extends StatelessWidget {
   final RouteInfo routeInfo;
 
@@ -35,9 +34,8 @@ class RouteInfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header with title and source link
+          // Header with title
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 'Route Info',
@@ -45,31 +43,23 @@ class RouteInfoCard extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              InkWell(
-                onTap: () async {
-                  final uri = Uri.parse(routeInfo.sourceUrl);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'via ${routeInfo.sourceDisplayName}',
-                      style: context.textStyles.bodySmall?.copyWith(
-                        color: context.colors.primary,
-                      ),
+              if (routeInfo.source == RouteInfoSource.auto) ...[
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: context.colors.secondary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Auto-calculated',
+                    style: context.textStyles.bodySmall?.copyWith(
+                      color: context.colors.secondary,
+                      fontWeight: FontWeight.w500,
                     ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.open_in_new,
-                      size: 16,
-                      color: context.colors.primary,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -92,6 +82,11 @@ class RouteInfoCard extends StatelessWidget {
                 _StatItem(
                   icon: Icons.access_time,
                   label: routeInfo.estimatedTime!,
+                ),
+              if (routeInfo.numStops != null)
+                _StatItem(
+                  icon: Icons.location_on,
+                  label: '${routeInfo.numStops} ${routeInfo.numStops == 1 ? 'stop' : 'stops'}',
                 ),
               if (routeInfo.difficulty != null)
                 _DifficultyBadge(

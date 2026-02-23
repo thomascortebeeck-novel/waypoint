@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/adventure_context_model.dart';
 
 /// Full version data stored in subcollection
 /// Stored in: plans/{planId}/versions/{versionId}
@@ -19,6 +20,12 @@ class PlanVersionDoc {
   final int durationDays;
   final List<PackingCategory> packingCategories;
   final List<TransportationOption> transportationOptions;
+  /// AI-generated travel preparation information (per-version)
+  final Prepare? prepare;
+  /// AI-generated local tips and cultural information (per-version)
+  final LocalTips? localTips;
+  /// Timestamp when AI info was last generated
+  final DateTime? aiGeneratedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -29,6 +36,9 @@ class PlanVersionDoc {
     required this.durationDays,
     this.packingCategories = const [],
     this.transportationOptions = const [],
+    this.prepare,
+    this.localTips,
+    this.aiGeneratedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -63,6 +73,15 @@ class PlanVersionDoc {
       transportationOptions: (json['transportation_options'] as List<dynamic>?)
           ?.map((t) => TransportationOption.fromJson(t as Map<String, dynamic>))
           .toList() ?? [],
+      prepare: json['prepare'] != null
+          ? Prepare.fromJson(json['prepare'] as Map<String, dynamic>)
+          : null,
+      localTips: json['local_tips'] != null
+          ? LocalTips.fromJson(json['local_tips'] as Map<String, dynamic>)
+          : null,
+      aiGeneratedAt: json['ai_generated_at'] != null
+          ? (json['ai_generated_at'] as Timestamp).toDate()
+          : null,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
     );
@@ -75,6 +94,9 @@ class PlanVersionDoc {
     'duration_days': durationDays,
     'packing_categories': packingCategories.map((c) => c.toJson()).toList(),
     'transportation_options': transportationOptions.map((t) => t.toJson()).toList(),
+    if (prepare != null) 'prepare': prepare!.toJson(),
+    if (localTips != null) 'local_tips': localTips!.toJson(),
+    if (aiGeneratedAt != null) 'ai_generated_at': Timestamp.fromDate(aiGeneratedAt!),
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
   };
@@ -86,6 +108,9 @@ class PlanVersionDoc {
     int? durationDays,
     List<PackingCategory>? packingCategories,
     List<TransportationOption>? transportationOptions,
+    Prepare? prepare,
+    LocalTips? localTips,
+    DateTime? aiGeneratedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => PlanVersionDoc(
@@ -95,6 +120,9 @@ class PlanVersionDoc {
     durationDays: durationDays ?? this.durationDays,
     packingCategories: packingCategories ?? this.packingCategories,
     transportationOptions: transportationOptions ?? this.transportationOptions,
+    prepare: prepare ?? this.prepare,
+    localTips: localTips ?? this.localTips,
+    aiGeneratedAt: aiGeneratedAt ?? this.aiGeneratedAt,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -109,6 +137,9 @@ class PlanVersionDoc {
     durationDays: version.durationDays,
     packingCategories: version.packingCategories,
     transportationOptions: version.transportationOptions,
+    prepare: version.prepare,
+    localTips: version.localTips,
+    aiGeneratedAt: version.aiGeneratedAt,
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
@@ -126,5 +157,8 @@ class PlanVersionDoc {
     packingCategories: packingCategories,
     transportationOptions: transportationOptions,
     faqItems: const [], // FAQ is now at plan level
+    prepare: prepare,
+    localTips: localTips,
+    aiGeneratedAt: aiGeneratedAt,
   );
 }

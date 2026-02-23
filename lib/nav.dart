@@ -10,15 +10,21 @@ import 'package:waypoint/presentation/builder/builder_screen.dart' as builder;
 import 'package:waypoint/presentation/builder/builder_home_screen.dart';
 import 'package:waypoint/presentation/builder/edit_plan_screen.dart';
 import 'package:waypoint/presentation/builder/route_builder_screen.dart';
+import 'package:waypoint/presentation/builder/waypoint_edit_page.dart';
+import 'package:waypoint/presentation/adventure/adventure_detail_screen.dart';
 import 'package:waypoint/presentation/profile/profile_screen.dart';
-import 'package:waypoint/presentation/details/plan_details_screen.dart';
+import 'package:waypoint/presentation/creator/creator_profile_screen.dart';
+import 'package:waypoint/presentation/explore/explore_screen.dart';
+// DEPRECATED: Use AdventureDetailScreen instead
+// import 'package:waypoint/presentation/details/plan_details_screen.dart';
 import 'package:waypoint/presentation/map/map_screen.dart';
 import 'package:waypoint/presentation/tracking/tracking_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_success_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_error_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_setup_screen.dart';
-import 'package:waypoint/presentation/trips/trip_details_screen.dart';
+// DEPRECATED: Use AdventureDetailScreen instead
+// import 'package:waypoint/presentation/trips/trip_details_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_pack_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_travel_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_define_screen.dart';
@@ -36,12 +42,15 @@ import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
 import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
 import 'package:waypoint/presentation/marketplace/location_search_results_page.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/route_waypoint.dart';
 import 'theme.dart';
 import 'package:waypoint/utils/logger.dart';
 
 class AppRoutes {
   static const String marketplace = '/';
+  static const String explore = '/explore';
   static const String myTrips = '/mytrips';
   static const String builder = '/builder';
   static const String profile = '/profile';
@@ -86,25 +95,7 @@ class AppRouter {
           return '/builder/new';
         },
       ),
-      GoRoute(
-        parentNavigatorKey: _rootNavigatorKey,
-        path: '/builder/:planId',
-        builder: (context, state) {
-          final planId = state.pathParameters['planId'] ?? '';
-          if (planId == 'new') {
-            return const builder.BuilderScreen();
-          }
-          return builder.BuilderScreen(editPlanId: planId);
-        },
-      ),
-      GoRoute(
-        parentNavigatorKey: _rootNavigatorKey,
-        path: '/builder/edit/:planId',
-        redirect: (context, state) {
-          final planId = state.pathParameters['planId'] ?? '';
-          return '/builder/$planId';
-        },
-      ),
+      // More specific /builder paths must come before /builder/:planId so they are matched first.
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
         path: '/builder/route-builder/:planId/:versionIndex/:dayNum',
@@ -123,6 +114,51 @@ class AppRouter {
             activityCategory: extra?['activityCategory'],
             location: extra?['location'],
           );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/builder/:planId/waypoint/:versionIndex/:dayNum',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          final versionIndex = state.pathParameters['versionIndex'] ?? '0';
+          final dayNum = state.pathParameters['dayNum'] ?? '0';
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return WaypointEditPage(
+            planId: planId,
+            versionIndex: int.tryParse(versionIndex.toString()) ?? 0,
+            dayNum: int.tryParse(dayNum.toString()) ?? 1,
+            mode: extra['mode'] as String? ?? 'add',
+            initialRoute: extra['initialRoute'] as DayRoute?,
+            existingWaypoint: extra['existingWaypoint'] as RouteWaypoint?,
+            tripName: extra['tripName'] as String? ?? '',
+            preselectedPlace: extra['preselectedPlace'] as PlaceDetails?,
+          );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/builder/:planId',
+        builder: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          if (planId == 'new') {
+            return const AdventureDetailScreen(
+              mode: AdventureMode.builder,
+              planId: null,
+            );
+          }
+          return AdventureDetailScreen(
+            mode: AdventureMode.builder,
+            planId: planId,
+          );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/builder/edit/:planId',
+        redirect: (context, state) {
+          final planId = state.pathParameters['planId'] ?? '';
+          return '/builder/$planId';
         },
       ),
       GoRoute(
@@ -243,7 +279,10 @@ class AppRouter {
         path: AppRoutes.tripDetails,
         builder: (context, state) {
           final tripId = state.pathParameters['tripId'] ?? '';
-          return TripDetailsScreen(tripId: tripId);
+          return AdventureDetailScreen(
+            mode: AdventureMode.trip,
+            tripId: tripId,
+          );
         },
       ),
       GoRoute(
@@ -406,10 +445,21 @@ class AppRouter {
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
+        path: '/creator/:creatorId',
+        builder: (context, state) {
+          final creatorId = state.pathParameters['creatorId'] ?? '';
+          return CreatorProfileScreen(creatorId: creatorId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
         path: '/details/:planId',
         builder: (context, state) {
           final planId = state.pathParameters['planId'] ?? '';
-          return PlanDetailsScreen(planId: planId);
+          return AdventureDetailScreen(
+            mode: AdventureMode.viewer,
+            planId: planId,
+          );
         },
         routes: [
           GoRoute(
@@ -428,6 +478,14 @@ class AppRouter {
               GoRoute(
                 path: AppRoutes.marketplace,
                 builder: (context, state) => const MarketplaceScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.explore,
+                builder: (context, state) => const ExploreScreen(),
               ),
             ],
           ),
@@ -558,10 +616,12 @@ class ResponsiveScaffold extends StatelessWidget {
       case 0:
         return AppRoutes.marketplace;
       case 1:
-        return AppRoutes.myTrips;
+        return AppRoutes.explore;
       case 2:
-        return AppRoutes.builder;
+        return AppRoutes.myTrips;
       case 3:
+        return AppRoutes.builder;
+      case 4:
         return AppRoutes.profile;
       default:
         return AppRoutes.marketplace;
@@ -609,30 +669,36 @@ class DesktopSidebar extends StatelessWidget {
                 child: Column(
                   children: [
                     _SidebarNavItem(
-                      icon: FontAwesomeIcons.compass,
-                      label: 'Explore',
+                      icon: FontAwesomeIcons.house,
+                      label: 'Home',
                       isSelected: currentIndex == 0,
                       onTap: () => onDestinationSelected(0),
+                    ),
+                    _SidebarNavItem(
+                      icon: FontAwesomeIcons.compass,
+                      label: 'Explore',
+                      isSelected: currentIndex == 1,
+                      onTap: () => onDestinationSelected(1),
                     ),
                     if (isLoggedIn) ...[
                       _SidebarNavItem(
                         icon: FontAwesomeIcons.map,
                         label: 'My Trips',
-                        isSelected: currentIndex == 1,
-                        onTap: () => onDestinationSelected(1),
+                        isSelected: currentIndex == 2,
+                        onTap: () => onDestinationSelected(2),
                       ),
                       _SidebarNavItem(
                         icon: FontAwesomeIcons.penRuler,
                         label: 'Builder',
-                        isSelected: currentIndex == 2,
-                        onTap: () => onDestinationSelected(2),
+                        isSelected: currentIndex == 3,
+                        onTap: () => onDestinationSelected(3),
                       ),
                     ],
                     _SidebarNavItem(
                       icon: FontAwesomeIcons.user,
                       label: 'Profile',
-                      isSelected: currentIndex == 3,
-                      onTap: () => onDestinationSelected(3),
+                      isSelected: currentIndex == 4,
+                      onTap: () => onDestinationSelected(4),
                     ),
                     const Spacer(),
                     Divider(height: 1, color: context.colors.outline),
@@ -811,35 +877,42 @@ class ModernBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
+          child: SizedBox(
           height: 72,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _NavItem(
+                icon: FontAwesomeIcons.house,
+                selectedIcon: FontAwesomeIcons.house,
+                label: 'Home',
+                isSelected: currentIndex == 0,
+                onTap: () => onDestinationSelected(0),
+              ),
+              _NavItem(
                 icon: FontAwesomeIcons.compass,
                 selectedIcon: FontAwesomeIcons.solidCompass,
                 label: 'Explore',
-                isSelected: currentIndex == 0,
-                onTap: () => onDestinationSelected(0),
+                isSelected: currentIndex == 1,
+                onTap: () => onDestinationSelected(1),
               ),
               _NavItem(
                 icon: FontAwesomeIcons.map,
                 selectedIcon: FontAwesomeIcons.solidMap,
                 label: 'My Trips',
-                isSelected: currentIndex == 1,
-                onTap: () => onDestinationSelected(1),
-              ),
-              _BuilderNavItem(
                 isSelected: currentIndex == 2,
                 onTap: () => onDestinationSelected(2),
+              ),
+              _BuilderNavItem(
+                isSelected: currentIndex == 3,
+                onTap: () => onDestinationSelected(3),
               ),
               _NavItem(
                 icon: FontAwesomeIcons.user,
                 selectedIcon: FontAwesomeIcons.solidUser,
                 label: 'Profile',
-                isSelected: currentIndex == 3,
-                onTap: () => onDestinationSelected(3),
+                isSelected: currentIndex == 4,
+                onTap: () => onDestinationSelected(4),
               ),
             ],
           ),

@@ -83,4 +83,20 @@ class WaypointSpacing {
   static const double gapMd = md;
   static const double gapLg = lg;
   static const double gapXl = xl;
+
+  // ========================================
+  // LAYOUT GRID CONSTANTS
+  // ========================================
+  static const double contentMaxWidth  = 900.0;
+  static const double sidebarWidth     = 280.0;
+  static const double layoutMaxWidth   = 1240.0;
+  static const double contentHPadding  = 24.0;
+
+  // ========================================
+  // SEMANTIC HELPERS USED IN SCREENS
+  // ========================================
+  static const double sectionGap        = lg;    // 24px
+  static const double subsectionGap     = md;    // 16px
+  static const double cardRadius        = 12.0;
+  static const double cardRadiusLg      = 16.0;
 }

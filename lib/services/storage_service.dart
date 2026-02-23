@@ -107,6 +107,89 @@ class StorageService {
   String dayImagePath(String planId, int dayNumber, String extension) =>
       'plans/$planId/days/day_$dayNumber.$extension';
 
+  /// Generates a storage path for plan media items (images/videos)
+  String planMediaPath(String planId, int index, String extension) =>
+      'plans/$planId/media/$index.$extension';
+
+  /// Generates a storage path for day media items (images/videos)
+  String dayMediaPath(String planId, String versionId, int dayNumber, int index, String extension) =>
+      'plans/$planId/versions/$versionId/days/$dayNumber/media/$index.$extension';
+
+  /// Uploads a video file to Firebase Storage and returns the download URL
+  /// 
+  /// [path] - Storage path (e.g., 'plans/plan_id/media/0.mp4')
+  /// [bytes] - Video data as bytes
+  /// [contentType] - MIME type (e.g., 'video/mp4')
+  Future<String> uploadVideo({
+    required String path,
+    required Uint8List bytes,
+    String contentType = 'video/mp4',
+  }) async {
+    try {
+      Log.i('storage', 'Uploading video to: $path (${bytes.length} bytes)');
+      
+      final ref = _storage.ref().child(path);
+      final metadata = SettableMetadata(
+        contentType: contentType,
+        customMetadata: {'uploaded': DateTime.now().toIso8601String()},
+      );
+
+      final uploadTask = ref.putData(bytes, metadata);
+      
+      // Log upload progress for debugging
+      uploadTask.snapshotEvents.listen((snapshot) {
+        final progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        Log.i('storage', 'Upload progress: ${progress.toStringAsFixed(1)}%');
+      });
+      
+      await uploadTask;
+      final downloadUrl = await ref.getDownloadURL();
+      
+      Log.i('storage', 'Upload successful: $downloadUrl');
+      return downloadUrl;
+    } catch (e, stack) {
+      Log.e('storage', 'Upload failed for path: $path - Error: $e', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Picks a video file from the user's device (cross-platform)
+  /// Returns video bytes and file extension, or null if canceled
+  /// NOTE: Video aspect ratio validation should be done separately using video_player package
+  Future<VideoPickResult?> pickVideo() async {
+    try {
+      Log.i('storage', 'Opening video picker...');
+      
+      final XFile? video = await _picker.pickVideo(
+        source: ImageSource.gallery,
+      );
+
+      if (video == null) {
+        Log.i('storage', 'Video picker canceled');
+        return null;
+      }
+
+      final bytes = await video.readAsBytes();
+      
+      // Extract extension from filename or default to mp4
+      final extension = video.name.split('.').last.toLowerCase();
+      final validExtension = ['mp4', 'mov', 'avi'].contains(extension) 
+          ? extension 
+          : 'mp4';
+      
+      Log.i('storage', 'Video picked: ${video.name} (${bytes.length} bytes)');
+
+      return VideoPickResult(
+        bytes: bytes,
+        extension: validExtension,
+        name: video.name,
+      );
+    } catch (e, stack) {
+      Log.e('storage', 'Failed to pick video', e, stack);
+      rethrow;
+    }
+  }
+
   /// Upload a review photo
   Future<String> uploadReviewPhoto({
     required String reviewId,
@@ -130,6 +213,19 @@ class ImagePickResult {
   final String name;
 
   ImagePickResult({
+    required this.bytes,
+    required this.extension,
+    required this.name,
+  });
+}
+
+/// Result of picking a video
+class VideoPickResult {
+  final Uint8List bytes;
+  final String extension;
+  final String name;
+
+  VideoPickResult({
     required this.bytes,
     required this.extension,
     required this.name,

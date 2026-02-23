@@ -18,7 +18,10 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Discover and plan your next adventure with Waypoint - Hiking, cycling, city trips, and more.">
+  <meta name="keywords" content="adventure travel, hiking, cycling, city trips, travel planning, waypoint">
+  <meta name="author" content="Waypoint">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -29,7 +32,7 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>dreamflow_counter</title>
+  <title>Waypoint - Plan Your Next Adventure</title>
   <link rel="manifest" href="manifest.json">
 
   <!-- Mapbox GL JS - Styles for user location pulse animation -->
@@ -100,33 +103,50 @@
   
   <!-- Suppress non-critical AssetManifest.json errors in console -->
   <script>
-    // Filter out AssetManifest.json 404 errors from console
-    // These are common in Flutter web debug mode and non-critical
-    // Fonts will fall back gracefully to system fonts or CDN
+    // Filter out AssetManifest.json / asset bundle errors from console.
+    // Common in Flutter web debug mode (e.g. hot reload) when manifest is missing.
+    // Fonts fall back to CDN or system; app remains functional.
     (function() {
       const originalWarn = console.warn;
       const originalError = console.error;
-      
+      function shouldSuppressAssetError(message) {
+        if (!message || typeof message !== 'string') return false;
+        return message.includes('AssetManifest.json') ||
+          message.includes('AssetManifest') ||
+          (message.includes('Unable to load asset') && (message.includes('asset') || message.includes('Asset'))) ||
+          message.includes('asset does not exist') ||
+          (message.includes('google_fonts') && message.includes('Unable to load asset'));
+      }
+      function shouldSuppress(args) {
+        const message = args.map(function(a) {
+          if (a && typeof a === 'object' && a.message) return a.message;
+          return String(a);
+        }).join(' ');
+        return shouldSuppressAssetError(message);
+      }
       console.warn = function(...args) {
-        const message = args.join(' ');
-        // Suppress AssetManifest.json warnings
-        if (message.includes('AssetManifest.json') || 
-            message.includes('Flutter Web engine failed to fetch') ||
-            (message.includes('asset') && message.includes('404'))) {
-          return; // Suppress this warning
-        }
+        if (shouldSuppress(args)) return;
         originalWarn.apply(console, args);
       };
-      
       console.error = function(...args) {
-        const message = args.join(' ');
-        // Suppress AssetManifest.json errors (they're handled by Flutter error handler)
-        if (message.includes('AssetManifest.json') || 
-            (message.includes('Unable to load asset') && message.includes('AssetManifest'))) {
-          return; // Suppress this error
-        }
+        if (shouldSuppress(args)) return;
         originalError.apply(console, args);
       };
+      // Suppress "Uncaught (in promise) DartError..." for asset manifest
+      window.addEventListener('unhandledrejection', function(event) {
+        var msg = '';
+        if (event.reason != null) {
+          msg = typeof event.reason.message === 'string' 
+            ? event.reason.message 
+            : (typeof event.reason.toString === 'function' ? event.reason.toString() : String(event.reason));
+        } else {
+          msg = String(event.reason);
+        }
+        if (shouldSuppressAssetError(msg)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }, true);
     })();
   </script>
 </head>

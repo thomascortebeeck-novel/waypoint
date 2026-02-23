@@ -38,8 +38,8 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
           floatingActionButton: uid == null
               ? null
               : (isDesktop
-                  ? FloatingActionButton.extended(onPressed: () => context.go('/mytrips/create'), icon: const Icon(Icons.add), label: const Text('New Itinerary'))
-                  : FloatingActionButton(onPressed: () => context.go('/mytrips/create'), child: const Icon(Icons.add))),
+                  ? FloatingActionButton.extended(heroTag: 'mytrips_fab_extended', onPressed: () => context.go('/mytrips/create'), icon: const Icon(Icons.add), label: const Text('New Itinerary'))
+                  : FloatingActionButton(heroTag: 'mytrips_fab', onPressed: () => context.go('/mytrips/create'), child: const Icon(Icons.add))),
           body: CustomScrollView(slivers: [
             _buildHeader(context, isDesktop),
             SliverPadding(

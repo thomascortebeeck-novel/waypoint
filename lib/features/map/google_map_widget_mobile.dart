@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
+import 'package:waypoint/services/map_marker_service.dart';
 import 'package:waypoint/utils/logger.dart';
 
 /// Google Maps widget for mobile platforms (iOS/Android)
@@ -44,23 +45,77 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
   gmaps_mobile.GoogleMapController? _mapController;
   final Set<gmaps_mobile.Marker> _markers = {};
   final Set<gmaps_mobile.Polyline> _polylines = {};
+  String? _selectedWaypointId; // Track selected waypoint for visual feedback
+
+  bool _hasInitialized = false;
+  bool _isLoadingMarkers = false;
+  Timer? _updateDebounce;
 
   @override
   void initState() {
     super.initState();
-    _updateMarkers();
-    _updatePolylines();
+    // Pre-warm marker cache for common types to improve initial load
+    _preWarmMarkerCache();
+    // Don't call _updateMarkers() here - MediaQuery isn't available yet
+    // Will be called in didChangeDependencies()
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Initialize markers and polylines after MediaQuery is available
+    if (!_hasInitialized) {
+      _hasInitialized = true;
+      _updateMarkers();
+      _updatePolylines();
+    }
+  }
+
+  @override
+  void dispose() {
+    _updateDebounce?.cancel();
+    _mapController?.dispose();
+    super.dispose();
+  }
+
+  /// Pre-warm marker cache for common waypoint types
+  /// This improves initial load performance by painting markers before they're needed
+  void _preWarmMarkerCache() {
+    // Pre-warm common types in background (don't await)
+    // Use default pixel ratio (2.0) for pre-warming
+    final commonTypes = ['accommodation', 'restaurant', 'activity', 'logistics', 'waypoint'];
+    
+    for (final type in commonTypes) {
+      // Fire and forget - cache will be populated asynchronously
+      MapMarkerService.markerForType(
+        type,
+        devicePixelRatio: 2.0, // Default for pre-warming
+        isSelected: false,
+      ).catchError((e) {
+        // Silently fail - cache will be populated when marker is actually needed
+      });
+    }
   }
 
   @override
   void didUpdateWidget(GoogleMapWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Debounce marker updates to prevent excessive repaints
     if (oldWidget.annotations != widget.annotations) {
-      _updateMarkers();
+      _updateDebounce?.cancel();
+      _updateDebounce = Timer(const Duration(milliseconds: 100), () {
+        if (mounted) _updateMarkers();
+      });
     }
     if (oldWidget.polylines != widget.polylines) {
       _updatePolylines();
     }
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    MapMarkerService.clearCache(); // fires on every hot reload
   }
 
   @override
@@ -69,49 +124,115 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
     super.dispose();
   }
 
-  void _updateMarkers() {
-    _markers.clear();
-    for (final annotation in widget.annotations) {
-      _markers.add(
-        gmaps_mobile.Marker(
-          markerId: gmaps_mobile.MarkerId(annotation.id),
-          position: gmaps_mobile.LatLng(
-            annotation.position.latitude,
-            annotation.position.longitude,
-          ),
-          icon: gmaps_mobile.BitmapDescriptor.defaultMarkerWithHue(
-            _getMarkerHue(annotation.color),
-          ),
-          infoWindow: annotation.showInfoWindow && annotation.label != null
-              ? gmaps_mobile.InfoWindow(title: annotation.label!)
-              : gmaps_mobile.InfoWindow.noText,
-          draggable: annotation.draggable,
-          onTap: () => annotation.onTap?.call(),
-          onDragEnd: annotation.onDrag != null
-              ? (gmaps_mobile.LatLng position) => annotation.onDrag!(
-                    ll.LatLng(position.latitude, position.longitude),
-                  )
-              : null,
-        ),
+  Future<void> _updateMarkers() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoadingMarkers = true;
+    });
+
+    try {
+      final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+
+      // Paint all markers concurrently (not sequentially)
+      final futures = widget.annotations.asMap().entries.map((entry) async {
+      final i = entry.key;
+      final annotation = entry.value;
+
+      // Get type string from waypointType field
+      final typeString = annotation.waypointType != null
+          ? annotation.waypointType.toString().split('.').last.toLowerCase()
+          : 'waypoint'; // fallback
+
+      final isSelected = annotation.id == _selectedWaypointId;
+
+      // Get order number from annotation (set in MapAnnotation.fromWaypoint)
+      final orderNumber = annotation.orderNumber;
+
+      // Paint custom marker (async - all paint concurrently)
+      final icon = await MapMarkerService.markerForType(
+        typeString,
+        devicePixelRatio: pixelRatio,
+        isSelected: isSelected,
+        orderNumber: orderNumber,
       );
+
+      return gmaps_mobile.Marker(
+        markerId: gmaps_mobile.MarkerId(annotation.id),
+        position: gmaps_mobile.LatLng(
+          annotation.position.latitude,
+          annotation.position.longitude,
+        ),
+        icon: icon,
+        anchor: const Offset(0.5, 1.0), // pin tip touches coordinate
+        zIndex: isSelected ? 10.0 : i.toDouble(),
+        infoWindow: annotation.showInfoWindow && annotation.label != null
+            ? gmaps_mobile.InfoWindow(title: annotation.label!)
+            : gmaps_mobile.InfoWindow.noText,
+        draggable: annotation.draggable,
+        onTap: () {
+          setState(() {
+            _selectedWaypointId = annotation.id;
+          });
+          _updateMarkers(); // Repaint with selection ring
+          annotation.onTap?.call();
+        },
+        onDragEnd: annotation.onDrag != null
+            ? (gmaps_mobile.LatLng position) => annotation.onDrag!(
+                  ll.LatLng(position.latitude, position.longitude),
+                )
+            : null,
+      );
+    });
+
+      // Wait for all markers to finish painting concurrently
+      final built = await Future.wait(futures);
+
+      if (mounted) {
+        setState(() {
+          _markers.clear();
+          _markers.addAll(built);
+          _isLoadingMarkers = false;
+        });
+      }
+    } catch (e) {
+      Log.e('google_map', 'Failed to update markers', e);
+      if (mounted) {
+        setState(() {
+          _isLoadingMarkers = false;
+        });
+      }
     }
-    if (mounted) setState(() {});
   }
 
   void _updatePolylines() {
     _polylines.clear();
     for (final polyline in widget.polylines) {
+      // Determine dash pattern
+      List<gmaps_mobile.PatternItem> patterns = [];
+      if (polyline.isDashed) {
+        final dashPattern = polyline.dashPattern ?? [10, 8];
+        patterns = [
+          gmaps_mobile.PatternItem.dash(dashPattern[0]),
+          gmaps_mobile.PatternItem.gap(dashPattern.length > 1 ? dashPattern[1] : 8),
+        ];
+      } else if (polyline.borderColor != null) {
+        // Legacy: borderColor used to indicate dashed
+        patterns = <gmaps_mobile.PatternItem>[
+          gmaps_mobile.PatternItem.dash(10), 
+          gmaps_mobile.PatternItem.gap(5)
+        ];
+      }
+      
       _polylines.add(
         gmaps_mobile.Polyline(
           polylineId: gmaps_mobile.PolylineId(polyline.id),
           points: polyline.points
               .map((p) => gmaps_mobile.LatLng(p.latitude, p.longitude))
               .toList(),
-          color: polyline.color,
+          color: polyline.colorWithOpacity,
           width: polyline.width.toInt(),
-          patterns: polyline.borderColor != null
-              ? <gmaps_mobile.PatternItem>[gmaps_mobile.PatternItem.dash(10), gmaps_mobile.PatternItem.gap(5)]
-              : <gmaps_mobile.PatternItem>[],
+          patterns: patterns,
         ),
       );
     }
@@ -175,6 +296,49 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
           compassEnabled: true,
           mapToolbarEnabled: false,
         ),
+        // Loading indicator while markers are being painted
+        if (_isLoadingMarkers && widget.annotations.isNotEmpty)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Theme.of(context).primaryColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Loading markers...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ...widget.overlays,
       ],
     );

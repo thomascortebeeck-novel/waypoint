@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/route_info_model.dart';
+import 'package:waypoint/models/gpx_route_model.dart';
 
 /// Full day itinerary data stored in subcollection
 /// Stored in: plans/{planId}/versions/{versionId}/days/{dayNum}
@@ -27,6 +28,7 @@ class DayItineraryDoc {
   final String? komootLink;
   final String? allTrailsLink;
   final RouteInfo? routeInfo;
+  final GpxRoute? gpxRoute; // Imported GPX route for outdoor activities
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -52,6 +54,7 @@ class DayItineraryDoc {
     this.komootLink,
     this.allTrailsLink,
     this.routeInfo,
+    this.gpxRoute,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -92,6 +95,9 @@ class DayItineraryDoc {
     routeInfo: json['route_info'] != null
         ? RouteInfo.fromJson(json['route_info'] as Map<String, dynamic>)
         : null,
+    gpxRoute: json['gpx_route'] != null
+        ? GpxRoute.fromJson(json['gpx_route'] as Map<String, dynamic>)
+        : null,
     createdAt: (json['created_at'] as Timestamp).toDate(),
     updatedAt: (json['updated_at'] as Timestamp).toDate(),
   );
@@ -118,6 +124,7 @@ class DayItineraryDoc {
     if (komootLink != null && komootLink!.isNotEmpty) 'komoot_link': komootLink,
     if (allTrailsLink != null && allTrailsLink!.isNotEmpty) 'all_trails_link': allTrailsLink,
     if (routeInfo != null) 'route_info': routeInfo!.toJson(),
+    if (gpxRoute != null) 'gpx_route': gpxRoute!.toJson(),
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
   };
@@ -144,6 +151,7 @@ class DayItineraryDoc {
     String? komootLink,
     String? allTrailsLink,
     RouteInfo? routeInfo,
+    GpxRoute? gpxRoute,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => DayItineraryDoc(
@@ -168,6 +176,7 @@ class DayItineraryDoc {
     komootLink: komootLink ?? this.komootLink,
     allTrailsLink: allTrailsLink ?? this.allTrailsLink,
     routeInfo: routeInfo ?? this.routeInfo,
+    gpxRoute: gpxRoute ?? this.gpxRoute,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -198,6 +207,8 @@ class DayItineraryDoc {
     route: day.route,
     komootLink: day.komootLink,
     allTrailsLink: day.allTrailsLink,
+    routeInfo: day.routeInfo,
+    gpxRoute: day.gpxRoute,
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
@@ -221,6 +232,7 @@ class DayItineraryDoc {
     route: route,
     komootLink: komootLink,
     allTrailsLink: allTrailsLink,
+    gpxRoute: gpxRoute,
   );
 }
 

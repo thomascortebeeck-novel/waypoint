@@ -10,6 +10,7 @@ import 'package:waypoint/models/poi_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/poi_service.dart';
 import 'package:waypoint/utils/logger.dart';
+import 'package:waypoint/components/map/waypoint_map_legend.dart';
 
 /// Full-screen route map viewer (read-only)
 /// Uses AdaptiveMapWidget with Mapbox rendering for beautiful visuals
@@ -368,6 +369,13 @@ class _FullscreenRouteMapState extends State<FullscreenRouteMap> {
               top: MediaQuery.of(context).padding.top + 80,
               child: _buildPOIFilters(),
             ),
+
+          // Map legend overlay (bottom-left)
+          Positioned(
+            bottom: 16,
+            left: 16,
+            child: const WaypointMapLegend(),
+          ),
         ],
       ),
     );

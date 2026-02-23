@@ -32,6 +32,10 @@ import 'package:waypoint/theme.dart';
 
 enum DayViewTab { summary, map, waypoints }
 
+/// @deprecated This screen is deprecated. Use [AdventureDetailScreen] with [AdventureMode.viewer] instead.
+/// This file is kept for reference but should not be used in new code.
+/// Migration: Replace `PlanDetailsScreen(planId: planId)` with `AdventureDetailScreen(mode: AdventureMode.viewer, planId: planId)`
+@Deprecated('Use AdventureDetailScreen with AdventureMode.viewer instead')
 class PlanDetailsScreen extends StatefulWidget {
 final String planId;
 

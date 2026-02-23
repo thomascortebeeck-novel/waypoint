@@ -15,6 +15,11 @@ class UserModel {
   final bool agreedToTerms;
   final bool marketingOptIn;
   final bool emailVerified;
+  final String? shortBio; // Short creator bio (max ~150 chars)
+  final List<String> followingIds; // Creators this user follows
+  final List<String> followerIds; // Users following this creator
+  final Map<String, String>? socialLinks; // Instagram, YouTube, blog URLs
+  final bool canCreatePublicPlans; // Whether user can create public plans (influencer status)
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -32,6 +37,11 @@ class UserModel {
     this.agreedToTerms = false,
     this.marketingOptIn = false,
     this.emailVerified = false,
+    this.shortBio,
+    this.followingIds = const [],
+    this.followerIds = const [],
+    this.socialLinks,
+    this.canCreatePublicPlans = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -51,6 +61,13 @@ class UserModel {
       agreedToTerms: json['agreed_to_terms'] as bool? ?? false,
       marketingOptIn: json['marketing_opt_in'] as bool? ?? false,
       emailVerified: json['email_verified'] as bool? ?? false,
+      shortBio: json['short_bio'] as String?,
+      followingIds: List<String>.from(json['following_ids'] ?? []),
+      followerIds: List<String>.from(json['follower_ids'] ?? []),
+      socialLinks: json['social_links'] != null
+          ? Map<String, String>.from(json['social_links'] as Map)
+          : null,
+      canCreatePublicPlans: json['can_create_public_plans'] as bool? ?? false,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
     );
@@ -71,6 +88,11 @@ class UserModel {
       'agreed_to_terms': agreedToTerms,
       'marketing_opt_in': marketingOptIn,
       'email_verified': emailVerified,
+      if (shortBio != null) 'short_bio': shortBio,
+      'following_ids': followingIds,
+      'follower_ids': followerIds,
+      if (socialLinks != null) 'social_links': socialLinks,
+      'can_create_public_plans': canCreatePublicPlans,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
     };
@@ -90,6 +112,11 @@ class UserModel {
     bool? agreedToTerms,
     bool? marketingOptIn,
     bool? emailVerified,
+    String? shortBio,
+    List<String>? followingIds,
+    List<String>? followerIds,
+    Map<String, String>? socialLinks,
+    bool? canCreatePublicPlans,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -107,6 +134,11 @@ class UserModel {
       agreedToTerms: agreedToTerms ?? this.agreedToTerms,
       marketingOptIn: marketingOptIn ?? this.marketingOptIn,
       emailVerified: emailVerified ?? this.emailVerified,
+      shortBio: shortBio ?? this.shortBio,
+      followingIds: followingIds ?? this.followingIds,
+      followerIds: followerIds ?? this.followerIds,
+      socialLinks: socialLinks ?? this.socialLinks,
+      canCreatePublicPlans: canCreatePublicPlans ?? this.canCreatePublicPlans,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

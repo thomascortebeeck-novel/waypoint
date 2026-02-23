@@ -335,6 +335,9 @@ export const placeDetails = onCall({
       publishTime: review.publishTime || null,
     })) || [];
 
+    // All photo references (resource names) for fetching and caching in Storage
+    const photoReferences = place.photos?.map((p: { name?: string }) => p.name).filter(Boolean) as string[] || [];
+
     // Transform response to match Flutter expectations
     return {
       placeId: place.id,
@@ -346,7 +349,8 @@ export const placeDetails = onCall({
       website: place.websiteUri || null,
       phoneNumber: place.nationalPhoneNumber || null,
       types: place.types || [],
-      photoReference: place.photos?.[0]?.name || null,
+      photoReference: photoReferences[0] || null,
+      photoReferences,
       description: place.editorialSummary?.text || null,
       userRatingCount: place.userRatingCount || null,
       reviews: reviews,

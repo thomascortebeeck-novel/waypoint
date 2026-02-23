@@ -50,6 +50,7 @@ dependencies:
   flutter_markdown: ^0.7.6
   url_launcher: ^6.2.0
   pointer_interceptor: ^0.10.1+2
+  video_player: ^2.8.0
 
 dev_dependencies:
   flutter_test:
@@ -59,6 +60,22 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Fonts are loaded via google_fonts package instead of local assets
+  # fonts:
+  #   - family: DMSerifDisplay
+  #     fonts:
+  #       - asset: assets/fonts/DMSerifDisplay-Regular.ttf
+  #       - asset: assets/fonts/DMSerifDisplay-Italic.ttf
+  #         style: italic
+  #   - family: DMSans
+  #     fonts:
+  #       - asset: assets/fonts/DMSans-Regular.ttf
+  #       - asset: assets/fonts/DMSans-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/DMSans-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/DMSans-Bold.ttf
+  #         weight: 700
 
 flutter_launcher_icons:
   android: true

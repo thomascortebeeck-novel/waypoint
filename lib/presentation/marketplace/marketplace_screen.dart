@@ -9,6 +9,7 @@ import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/user_service.dart';
+import 'package:waypoint/services/follow_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/presentation/marketplace/marketplace_components.dart'
     show ActivityCircle, ActivityItem, PromoCard, PromoVariant, TestimonialsSection;
@@ -23,6 +24,7 @@ class MarketplaceScreen extends StatefulWidget {
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
   final _planService = PlanService();
   final _userService = UserService();
+  final _followService = FollowService();
   final _auth = FirebaseAuthManager();
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
@@ -165,6 +167,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                       stream: _planService.streamFeaturedPlans(),
                       isDesktop: isDesktop,
                     ),
+                  ),
+                  SizedBox(height: isDesktop ? 48 : 32),
+                  // Following Lane (only show if user is logged in and follows creators)
+                  _FollowingLane(
+                    auth: _auth,
+                    planService: _planService,
+                    followService: _followService,
+                    isDesktop: isDesktop,
                   ),
                   SizedBox(height: isDesktop ? 48 : 32),
                   // Activity Categories - Full width with centered header
@@ -1056,6 +1066,145 @@ class _YourPlansLane extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FollowingLane extends StatelessWidget {
+  const _FollowingLane({
+    required this.auth,
+    required this.planService,
+    required this.followService,
+    required this.isDesktop,
+  });
+
+  final FirebaseAuthManager auth;
+  final PlanService planService;
+  final FollowService followService;
+  final bool isDesktop;
+
+  @override
+  Widget build(BuildContext context) {
+    final userId = auth.currentUserId;
+
+    // Only show if user is logged in
+    if (userId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<List<String>>(
+      stream: followService.streamFollowing(userId),
+      builder: (context, followingSnapshot) {
+        // Check if user follows any creators
+        final followingIds = followingSnapshot.data ?? [];
+        if (followingIds.isEmpty) {
+          return const SizedBox.shrink(); // Hide section if no following
+        }
+
+        // Stream plans from feed
+        return StreamBuilder<List<Plan>>(
+          stream: planService.streamFeedPlans(userId),
+          builder: (context, plansSnapshot) {
+            final plans = plansSnapshot.data ?? [];
+
+            // Hide section if no plans in feed
+            if (plans.isEmpty && plansSnapshot.connectionState == ConnectionState.done) {
+              return const SizedBox.shrink();
+            }
+
+            return _CenteredSection(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(
+                    title: 'From Creators You Follow',
+                    subtitle: 'Latest adventures from your favorite creators',
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: isDesktop ? 380 : 350,
+                    child: plansSnapshot.connectionState == ConnectionState.waiting
+                        ? _buildSkeletonLoader(context)
+                        : plans.isEmpty
+                            ? _buildEmptyState(context)
+                            : _buildCarousel(context, plans),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildCarousel(BuildContext context, List<Plan> plans) {
+    final cardWidth = isDesktop ? 300.0 : 280.0;
+
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      scrollDirection: Axis.horizontal,
+      clipBehavior: Clip.none,
+      itemCount: plans.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 24),
+      itemBuilder: (context, index) => SizedBox(
+        width: cardWidth,
+        child: AdventureCard(
+          plan: plans[index],
+          variant: AdventureCardVariant.standard,
+          showFavoriteButton: true,
+          onTap: () {
+            context.push('/details/${plans[index].id}');
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoader(BuildContext context) {
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      scrollDirection: Axis.horizontal,
+      itemCount: 3,
+      separatorBuilder: (_, __) => const SizedBox(width: 24),
+      itemBuilder: (_, __) => SizedBox(
+        width: isDesktop ? 300.0 : 280.0,
+        child: const SkeletonAdventureCard(),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.person_outline,
+              size: 40,
+              color: context.colors.onSurface.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No new adventures yet',
+              style: context.textStyles.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Follow more creators to see their latest adventures here',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }

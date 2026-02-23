@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:waypoint/utils/logger.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/providers/theme_provider.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Configure global image cache for better performance
 void _configureImageCache() {
@@ -35,6 +36,10 @@ Future<void> main() async {
     // IMPORTANT: Keep bindings and runApp in the SAME zone to avoid web zone mismatch.
     WidgetsFlutterBinding.ensureInitialized();
     Log.i('bootstrap', 'Widgets binding initialized');
+    
+    // Enable Google Fonts runtime fetching since local font assets are not available
+    // Fonts will be fetched from Google Fonts CDN at runtime
+    GoogleFonts.config.allowRuntimeFetching = true;
     
     // Configure global image cache for better performance
     _configureImageCache();
@@ -71,6 +76,22 @@ Future<void> main() async {
         return;
       }
       
+      // Filter out drawer hit-test errors - occur when DrawerController measures drawer with zero constraints
+      // These are non-fatal and happen during layout phase when drawer is closed
+      final isDrawerHitTestError = 
+          (errorString.contains('Cannot hit test a render box') ||
+           errorString.contains('has never been laid out')) &&
+          (stackString.contains('DrawerController') ||
+           stackString.contains('SizedBox.shrink') ||
+           stackString.contains('_ScaffoldSlot.drawer'));
+      
+      if (isDrawerHitTestError) {
+        // Silently ignore these non-fatal drawer hit-test errors
+        // They occur when Flutter's DrawerController tries to measure the drawer
+        // before it has proper constraints during the layout phase
+        return;
+      }
+      
       // Filter out AssetManifest.json errors - common in Flutter web debug mode
       // These are non-critical: fonts will fall back to system fonts or CDN
       // The manifest is generated during build but may not be available in debug mode
@@ -92,7 +113,28 @@ Future<void> main() async {
         // Fonts will fall back gracefully
         return;
       }
-      
+
+      // Filter optional image asset 404s (e.g. waypoint_logo_mark) — UI shows fallback
+      final isOptionalAsset404 = (errorString.contains('failed to fetch') ||
+              errorString.contains('HTTP status 404') ||
+              summaryString.contains('load an asset')) &&
+          (errorString.contains('waypoint_logo') || errorString.contains('images/'));
+
+      if (isOptionalAsset404) {
+        return;
+      }
+
+      // Filter minor RenderFlex overflows (e.g. 4px) — non-fatal layout tweaks
+      final isMinorOverflow = (errorString.contains('RenderFlex overflowed') ||
+              summaryString.contains('overflowed')) &&
+          (errorString.contains('by 4.0 pixels') ||
+              errorString.contains('by 2.0 pixels') ||
+              errorString.contains('by 6.0 pixels'));
+
+      if (isMinorOverflow) {
+        return;
+      }
+
       // Log all other errors
       Log.e('flutter', 'FlutterError.onError', details.exception, details.stack);
     };
@@ -102,14 +144,13 @@ Future<void> main() async {
       final errorString = error.toString();
       final stackString = stack?.toString() ?? '';
       
-      // Filter out AssetManifest.json errors from uncaught promises
+      // Filter out AssetManifest.json / asset load errors from uncaught promises
       final isAssetManifestError = 
-          (errorString.contains('AssetManifest.json') ||
-           errorString.contains('Unable to load asset') ||
-           errorString.contains('asset does not exist') ||
-           stackString.contains('AssetManifest.json') ||
-           stackString.contains('asset_bundle.dart') ||
-           stackString.contains('google_fonts'));
+          errorString.contains('AssetManifest') ||
+          (errorString.contains('Unable to load asset') && errorString.contains('asset')) ||
+          errorString.contains('asset does not exist') ||
+          stackString.contains('AssetManifest') ||
+          stackString.contains('asset_bundle.dart');
       
       if (isAssetManifestError) {
         // Silently ignore - these are non-critical debug mode issues

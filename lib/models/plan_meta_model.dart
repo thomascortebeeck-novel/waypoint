@@ -84,6 +84,8 @@ class PlanMeta {
   final String description;
   final String heroImageUrl;
   final String location;
+  /// Multiple locations for multi-location activities (road trips, tours, etc.)
+  final List<LocationInfo> locations;
   final double basePrice;
   final String creatorId;
   final String creatorName;
@@ -114,6 +116,8 @@ class PlanMeta {
   final bool isEntireYear;
   /// Whether to show price estimates from waypoints on detail pages
   final bool showPrices;
+  /// Privacy mode - controls who can see this plan
+  final PlanPrivacyMode privacyMode;
 
   PlanMeta({
     required this.id,
@@ -140,57 +144,89 @@ class PlanMeta {
     this.bestSeasons = const [],
     this.isEntireYear = false,
     this.showPrices = false,
+    this.locations = const [],
+    this.privacyMode = PlanPrivacyMode.invited,
   });
 
-  factory PlanMeta.fromJson(Map<String, dynamic> json) => PlanMeta(
-    id: json['id'] as String,
-    name: json['name'] as String,
-    description: json['description'] as String,
-    heroImageUrl: json['hero_image_url'] as String,
-    location: json['location'] as String,
-    basePrice: (json['base_price'] as num).toDouble(),
-    creatorId: json['creator_id'] as String,
-    creatorName: json['creator_name'] as String,
-    isFeatured: json['is_featured'] as bool? ?? false,
-    isDiscover: json['is_discover'] as bool? ?? false,
-    isPublished: json['is_published'] as bool? ?? true,
-    favoriteCount: (json['favorite_count'] as num?)?.toInt() ?? 0,
-    salesCount: (json['sales_count'] as num?)?.toInt() ?? 0,
-    createdAt: (json['created_at'] as Timestamp).toDate(),
-    updatedAt: (json['updated_at'] as Timestamp).toDate(),
-    faqItems: (json['faq_items'] as List<dynamic>?)
-        ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
-        .toList() ?? [],
-    activityCategory: json['activity_category'] != null
-        ? ActivityCategory.values.firstWhere(
-            (e) => e.name == json['activity_category'],
-            orElse: () => ActivityCategory.hiking,
-          )
-        : null,
-    accommodationType: json['accommodation_type'] != null
-        ? AccommodationType.values.firstWhere(
-            (e) => e.name == json['accommodation_type'],
-            orElse: () => AccommodationType.comfort,
-          )
-        : null,
-    versionSummaries: (json['version_summaries'] as List<dynamic>?)
-        ?.map((v) => VersionSummary.fromJson(v as Map<String, dynamic>))
-        .toList() ?? [],
-    bestSeasonStartMonth: json['best_season_start_month'] as int?,
-    bestSeasonEndMonth: json['best_season_end_month'] as int?,
-    bestSeasons: (json['best_seasons'] as List<dynamic>?)
-        ?.map((s) => SeasonRange.fromJson(s as Map<String, dynamic>))
-        .toList() ??
-        // Backward compatibility: convert old format to new format
-        (json['best_season_start_month'] != null && json['best_season_end_month'] != null
-            ? [SeasonRange(
-                startMonth: json['best_season_start_month'] as int,
-                endMonth: json['best_season_end_month'] as int,
-              )]
-            : []),
-    isEntireYear: json['is_entire_year'] as bool? ?? false,
-    showPrices: json['show_prices'] as bool? ?? false,
-  );
+  factory PlanMeta.fromJson(Map<String, dynamic> json) {
+    // Migrate location string to locations list
+    List<LocationInfo> locations = [];
+    if (json['locations'] != null) {
+      // New format: array of LocationInfo objects
+      locations = (json['locations'] as List<dynamic>)
+          .map((l) => LocationInfo.fromJson(l as Map<String, dynamic>))
+          .toList();
+    } else if (json['location'] != null && (json['location'] as String).isNotEmpty) {
+      // Legacy format - migrate location string to LocationInfo
+      final locationString = json['location'] as String;
+      // Extract short name (first part before comma) and use full string as address
+      final shortName = locationString.split(',').first.trim();
+      locations = [
+        LocationInfo(
+          shortName: shortName,
+          fullAddress: locationString,
+          order: 0,
+        ),
+      ];
+    }
+    
+    return PlanMeta(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String,
+      heroImageUrl: json['hero_image_url'] as String,
+      location: json['location'] as String,
+      basePrice: (json['base_price'] as num).toDouble(),
+      creatorId: json['creator_id'] as String,
+      creatorName: json['creator_name'] as String,
+      isFeatured: json['is_featured'] as bool? ?? false,
+      isDiscover: json['is_discover'] as bool? ?? false,
+      isPublished: json['is_published'] as bool? ?? true,
+      favoriteCount: (json['favorite_count'] as num?)?.toInt() ?? 0,
+      salesCount: (json['sales_count'] as num?)?.toInt() ?? 0,
+      createdAt: (json['created_at'] as Timestamp).toDate(),
+      updatedAt: (json['updated_at'] as Timestamp).toDate(),
+      faqItems: (json['faq_items'] as List<dynamic>?)
+          ?.map((f) => FAQItem.fromJson(f as Map<String, dynamic>))
+          .toList() ?? [],
+      activityCategory: json['activity_category'] != null
+          ? ActivityCategory.values.firstWhere(
+              (e) => e.name == json['activity_category'],
+              orElse: () => ActivityCategory.hiking,
+            )
+          : null,
+      accommodationType: json['accommodation_type'] != null
+          ? AccommodationType.values.firstWhere(
+              (e) => e.name == json['accommodation_type'],
+              orElse: () => AccommodationType.comfort,
+            )
+          : null,
+      versionSummaries: (json['version_summaries'] as List<dynamic>?)
+          ?.map((v) => VersionSummary.fromJson(v as Map<String, dynamic>))
+          .toList() ?? [],
+      locations: locations,
+      bestSeasonStartMonth: json['best_season_start_month'] as int?,
+      bestSeasonEndMonth: json['best_season_end_month'] as int?,
+      bestSeasons: (json['best_seasons'] as List<dynamic>?)
+          ?.map((s) => SeasonRange.fromJson(s as Map<String, dynamic>))
+          .toList() ??
+          // Backward compatibility: convert old format to new format
+          (json['best_season_start_month'] != null && json['best_season_end_month'] != null
+              ? [SeasonRange(
+                  startMonth: json['best_season_start_month'] as int,
+                  endMonth: json['best_season_end_month'] as int,
+                )]
+              : []),
+      isEntireYear: json['is_entire_year'] as bool? ?? false,
+      showPrices: json['show_prices'] as bool? ?? false,
+      privacyMode: json['privacy_mode'] != null
+          ? PlanPrivacyMode.values.firstWhere(
+              (e) => e.name == json['privacy_mode'],
+              orElse: () => PlanPrivacyMode.invited,
+            )
+          : PlanPrivacyMode.invited,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -199,6 +235,8 @@ class PlanMeta {
     'hero_image_url': heroImageUrl,
     'location': location,
     'base_price': basePrice,
+    // New format: locations array
+    if (locations.isNotEmpty) 'locations': locations.map((l) => l.toJson()).toList(),
     'creator_id': creatorId,
     'creator_name': creatorName,
     'is_featured': isFeatured,
@@ -219,6 +257,7 @@ class PlanMeta {
     if (bestSeasons.isNotEmpty) 'best_seasons': bestSeasons.map((s) => s.toJson()).toList(),
     if (isEntireYear) 'is_entire_year': isEntireYear,
     'show_prices': showPrices,
+    'privacy_mode': privacyMode.name,
   };
 
   PlanMeta copyWith({
@@ -246,6 +285,8 @@ class PlanMeta {
     List<SeasonRange>? bestSeasons,
     bool? isEntireYear,
     bool? showPrices,
+    List<LocationInfo>? locations,
+    PlanPrivacyMode? privacyMode,
   }) => PlanMeta(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -271,6 +312,8 @@ class PlanMeta {
     bestSeasons: bestSeasons ?? this.bestSeasons,
     isEntireYear: isEntireYear ?? this.isEntireYear,
     showPrices: showPrices ?? this.showPrices,
+    locations: locations ?? this.locations,
+    privacyMode: privacyMode ?? this.privacyMode,
   );
 
   /// Convert legacy Plan to PlanMeta (for migration)
@@ -302,6 +345,7 @@ class PlanMeta {
       bestSeasons: plan.bestSeasons,
       isEntireYear: plan.isEntireYear,
       showPrices: plan.showPrices,
+      locations: plan.locations,
     );
   }
 }

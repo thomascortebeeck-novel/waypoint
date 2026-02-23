@@ -1,7 +1,11 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:waypoint/integrations/google_directions_service.dart';
+import 'package:waypoint/models/plan_model.dart'; // For RouteType enum and ActivityCategory
 import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/models/gpx_route_model.dart';
+import 'package:waypoint/services/gpx_waypoint_snapper.dart';
+import 'package:waypoint/utils/haversine_utils.dart';
 import 'package:waypoint/utils/logger.dart';
 
 /// Service for calculating travel time and distance between waypoints
@@ -14,11 +18,13 @@ class TravelCalculatorService {
   /// Automatically selects travel mode based on distance, or uses provided mode
   /// [includeGeometry] - If true, uses Directions API to get route polyline geometry.
   ///                     If false, uses Distance Matrix API for faster/cheaper calculation.
+  /// [activityCategory] - Activity category to determine if GPX is required (prevents straight-line fallback)
   Future<TravelInfo?> calculateTravel({
     required ll.LatLng from,
     required ll.LatLng to,
     TravelMode? travelMode,
     bool includeGeometry = false,
+    ActivityCategory? activityCategory,
   }) async {
     try {
       TravelMode mode;
@@ -48,9 +54,23 @@ class TravelCalculatorService {
             durationSeconds: route.durationSeconds,
             travelMode: mode,
             routeGeometry: route.geometry,
+            routeType: RouteType.directions,
           );
         }
-        return null;
+        
+        // Fallback: Straight-line route when Directions API fails
+        // BUT: Don't create straight-line fallback for GPX-required activities
+        // GPX-required activities: hiking, skiing, cycling, climbing
+        final requiresGpx = activityCategory == ActivityCategory.hiking ||
+                           activityCategory == ActivityCategory.skis ||
+                           activityCategory == ActivityCategory.cycling ||
+                           activityCategory == ActivityCategory.climbing;
+        if (requiresGpx) {
+          Log.w('travel_calculator', '⚠️ Directions API failed for GPX-required activity - cannot use straight-line fallback');
+          return null; // GPX route is required, don't create direct lines
+        }
+        Log.w('travel_calculator', '⚠️ Directions API returned no route, using straight-line fallback');
+        return _createStraightLineFallback(from, to, mode);
       }
 
       // Otherwise, use Distance Matrix API for quick/cheap calculation (no geometry)
@@ -64,6 +84,7 @@ class TravelCalculatorService {
           durationSeconds: matrixResult.durationSeconds,
           travelMode: mode,
           routeGeometry: null, // Distance Matrix doesn't provide geometry
+          routeType: RouteType.directions,
         );
       }
 
@@ -81,10 +102,13 @@ class TravelCalculatorService {
           durationSeconds: route.durationSeconds,
           travelMode: mode,
           routeGeometry: route.geometry,
+          routeType: RouteType.directions,
         );
       }
 
-      return null;
+      // Final fallback: Straight-line route when all APIs fail
+      Log.w('travel_calculator', '⚠️ All route APIs failed, using straight-line fallback');
+      return _createStraightLineFallback(from, to, mode);
     } catch (e, stack) {
       Log.e('travel_calculator', '❌ Travel calculation failed', e, stack);
       return null;
@@ -112,6 +136,115 @@ class TravelCalculatorService {
     }
 
     return results;
+  }
+
+  /// Calculate travel information using GPX route
+  /// Snaps waypoints to GPX trail and calculates distance along trail + distance to/from trail
+  /// 
+  /// [from] - Starting waypoint location
+  /// [to] - Destination waypoint location
+  /// [gpxRoute] - The GPX route to use for calculation
+  /// [activityCategory] - Activity type (hiking, skiing, etc.) for time estimation
+  /// Returns TravelInfo with GPX-based distance and estimated time
+  Future<TravelInfo?> calculateTravelWithGpx({
+    required ll.LatLng from,
+    required ll.LatLng to,
+    required GpxRoute gpxRoute,
+    ActivityCategory? activityCategory,
+  }) async {
+    try {
+      final snapper = GpxWaypointSnapper();
+      
+      // Use full resolution track points for accurate snapping
+      final routePoints = gpxRoute.trackPoints.isNotEmpty 
+          ? gpxRoute.trackPoints 
+          : gpxRoute.simplifiedPoints;
+      
+      // Snap both waypoints to the GPX route
+      final fromSnap = snapper.snapToRoute(from, routePoints);
+      final toSnap = snapper.snapToRoute(to, routePoints);
+      
+      // Calculate distances:
+      // 1. Distance from starting waypoint to its snap point (straight line)
+      final distanceToRoute = fromSnap.distanceFromRoute; // Already in meters
+      
+      // 2. Distance along GPX trail between the two snap points
+      final distanceAlongTrailKm = snapper.calculateDistanceAlongRouteBetweenSnaps(
+        fromSnap,
+        toSnap,
+        routePoints,
+      );
+      final distanceAlongTrailM = distanceAlongTrailKm * 1000.0;
+      
+      // 3. Distance from destination waypoint's snap point to the waypoint (straight line)
+      final distanceFromRoute = toSnap.distanceFromRoute; // Already in meters
+      
+      // Total distance = distance to route + distance along trail + distance from route
+      final totalDistanceM = (distanceToRoute + distanceAlongTrailM + distanceFromRoute).round();
+      
+      // Estimate travel time based on activity type
+      int durationSeconds = 0;
+      if (activityCategory != null) {
+        final totalDistanceKm = totalDistanceM / 1000.0;
+        final estimatedDuration = snapper.estimateTravelTime(
+          totalDistanceKm,
+          activityCategory,
+          gpxRoute.totalElevationGainM,
+        );
+        durationSeconds = estimatedDuration.inSeconds;
+      }
+      
+      // Create route geometry: from waypoint -> snap point -> along trail -> snap point -> to waypoint
+      final routeGeometry = <ll.LatLng>[];
+      
+      // Add line from starting waypoint to its snap point (if off-trail)
+      if (distanceToRoute > 0) {
+        routeGeometry.add(from);
+        routeGeometry.add(fromSnap.snapPoint);
+      } else {
+        routeGeometry.add(fromSnap.snapPoint);
+      }
+      
+      // Add points along GPX trail between snap points
+      // Find the segment range between the two snap points
+      final startSegment = fromSnap.segmentIndex;
+      final endSegment = toSnap.segmentIndex;
+      
+      if (startSegment <= endSegment) {
+        // Add route points between segments
+        for (int i = startSegment + 1; i <= endSegment && i < routePoints.length; i++) {
+          routeGeometry.add(routePoints[i]);
+        }
+      } else {
+        // Reverse order - add points in reverse
+        for (int i = startSegment; i >= endSegment && i >= 0; i--) {
+          routeGeometry.add(routePoints[i]);
+        }
+      }
+      
+      // Add line from destination snap point to destination waypoint (if off-trail)
+      if (distanceFromRoute > 0) {
+        routeGeometry.add(toSnap.snapPoint);
+        routeGeometry.add(to);
+      } else {
+        routeGeometry.add(toSnap.snapPoint);
+      }
+      
+      Log.i('travel_calculator', '📏 GPX distance: ${totalDistanceM}m (to route: ${distanceToRoute}m, along trail: ${distanceAlongTrailM.toStringAsFixed(0)}m, from route: ${distanceFromRoute}m)');
+      
+      return TravelInfo(
+        from: from,
+        to: to,
+        distanceMeters: totalDistanceM,
+        durationSeconds: durationSeconds,
+        travelMode: TravelMode.walking, // GPX routes are typically for hiking/walking
+        routeGeometry: routeGeometry,
+        routeType: RouteType.gpx,
+      );
+    } catch (e, stack) {
+      Log.e('travel_calculator', '❌ GPX travel calculation failed', e, stack);
+      return null;
+    }
   }
 
   /// Get distance matrix result from Firebase Cloud Function
@@ -152,15 +285,32 @@ class TravelCalculatorService {
   }
 
   /// Calculate straight-line distance between two points in kilometers
+  /// Uses HaversineUtils for consistency
   double _calculateStraightLineDistance(ll.LatLng from, ll.LatLng to) {
-    const distance = ll.Distance();
-    return distance.as(
-      ll.LengthUnit.Kilometer,
-      ll.LatLng(from.latitude, from.longitude),
-      ll.LatLng(to.latitude, to.longitude),
+    return HaversineUtils.calculateHaversineDistance(from, to);
+  }
+
+  /// Create a straight-line fallback route when APIs fail
+  TravelInfo _createStraightLineFallback(ll.LatLng from, ll.LatLng to, TravelMode mode) {
+    // Use HaversineUtils for accurate geodesic distance calculation
+    final distanceMeters = HaversineUtils.calculateHaversineDistanceMeters(from, to).round();
+    
+    // Create a simple 2-point polyline for the straight line
+    final routeGeometry = [from, to];
+    
+    return TravelInfo(
+      from: from,
+      to: to,
+      distanceMeters: distanceMeters,
+      durationSeconds: 0, // Unknown duration for straight-line routes
+      travelMode: mode,
+      routeGeometry: routeGeometry,
+      routeType: RouteType.straightLine,
     );
   }
 }
+
+// RouteType enum moved to lib/models/plan_model.dart for shared use
 
 /// Travel information between two points
 class TravelInfo {
@@ -170,6 +320,7 @@ class TravelInfo {
   final int durationSeconds;
   final TravelMode travelMode;
   final List<ll.LatLng>? routeGeometry; // Route polyline geometry (from Directions API)
+  final RouteType routeType; // How this route was calculated
 
   TravelInfo({
     required this.from,
@@ -178,7 +329,11 @@ class TravelInfo {
     required this.durationSeconds,
     required this.travelMode,
     this.routeGeometry,
+    this.routeType = RouteType.directions,
   });
+
+  /// Whether this is a fallback route (straight-line or GPX)
+  bool get isFallback => routeType != RouteType.directions;
 
   /// Distance in kilometers
   double get distanceKm => distanceMeters / 1000.0;
@@ -187,7 +342,12 @@ class TravelInfo {
   int get durationMinutes => (durationSeconds / 60).round();
 
   /// Duration as formatted string (e.g., "2h 30m" or "45m")
+  /// Returns "Duration unknown" for straight-line routes
   String get durationFormatted {
+    if (routeType == RouteType.straightLine && durationSeconds == 0) {
+      return 'Duration unknown';
+    }
+    
     final hours = durationSeconds ~/ 3600;
     final minutes = (durationSeconds % 3600) ~/ 60;
     

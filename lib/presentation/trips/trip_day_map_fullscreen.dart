@@ -10,6 +10,7 @@ import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/presentation/widgets/elevation_chart.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/map/waypoint_map_legend.dart';
 
 /// Full-screen map view for a trip day (AllTrails-style)
 /// Uses AdaptiveMapWidget with Mapbox rendering for beautiful 3D terrain
@@ -434,6 +435,13 @@ class _TripDayMapFullscreenState extends State<TripDayMapFullscreen> {
                 ),
               ),
             ),
+          ),
+
+          // Map legend overlay (bottom-left)
+          Positioned(
+            bottom: 16,
+            left: 16,
+            child: const WaypointMapLegend(),
           ),
         ],
       ),

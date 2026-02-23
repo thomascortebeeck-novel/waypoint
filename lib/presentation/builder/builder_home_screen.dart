@@ -147,6 +147,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
 
   Widget _buildFAB(BuildContext context, String? uid) {
     return FloatingActionButton.extended(
+      heroTag: 'builder_home_fab',
       onPressed: uid == null ? () => context.go('/profile') : () => _createNewDraft(context),
       elevation: 4,
       label: Text(

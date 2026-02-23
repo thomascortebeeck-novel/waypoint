@@ -74,6 +74,9 @@ class GooglePlacesService {
     ll.LatLng? proximity,
     List<String>? types,
   }) async {
+    if (query.trim().length < 2) {
+      return [];
+    }
     try {
       Log.i('google_places', '🔍 Searching: "$query"');
 
@@ -211,6 +214,16 @@ class GooglePlacesService {
     }
   }
 
+  /// Fetch and cache all place photos; returns list of Storage URLs (order preserved, nulls skipped).
+  /// Each photo is fetched via placePhoto and stored in Firebase Storage.
+  Future<List<String>> getCachedPhotoUrls(List<String> photoReferences, String waypointId) async {
+    if (photoReferences.isEmpty) return [];
+    final results = await Future.wait(
+      photoReferences.map((ref) => getCachedPhotoUrl(ref, waypointId)),
+    );
+    return results.whereType<String>().toList();
+  }
+
   /// Get cached photo URL using secure Cloud Function
   /// Photos are fetched from Google once and cached in Firebase Storage permanently
   /// This significantly reduces API costs as photos are shared across all users
@@ -303,6 +316,8 @@ class PlaceDetails {
   final String? phoneNumber;
   final List<String> types;
   final String? photoReference;
+  /// All photo resource names from the API; use for fetching and caching each in Storage.
+  final List<String> photoReferences;
   final String? description;
   final int? userRatingCount;
   final List<PlaceReview> reviews;
@@ -318,11 +333,37 @@ class PlaceDetails {
     this.phoneNumber,
     this.types = const [],
     this.photoReference,
+    this.photoReferences = const [],
     this.description,
     this.userRatingCount,
     this.reviews = const [],
     this.priceLevel,
   });
+
+  /// Parse price level from Google Places API response.
+  /// The API (New) returns string enums like "PRICE_LEVEL_MODERATE",
+  /// while the legacy API returns numeric values (0-4).
+  static int? _parsePriceLevel(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      switch (value) {
+        case 'PRICE_LEVEL_FREE':
+          return 0;
+        case 'PRICE_LEVEL_INEXPENSIVE':
+          return 1;
+        case 'PRICE_LEVEL_MODERATE':
+          return 2;
+        case 'PRICE_LEVEL_EXPENSIVE':
+          return 3;
+        case 'PRICE_LEVEL_VERY_EXPENSIVE':
+          return 4;
+        default:
+          return null;
+      }
+    }
+    return null;
+  }
 
   factory PlaceDetails.fromJson(Map<String, dynamic> json) {
     return PlaceDetails(
@@ -338,10 +379,11 @@ class PlaceDetails {
       phoneNumber: json['phoneNumber'] as String?,
       types: (json['types'] as List<dynamic>?)?.cast<String>() ?? [],
       photoReference: json['photoReference'] as String?,
+      photoReferences: (json['photoReferences'] as List<dynamic>?)?.cast<String>() ?? [],
       description: json['description'] as String?,
       userRatingCount: json['userRatingCount'] != null ? (json['userRatingCount'] as num).toInt() : null,
       reviews: (json['reviews'] as List<dynamic>?)?.map((r) => PlaceReview.fromJson(r as Map<String, dynamic>)).toList() ?? [],
-      priceLevel: json['priceLevel'] != null ? (json['priceLevel'] as num).toInt() : null,
+      priceLevel: _parsePriceLevel(json['priceLevel']),
     );
   }
 

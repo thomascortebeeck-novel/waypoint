@@ -20,6 +20,8 @@ class MapAnnotation {
   final LatLng position;
   final IconData icon;
   final Color color;
+  final WaypointType? waypointType;  // Direct type access for marker generation
+  final int? orderNumber;            // For route waypoints with sequence numbers
   final String? label;
   final bool draggable;
   final VoidCallback? onTap;
@@ -33,6 +35,8 @@ class MapAnnotation {
     required this.position,
     required this.icon,
     required this.color,
+    this.waypointType,
+    this.orderNumber,
     this.label,
     this.draggable = false,
     this.onTap,
@@ -54,6 +58,8 @@ class MapAnnotation {
       position: waypoint.position,
       icon: getWaypointIcon(waypoint.type),
       color: getWaypointColor(waypoint.type),
+      waypointType: waypoint.type,      // Set type directly
+      orderNumber: waypoint.order,      // Set order number from RouteWaypoint
       label: waypoint.name,
       draggable: draggable,
       showInfoWindow: showInfoWindow,
@@ -73,6 +79,8 @@ class MapAnnotation {
       position: poi.coordinates,
       icon: poi.type.icon,
       color: poi.type.color,
+      waypointType: null,  // POIs don't have WaypointType
+      orderNumber: null,   // POIs don't have order numbers
       label: poi.name,
       draggable: false,
       onTap: onTap,
@@ -90,6 +98,9 @@ class MapPolyline {
   final double width;
   final Color? borderColor;
   final double? borderWidth;
+  final bool isDashed; // Whether to render as dashed line
+  final List<int>? dashPattern; // Dash pattern: [dashLength, gapLength] in pixels
+  final double opacity; // Opacity (0.0 to 1.0)
   
   const MapPolyline({
     required this.id,
@@ -98,18 +109,23 @@ class MapPolyline {
     this.width = 5.0,
     this.borderColor,
     this.borderWidth,
+    this.isDashed = false,
+    this.dashPattern,
+    this.opacity = 1.0,
   });
+  
+  /// Get color with opacity applied
+  Color get colorWithOpacity => color.withOpacity(opacity);
 }
 
 /// Adaptive map widget with hybrid engine architecture
 /// 
-/// Supports three rendering strategies:
-/// 1. flutter_map + raster tiles (stable, for Route Builder)
-/// 2. Mapbox native SDK (mobile vector + 3D, for Main Map)
-/// 3. Mapbox GL JS (web vector, for Main Map)
+/// Supports rendering strategies:
+/// 1. Google Maps (primary - iOS, Android, Web) - used for all map screens
+/// 2. flutter_map + raster tiles (fallback for Route Builder if needed)
 ///
 /// Use MapConfiguration to declaratively choose the engine.
-/// Automatically falls back to flutter_map if Mapbox fails to load.
+/// Automatically falls back to flutter_map if Google Maps fails to load.
 class AdaptiveMapWidget extends StatefulWidget {
   final LatLng initialCenter;
   final MapConfiguration? configuration;
@@ -184,33 +200,20 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
       return widget.configuration!;
     }
 
-    // Otherwise create a default configuration based on platform
+    // Otherwise create a default configuration using Google Maps
     // and legacy parameters (for backward compatibility)
     final zoom = widget.initialZoom ?? 12.0;
     final tilt = widget.initialTilt ?? 0.0;
     final bearing = widget.initialBearing ?? 0.0;
 
-    if (kIsWeb) {
-      return MapConfiguration(
-        engineType: MapEngineType.mapboxWebGL,
-        styleUri: mapboxStyleUri,
-        rasterTileUrl: defaultRasterTileUrl,
-        allowFallback: true,
-        initialZoom: zoom,
-        initialTilt: tilt,
-        initialBearing: bearing,
-      );
-    } else {
-      return MapConfiguration(
-        engineType: MapEngineType.mapboxNative,
-        styleUri: mapboxStyleUri,
-        rasterTileUrl: defaultRasterTileUrl,
-        allowFallback: true,
-        initialZoom: zoom,
-        initialTilt: tilt,
-        initialBearing: bearing,
-      );
-    }
+    // Use Google Maps for all platforms (iOS, Android, Web)
+    return MapConfiguration(
+      engineType: MapEngineType.googleMaps,
+      allowFallback: true,
+      initialZoom: zoom,
+      initialTilt: tilt,
+      initialBearing: bearing,
+    );
   }
 
   @override
@@ -251,9 +254,9 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
   }
 
   Widget _buildMapLayer(MapConfiguration config) {
-    // If Mapbox failed and fallback is allowed, use flutter_map
+    // If Google Maps failed and fallback is allowed, use flutter_map
     if (_mapboxFailed && config.allowFallback) {
-      Log.w('map', '⚠️ Mapbox failed, falling back to flutter_map raster');
+      Log.w('map', '⚠️ Google Maps failed, falling back to flutter_map raster');
       return _buildFlutterMap(config);
     }
 
@@ -266,18 +269,14 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
         return _buildGoogleMap(config);
       
       case MapEngineType.mapboxNative:
-        if (kIsWeb) {
-          Log.w('map', '⚠️ Mapbox Native requested on web, using flutter_map');
-          return _buildFlutterMap(config);
-        }
-        return _buildMobileMap(config);
+        // Deprecated: Mapbox Native is no longer used, fallback to Google Maps
+        Log.w('map', '⚠️ Mapbox Native is deprecated, using Google Maps instead');
+        return _buildGoogleMap(config);
       
       case MapEngineType.mapboxWebGL:
-        if (!kIsWeb) {
-          Log.w('map', '⚠️ Mapbox WebGL requested on mobile, using Mapbox Native');
-          return _buildMobileMap(config);
-        }
-        return _buildWebMap(config);
+        // Deprecated: Mapbox WebGL is no longer used, fallback to Google Maps
+        Log.w('map', '⚠️ Mapbox WebGL is deprecated, using Google Maps instead');
+        return _buildGoogleMap(config);
     }
   }
 
@@ -436,10 +435,12 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
             polylines: widget.polylines.map((poly) {
               return fm.Polyline(
                 points: poly.points,
-                color: poly.color,
+                color: poly.colorWithOpacity,
                 strokeWidth: poly.width,
                 borderColor: poly.borderColor ?? Colors.transparent,
                 borderStrokeWidth: poly.borderWidth ?? 0,
+                // Note: flutter_map doesn't support dash patterns directly
+                // Visual distinction is achieved through opacity and color differences
               );
             }).toList(),
           ),

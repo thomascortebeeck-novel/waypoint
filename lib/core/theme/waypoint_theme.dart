@@ -25,6 +25,7 @@ export 'package:waypoint/core/constants/icon_sizes.dart';
 
 ThemeData get waypointLightTheme => ThemeData(
   useMaterial3: true,
+  fontFamily: 'DMSans', // DM Sans replaces Inter
   colorScheme: ColorScheme.light(
     primary: LightModeColors.primary,
     onPrimary: LightModeColors.onPrimary,
@@ -42,126 +43,121 @@ ThemeData get waypointLightTheme => ThemeData(
     shadow: LightModeColors.shadow,
   ),
   scaffoldBackgroundColor: LightModeColors.background,
+  // AppBar — white/minimal, no Hunter Green banner
   appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.transparent,
-    foregroundColor: LightModeColors.onSurface,
+    backgroundColor: LightModeColors.surface,              // white
+    foregroundColor: LightModeColors.onSurface,            // #212529
     elevation: 0,
+    scrolledUnderElevation: 1,
     centerTitle: false,
-    scrolledUnderElevation: 0,
+    iconTheme: IconThemeData(color: LightModeColors.onSurfaceSecondary),
   ),
+  // Tab bar — Hunter Green indicator on white background
+  tabBarTheme: TabBarThemeData(
+    indicatorColor:       LightModeColors.primary,         // #1B4332
+    indicatorSize:        TabBarIndicatorSize.label,
+    labelColor:           LightModeColors.primary,
+    unselectedLabelColor: LightModeColors.onSurfaceMuted,  // #6C757D
+    labelStyle:           WaypointTypography.tabActive,
+    unselectedLabelStyle: WaypointTypography.tabLabel,
+    dividerColor:         LightModeColors.outline,
+  ),
+  // Cards — white with platinum border, no elevation
   cardTheme: CardThemeData(
     elevation: 0,
-    shadowColor: Colors.black.withValues(alpha: 0.04),
     color: LightModeColors.surfaceContainer,
     shape: RoundedRectangleBorder(
-      borderRadius: WaypointRadius.borderLg,
-      side: const BorderSide(color: LightModeColors.outline, width: WaypointRadius.borderThin),
+      borderRadius: BorderRadius.circular(12),
+      side: const BorderSide(color: LightModeColors.outline, width: 1),
     ),
     margin: EdgeInsets.zero,
   ),
+  // Input fields — Platinum fill, Hunter Green focus
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: LightModeColors.surfaceVariant,
+    fillColor: NeutralColors.backgroundPrimary,            // #F8F9FA
     border: OutlineInputBorder(
-      borderRadius: WaypointRadius.borderMd,
-      borderSide: const BorderSide(color: LightModeColors.outline),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: NeutralColors.backgroundSecondary),
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: WaypointRadius.borderMd,
-      borderSide: const BorderSide(color: LightModeColors.outline),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: NeutralColors.backgroundSecondary),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: WaypointRadius.borderMd,
-      borderSide: const BorderSide(color: LightModeColors.primary, width: WaypointRadius.borderThick),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: LightModeColors.primary, width: 2),
     ),
     errorBorder: OutlineInputBorder(
-      borderRadius: WaypointRadius.borderMd,
-      borderSide: const BorderSide(color: LightModeColors.error),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: SemanticColors.error),
     ),
-    contentPadding: WaypointSpacing.inputPadding,
-    hintStyle: WaypointTypography.body.copyWith(color: LightModeColors.onSurfaceMuted),
-    labelStyle: WaypointTypography.label.copyWith(color: LightModeColors.onSurfaceSecondary),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    hintStyle: WaypointTypography.body
+                 .copyWith(color: NeutralColors.neutral500),
+    labelStyle: WaypointTypography.label
+                  .copyWith(color: NeutralColors.textSecondary),
   ),
+  // Elevated button — Hunter Green bg
   elevatedButtonTheme: ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
       elevation: 0,
       backgroundColor: LightModeColors.primary,
-      foregroundColor: Colors.white,
-      padding: WaypointSpacing.buttonStandard,
-      shape: RoundedRectangleBorder(
-        borderRadius: WaypointRadius.borderMd,
-      ),
-      textStyle: GoogleFonts.inter(
-        fontWeight: FontWeight.w600,
-        fontSize: WaypointTypography.sizeLabel,
-        letterSpacing: 0.1,
-      ),
+      foregroundColor: LightModeColors.onPrimary,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      textStyle: WaypointTypography.label,
       shadowColor: Colors.transparent,
     ),
   ),
+  // Outlined button — Hunter Green border
   outlinedButtonTheme: OutlinedButtonThemeData(
     style: OutlinedButton.styleFrom(
       foregroundColor: LightModeColors.primary,
-      padding: WaypointSpacing.buttonStandard,
-      shape: RoundedRectangleBorder(
-        borderRadius: WaypointRadius.borderMd,
-      ),
-      side: const BorderSide(color: LightModeColors.primary, width: WaypointRadius.borderThick),
-      textStyle: GoogleFonts.inter(
-        fontWeight: FontWeight.w600,
-        fontSize: WaypointTypography.sizeLabel,
-        letterSpacing: 0.1,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      side: const BorderSide(color: LightModeColors.primary, width: 1.5),
+      textStyle: WaypointTypography.label,
     ),
   ),
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
       foregroundColor: LightModeColors.primary,
-      padding: WaypointSpacing.buttonStandard,
-      textStyle: GoogleFonts.inter(
-        fontWeight: FontWeight.w600,
-        fontSize: WaypointTypography.sizeLabel,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      textStyle: WaypointTypography.label,
     ),
   ),
+  // FAB — Maize Yellow for high visibility
   floatingActionButtonTheme: FloatingActionButtonThemeData(
-    elevation: 4,
-    backgroundColor: LightModeColors.secondary,
-    foregroundColor: Colors.white,
-    extendedPadding: WaypointSpacing.buttonStandard,
-    shape: RoundedRectangleBorder(
-      borderRadius: WaypointRadius.borderLg,
-    ),
+    elevation: 6,
+    backgroundColor: BrandColors.secondary,                // #FCBF49
+    foregroundColor: NeutralColors.textPrimary,            // dark for contrast
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
+  // Chips — platinum bg, Hunter Green selected
   chipTheme: ChipThemeData(
-    backgroundColor: NeutralColors.neutral50,
-    selectedColor: LightModeColors.primaryLight,
-    labelStyle: WaypointTypography.small,
-    side: const BorderSide(color: NeutralColors.neutral200),
-    shape: RoundedRectangleBorder(
-      borderRadius: WaypointRadius.borderSm,
-    ),
-    padding: WaypointSpacing.chipPadding,
+    backgroundColor:  NeutralColors.backgroundSecondary,   // #E9ECEF
+    selectedColor:    BrandColors.primary,                 // #1B4332
+    labelStyle:       WaypointTypography.small
+                        .copyWith(color: NeutralColors.textPrimary),
+    side:             const BorderSide(color: NeutralColors.neutral300),
+    padding:          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    shape:            const StadiumBorder(),
   ),
+  // Navigation bar — white bg, Hunter Green selected
   navigationBarTheme: NavigationBarThemeData(
     elevation: 0,
-    backgroundColor: Colors.transparent,
+    backgroundColor: LightModeColors.surface,
     indicatorColor: Colors.transparent,
     labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
     height: 72,
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return GoogleFonts.inter(
-          fontSize: WaypointTypography.sizeSmall,
-          fontWeight: FontWeight.w600,
-          color: LightModeColors.primary,
-        );
+        return WaypointTypography.small
+            .copyWith(color: LightModeColors.primary);
       }
-      return GoogleFonts.inter(
-        fontSize: WaypointTypography.sizeSmall,
-        fontWeight: FontWeight.w500,
-        color: LightModeColors.onSurfaceMuted,
-      );
+      return WaypointTypography.small
+          .copyWith(color: LightModeColors.onSurfaceMuted);
     }),
     iconTheme: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
@@ -177,28 +173,30 @@ ThemeData get waypointLightTheme => ThemeData(
       borderRadius: WaypointRadius.borderXl,
     ),
   ),
-  bottomSheetTheme: BottomSheetThemeData(
-    backgroundColor: LightModeColors.surfaceContainer,
+  // Bottom sheet and dialog unchanged structurally
+  bottomSheetTheme: const BottomSheetThemeData(
+    backgroundColor: LightModeColors.surface,
     elevation: 0,
-    shape: const RoundedRectangleBorder(
-      borderRadius: WaypointRadius.topXl,
-    ),
-    dragHandleColor: NeutralColors.neutral300,
-    dragHandleSize: const Size(40, 4),
     showDragHandle: true,
+    dragHandleColor: NeutralColors.neutral300,
+    dragHandleSize: Size(40, 4),
   ),
   snackBarTheme: SnackBarThemeData(
-    backgroundColor: NeutralColors.neutral900,
-    contentTextStyle: WaypointTypography.body.copyWith(color: NeutralColors.neutral0),
-    shape: RoundedRectangleBorder(
-      borderRadius: WaypointRadius.borderMd,
-    ),
+    backgroundColor: NeutralColors.neutral900,             // #212529
+    contentTextStyle: WaypointTypography.body
+                        .copyWith(color: NeutralColors.white),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     behavior: SnackBarBehavior.floating,
   ),
+  // Dividers — Platinum
   dividerTheme: const DividerThemeData(
-    color: LightModeColors.outline,
+    color: NeutralColors.backgroundSecondary,
     thickness: 1,
     space: 1,
+  ),
+  progressIndicatorTheme: const ProgressIndicatorThemeData(
+    color: LightModeColors.primary,
+    linearTrackColor: NeutralColors.backgroundSecondary,
   ),
   textTheme: WaypointTypography.buildTextTheme(),
 );

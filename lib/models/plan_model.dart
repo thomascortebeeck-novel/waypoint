@@ -2,10 +2,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:waypoint/models/review_model.dart';
 import 'package:waypoint/models/route_info_model.dart';
 import 'package:waypoint/models/adventure_context_model.dart';
+import 'package:waypoint/models/gpx_route_model.dart';
 
 enum Difficulty { none, easy, moderate, hard, extreme }
 enum ComfortType { none, comfort, extreme }
 enum TransportationType { car, flying, boat, foot, bike, train, bus, taxi }
+
+/// Privacy mode for plans - controls visibility
+enum PlanPrivacyMode {
+  invited,    // Only invited people can see
+  followers,  // Only followers can see
+  public      // Everyone can see (requires influencer status)
+}
 
 // Activity categorization enums
 enum ActivityCategory {
@@ -47,6 +55,76 @@ String getMapboxProfile(ActivityCategory? category) {
   }
 }
 
+/// Location information for a plan
+/// Supports both single and multiple locations with ordering
+class LocationInfo {
+  /// Short name for breadcrumbs/UI (e.g., "Paris")
+  final String shortName;
+  
+  /// Full address for metadata (e.g., "Paris, France")
+  final String fullAddress;
+  
+  /// Latitude coordinate
+  final double? latitude;
+  
+  /// Longitude coordinate
+  final double? longitude;
+  
+  /// Google Places ID for the location
+  final String? placeId;
+  
+  /// Order for ordered activities (road trips, tours)
+  final int order;
+  
+  LocationInfo({
+    required this.shortName,
+    required this.fullAddress,
+    this.latitude,
+    this.longitude,
+    this.placeId,
+    this.order = 0,
+  });
+  
+  /// Convenience getter for backward compatibility
+  String get name => shortName;
+  
+  factory LocationInfo.fromJson(Map<String, dynamic> json) => LocationInfo(
+    shortName: json['short_name'] as String? ?? json['name'] as String? ?? '', // Backward compat
+    fullAddress: json['full_address'] as String? ?? json['name'] as String? ?? '', // Backward compat
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    placeId: json['place_id'] as String?,
+    order: json['order'] as int? ?? 0,
+  );
+  
+  Map<String, dynamic> toJson() => {
+    'short_name': shortName,
+    'full_address': fullAddress,
+    if (latitude != null) 'latitude': latitude,
+    if (longitude != null) 'longitude': longitude,
+    if (placeId != null) 'place_id': placeId,
+    'order': order,
+    // Keep 'name' for backward compatibility
+    'name': shortName,
+  };
+  
+  LocationInfo copyWith({
+    String? shortName,
+    String? fullAddress,
+    double? latitude,
+    double? longitude,
+    String? placeId,
+    int? order,
+  }) => LocationInfo(
+    shortName: shortName ?? this.shortName,
+    fullAddress: fullAddress ?? this.fullAddress,
+    latitude: latitude ?? this.latitude,
+    longitude: longitude ?? this.longitude,
+    placeId: placeId ?? this.placeId,
+    order: order ?? this.order,
+  );
+}
+
 /// Represents a trekking/travel plan
 class Plan {
   final String id;
@@ -54,6 +132,8 @@ class Plan {
   final String description;
   final String heroImageUrl;
   final String location;
+  /// Multiple locations for multi-location activities (road trips, tours, etc.)
+  final List<LocationInfo> locations;
   final double basePrice;
   final String creatorId;
   final String creatorName;
@@ -85,12 +165,16 @@ class Plan {
   final bool isEntireYear;
   /// Whether to show price estimates from waypoints on detail pages
   final bool showPrices;
-  /// AI-generated travel preparation information
-  final Prepare? prepare;
-  /// AI-generated local tips and cultural information
-  final LocalTips? localTips;
-  /// Timestamp when AI info was last generated
-  final DateTime? aiGeneratedAt;
+  /// Languages supported for this plan (e.g., ['English', 'Dutch'])
+  final List<String>? languages;
+  /// Highlights/bullet points for this plan (builder-editable, max 10 recommended)
+  final List<String>? highlights;
+  /// Privacy mode - controls who can see this plan
+  final PlanPrivacyMode privacyMode;
+  /// Media items (images/videos) for carousel on overview page
+  final List<MediaItem>? mediaItems;
+  /// Highlight items for home page display (images from waypoints)
+  final List<HighlightItem>? highlightItems;
 
   Plan({
     required this.id,
@@ -119,9 +203,12 @@ class Plan {
     this.bestSeasons = const [],
     this.isEntireYear = false,
     this.showPrices = false,
-    this.prepare,
-    this.localTips,
-    this.aiGeneratedAt,
+    this.locations = const [],
+    this.languages,
+    this.highlights,
+    this.privacyMode = PlanPrivacyMode.invited,
+    this.mediaItems,
+    this.highlightItems,
   });
 
   double get minPrice => versions.isEmpty 
@@ -141,7 +228,40 @@ class Plan {
     return 'VARIOUS';
   }
 
+  /// Calculate total distance in kilometers across all versions and days
+  /// Returns the sum of all day distances from all versions
+  double get totalDistanceKm {
+    double total = 0.0;
+    for (final version in versions) {
+      for (final day in version.days) {
+        total += day.distanceKm;
+      }
+    }
+    return total;
+  }
+
   factory Plan.fromJson(Map<String, dynamic> json) {
+    // Migrate location string to locations list
+    List<LocationInfo> locations = [];
+    if (json['locations'] != null) {
+      // New format: array of LocationInfo objects
+      locations = (json['locations'] as List<dynamic>)
+          .map((l) => LocationInfo.fromJson(l as Map<String, dynamic>))
+          .toList();
+    } else if (json['location'] != null && (json['location'] as String).isNotEmpty) {
+      // Legacy format - migrate location string to LocationInfo
+      final locationString = json['location'] as String;
+      // Extract short name (first part before comma) and use full string as address
+      final shortName = locationString.split(',').first.trim();
+      locations = [
+        LocationInfo(
+          shortName: shortName,
+          fullAddress: locationString,
+          order: 0,
+        ),
+      ];
+    }
+    
     return Plan(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -194,14 +314,28 @@ class Plan {
               : []),
       isEntireYear: json['is_entire_year'] as bool? ?? false,
       showPrices: json['show_prices'] as bool? ?? false,
-      prepare: json['prepare'] != null
-          ? Prepare.fromJson(json['prepare'] as Map<String, dynamic>)
+      locations: locations,
+      languages: json['languages'] != null 
+          ? List<String>.from(json['languages'] as List)
           : null,
-      localTips: json['local_tips'] != null
-          ? LocalTips.fromJson(json['local_tips'] as Map<String, dynamic>)
+      highlights: json['highlights'] != null
+          ? List<String>.from(json['highlights'] as List)
           : null,
-      aiGeneratedAt: json['ai_generated_at'] != null
-          ? (json['ai_generated_at'] as Timestamp).toDate()
+      privacyMode: json['privacy_mode'] != null
+          ? PlanPrivacyMode.values.firstWhere(
+              (e) => e.name == json['privacy_mode'],
+              orElse: () => PlanPrivacyMode.invited,
+            )
+          : PlanPrivacyMode.invited,
+      mediaItems: json['media_items'] != null
+          ? (json['media_items'] as List<dynamic>)
+              .map((m) => MediaItem.fromJson(m as Map<String, dynamic>))
+              .toList()
+          : null,
+      highlightItems: json['highlight_items'] != null
+          ? (json['highlight_items'] as List<dynamic>)
+              .map((h) => HighlightItem.fromJson(h as Map<String, dynamic>))
+              .toList()
           : null,
     );
   }
@@ -214,6 +348,8 @@ class Plan {
       'hero_image_url': heroImageUrl,
       'location': location,
       'base_price': basePrice,
+      // New format: locations array
+      if (locations.isNotEmpty) 'locations': locations.map((l) => l.toJson()).toList(),
       'creator_id': creatorId,
       'creator_name': creatorName,
       'versions': versions.map((v) => v.toJson()).toList(),
@@ -236,9 +372,11 @@ class Plan {
       if (bestSeasons.isNotEmpty) 'best_seasons': bestSeasons.map((s) => s.toJson()).toList(),
       if (isEntireYear) 'is_entire_year': isEntireYear,
       'show_prices': showPrices,
-      if (prepare != null) 'prepare': prepare!.toJson(),
-      if (localTips != null) 'local_tips': localTips!.toJson(),
-      if (aiGeneratedAt != null) 'ai_generated_at': Timestamp.fromDate(aiGeneratedAt!),
+      if (languages != null && languages!.isNotEmpty) 'languages': languages,
+      if (highlights != null && highlights!.isNotEmpty) 'highlights': highlights,
+      'privacy_mode': privacyMode.name,
+      if (mediaItems != null && mediaItems!.isNotEmpty) 'media_items': mediaItems!.map((m) => m.toJson()).toList(),
+      if (highlightItems != null && highlightItems!.isNotEmpty) 'highlight_items': highlightItems!.map((h) => h.toJson()).toList(),
     };
   }
 
@@ -269,9 +407,12 @@ class Plan {
     List<SeasonRange>? bestSeasons,
     bool? isEntireYear,
     bool? showPrices,
-    Prepare? prepare,
-    LocalTips? localTips,
-    DateTime? aiGeneratedAt,
+    List<LocationInfo>? locations,
+    List<String>? languages,
+    List<String>? highlights,
+    PlanPrivacyMode? privacyMode,
+    List<MediaItem>? mediaItems,
+    List<HighlightItem>? highlightItems,
   }) {
     return Plan(
       id: id ?? this.id,
@@ -300,9 +441,12 @@ class Plan {
       bestSeasons: bestSeasons ?? this.bestSeasons,
       isEntireYear: isEntireYear ?? this.isEntireYear,
       showPrices: showPrices ?? this.showPrices,
-      prepare: prepare ?? this.prepare,
-      localTips: localTips ?? this.localTips,
-      aiGeneratedAt: aiGeneratedAt ?? this.aiGeneratedAt,
+      locations: locations ?? this.locations,
+      languages: languages ?? this.languages,
+      highlights: highlights ?? this.highlights,
+      privacyMode: privacyMode ?? this.privacyMode,
+      mediaItems: mediaItems ?? this.mediaItems,
+      highlightItems: highlightItems ?? this.highlightItems,
     );
   }
 }
@@ -479,6 +623,12 @@ class PlanVersion {
   // Frequently asked questions
   final List<FAQItem> faqItems;
   final ExperienceLevel? experienceLevel;
+  /// AI-generated travel preparation information (per-version)
+  final Prepare? prepare;
+  /// AI-generated local tips and cultural information (per-version)
+  final LocalTips? localTips;
+  /// Timestamp when AI info was last generated
+  final DateTime? aiGeneratedAt;
 
   PlanVersion({
     required this.id,
@@ -492,6 +642,9 @@ class PlanVersion {
     this.transportationOptions = const [],
     this.faqItems = const [],
     this.experienceLevel,
+    this.prepare,
+    this.localTips,
+    this.aiGeneratedAt,
   });
 
   factory PlanVersion.fromJson(Map<String, dynamic> json) {
@@ -547,6 +700,15 @@ class PlanVersion {
               orElse: () => ExperienceLevel.beginner,
             )
           : null,
+      prepare: json['prepare'] != null
+          ? Prepare.fromJson(json['prepare'] as Map<String, dynamic>)
+          : null,
+      localTips: json['local_tips'] != null
+          ? LocalTips.fromJson(json['local_tips'] as Map<String, dynamic>)
+          : null,
+      aiGeneratedAt: json['ai_generated_at'] != null
+          ? (json['ai_generated_at'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -563,6 +725,9 @@ class PlanVersion {
       'transportation_options': transportationOptions.map((t) => t.toJson()).toList(),
       'faq_items': faqItems.map((f) => f.toJson()).toList(),
       'experience_level': experienceLevel?.name,
+      if (prepare != null) 'prepare': prepare!.toJson(),
+      if (localTips != null) 'local_tips': localTips!.toJson(),
+      if (aiGeneratedAt != null) 'ai_generated_at': Timestamp.fromDate(aiGeneratedAt!),
     };
   }
 }
@@ -578,6 +743,8 @@ class DayItinerary {
   final List<RestaurantInfo> restaurants; // Breakfast, lunch, dinner
   final List<ActivityInfo> activities; // Activities for the day
   final List<String> photos;
+  /// Media items (images/videos) for carousel on day tab
+  final List<MediaItem>? mediaItems;
   // Optional start/end coordinates for the day
   final double? startLat;
   final double? startLng;
@@ -590,6 +757,8 @@ class DayItinerary {
   final String? allTrailsLink;
   // Route metadata extracted from Komoot/AllTrails
   final RouteInfo? routeInfo;
+  // Imported GPX route for outdoor activities
+  final GpxRoute? gpxRoute;
 
   DayItinerary({
     required this.dayNum,
@@ -602,6 +771,7 @@ class DayItinerary {
     this.restaurants = const [],
     this.activities = const [],
     this.photos = const [],
+    this.mediaItems,
     this.startLat,
     this.startLng,
     this.endLat,
@@ -610,6 +780,7 @@ class DayItinerary {
     this.komootLink,
     this.allTrailsLink,
     this.routeInfo,
+    this.gpxRoute,
   });
 
   Duration get estimatedTime => Duration(minutes: estimatedTimeMinutes);
@@ -634,6 +805,11 @@ class DayItinerary {
           ?.map((a) => ActivityInfo.fromJson(a as Map<String, dynamic>))
           .toList() ?? [],
       photos: List<String>.from(json['photos'] ?? []),
+      mediaItems: json['media_items'] != null
+          ? (json['media_items'] as List<dynamic>)
+              .map((m) => MediaItem.fromJson(m as Map<String, dynamic>))
+              .toList()
+          : null,
       startLat: (json['start_lat'] as num?)?.toDouble(),
       startLng: (json['start_lng'] as num?)?.toDouble(),
       endLat: (json['end_lat'] as num?)?.toDouble(),
@@ -643,6 +819,9 @@ class DayItinerary {
       allTrailsLink: json['all_trails_link'] as String?,
       routeInfo: json['route_info'] != null
           ? RouteInfo.fromJson(json['route_info'] as Map<String, dynamic>)
+          : null,
+      gpxRoute: json['gpx_route'] != null
+          ? GpxRoute.fromJson(json['gpx_route'] as Map<String, dynamic>)
           : null,
     );
   }
@@ -659,6 +838,7 @@ class DayItinerary {
       'restaurants': restaurants.map((r) => r.toJson()).toList(),
       'activities': activities.map((a) => a.toJson()).toList(),
       'photos': photos,
+      if (mediaItems != null && mediaItems!.isNotEmpty) 'media_items': mediaItems!.map((m) => m.toJson()).toList(),
       if (startLat != null) 'start_lat': startLat,
       if (startLng != null) 'start_lng': startLng,
       if (endLat != null) 'end_lat': endLat,
@@ -667,6 +847,7 @@ class DayItinerary {
       if (komootLink != null && komootLink!.isNotEmpty) 'komoot_link': komootLink,
       if (allTrailsLink != null && allTrailsLink!.isNotEmpty) 'all_trails_link': allTrailsLink,
       if (routeInfo != null) 'route_info': routeInfo!.toJson(),
+      if (gpxRoute != null) 'gpx_route': gpxRoute!.toJson(),
     };
   }
 }
@@ -695,6 +876,13 @@ class ElevationPoint {
   List<double> toList() => [distance, elevation];
 }
 
+/// Route type enum - shared between TravelInfo and DayRoute
+enum RouteType {
+  directions,   // Calculated via Google Directions API
+  straightLine, // Fallback: straight-line geodesic distance
+  gpx,          // Imported from GPX file
+}
+
 /// Route polyline + metrics stored for a given day
 class DayRoute {
   final Map<String, dynamic> geometry; // GeoJSON LineString
@@ -705,6 +893,7 @@ class DayRoute {
   final double? ascent; // meters
   final double? descent; // meters
   final List<Map<String, dynamic>> poiWaypoints; // Points of interest waypoints
+  final RouteType? routeType; // How this route was calculated
 
   const DayRoute({
     required this.geometry,
@@ -715,6 +904,7 @@ class DayRoute {
     this.ascent,
     this.descent,
     this.poiWaypoints = const [],
+    this.routeType,
   });
 
   // Backwards compatibility getter
@@ -765,6 +955,16 @@ class DayRoute {
       normalizedGeometry = const {};
     }
 
+    // Parse routeType (optional, defaults to directions for backward compatibility)
+    RouteType? routeType;
+    final routeTypeStr = json['routeType'] as String?;
+    if (routeTypeStr != null) {
+      routeType = RouteType.values.firstWhere(
+        (rt) => rt.name == routeTypeStr,
+        orElse: () => RouteType.directions,
+      );
+    }
+
     return DayRoute(
       geometry: normalizedGeometry,
       distance: (json['distance'] as num?)?.toDouble() ?? 0,
@@ -782,6 +982,7 @@ class DayRoute {
       poiWaypoints: ((json['poiWaypoints'] as List?) ?? const [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(),
+      routeType: routeType,
     );
   }
 
@@ -831,6 +1032,7 @@ class DayRoute {
     if (ascent != null) 'ascent': ascent,
     if (descent != null) 'descent': descent,
     if (poiWaypoints.isNotEmpty) 'poiWaypoints': poiWaypoints,
+    if (routeType != null) 'routeType': routeType!.name,
   };
 
   DayRoute copyWith({
@@ -842,6 +1044,7 @@ class DayRoute {
     double? ascent,
     double? descent,
     List<Map<String, dynamic>>? poiWaypoints,
+    RouteType? routeType,
   }) => DayRoute(
     geometry: geometry ?? this.geometry,
     distance: distance ?? this.distance,
@@ -851,6 +1054,7 @@ class DayRoute {
     ascent: ascent ?? this.ascent,
     descent: descent ?? this.descent,
     poiWaypoints: poiWaypoints ?? this.poiWaypoints,
+    routeType: routeType ?? this.routeType,
   );
 }
 
@@ -1044,5 +1248,63 @@ class ActivityInfo {
     if (linkDescription != null) 'link_description': linkDescription,
     if (linkImageUrl != null) 'link_image_url': linkImageUrl,
     if (linkSiteName != null) 'link_site_name': linkSiteName,
+  };
+}
+
+/// Media item (image or video) for carousel
+class MediaItem {
+  final String type; // 'image' or 'video'
+  final String url;
+  final String? thumbnail; // For videos
+  final String aspectRatio; // '16:9' or '9:16'
+  
+  MediaItem({
+    required this.type,
+    required this.url,
+    this.thumbnail,
+    required this.aspectRatio,
+  });
+  
+  factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
+    type: json['type'] as String,
+    url: json['url'] as String,
+    thumbnail: json['thumbnail'] as String?,
+    aspectRatio: json['aspect_ratio'] as String? ?? '16:9',
+  );
+  
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'url': url,
+    if (thumbnail != null) 'thumbnail': thumbnail,
+    'aspect_ratio': aspectRatio,
+  };
+}
+
+/// Highlight item for home page display
+class HighlightItem {
+  final String imageUrl;
+  final int dayNum;
+  final String? waypointId;
+  final String? caption;
+  
+  HighlightItem({
+    required this.imageUrl,
+    required this.dayNum,
+    this.waypointId,
+    this.caption,
+  });
+  
+  factory HighlightItem.fromJson(Map<String, dynamic> json) => HighlightItem(
+    imageUrl: json['image_url'] as String,
+    dayNum: json['day_num'] as int,
+    waypointId: json['waypoint_id'] as String?,
+    caption: json['caption'] as String?,
+  );
+  
+  Map<String, dynamic> toJson() => {
+    'image_url': imageUrl,
+    'day_num': dayNum,
+    if (waypointId != null) 'waypoint_id': waypointId,
+    if (caption != null) 'caption': caption,
   };
 }

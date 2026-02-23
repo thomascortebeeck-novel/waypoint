@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:uuid/uuid.dart';
 import 'package:waypoint/core/theme/colors.dart';
+import 'package:waypoint/models/gpx_route_model.dart';
 
 // LEGACY: TimeSlotCategory helper functions moved to route_waypoint_legacy.dart
 // These are kept here for backward compatibility but delegate to legacy file
@@ -31,10 +32,23 @@ enum WaypointType {
   servicePoint,
 }
 
-/// Accommodation sub-type for POI waypoints
+/// Accommodation sub-type for POI waypoints (Sleep)
 enum POIAccommodationType {
   hotel,
   airbnb,
+  bedAndBreakfast,
+  hostel,
+  camping,
+  vacationRental,
+}
+
+/// Eat & Drink subcategory (distinct from WaypointType.restaurant)
+enum EatCategory {
+  diningRestaurant,
+  cafe,
+  bar,
+  quickBite,
+  bakery,
 }
 
 /// Meal time for restaurant waypoints
@@ -52,15 +66,37 @@ enum ActivityTime {
   allDay,
 }
 
-/// Service subcategory for service waypoints
+/// Do & See (attraction) subcategory
+enum AttractionCategory {
+  sightsAndLandmarks,
+  museumsAndCulture,
+  natureAndOutdoors,
+  toursAndExperiences,
+  entertainment,
+  nightlife,
+  sportsAndActivities,
+}
+
+/// See (viewingPoint) subcategory
+enum SightCategory {
+  landmark,
+  viewpoint,
+  scenicSpot,
+  observationDeck,
+  monument,
+}
+
+/// Service subcategory for service waypoints (Move)
 enum ServiceCategory {
   trainStation,
   carRental,
   bus,
+  plane,
+  bike,
+  other,
   gear,
   transportation,
   food,
-  // Add more Google transport categories as needed
 }
 
 /// Legacy alias for ServiceCategory (backward compatibility)
@@ -117,6 +153,63 @@ class PriceRange {
       );
 }
 
+/// Snapping information for a waypoint on a GPX route
+class WaypointSnapInfo {
+  final ll.LatLng snapPoint; // Closest point on GPX route
+  final ll.LatLng originalPosition; // Original waypoint position before snapping
+  final double distanceFromRouteM; // How far the waypoint is from the trail (meters)
+  final double distanceAlongRouteKm; // Cumulative distance from route start (km)
+  final int segmentIndex; // Which GPX segment it snapped to
+
+  WaypointSnapInfo({
+    required this.snapPoint,
+    required this.originalPosition,
+    required this.distanceFromRouteM,
+    required this.distanceAlongRouteKm,
+    required this.segmentIndex,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'snapPoint': {
+          'lat': snapPoint.latitude,
+          'lng': snapPoint.longitude,
+        },
+        'originalPosition': {
+          'lat': originalPosition.latitude,
+          'lng': originalPosition.longitude,
+        },
+        'distanceFromRouteM': distanceFromRouteM,
+        'distanceAlongRouteKm': distanceAlongRouteKm,
+        'segmentIndex': segmentIndex,
+      };
+
+  factory WaypointSnapInfo.fromJson(Map<String, dynamic> json) {
+    final snapPointJson = json['snapPoint'] as Map<String, dynamic>;
+    // Handle backward compatibility: if originalPosition is missing, use snapPoint
+    final originalPositionJson = json['originalPosition'] as Map<String, dynamic>?;
+    final originalPosition = originalPositionJson != null
+        ? ll.LatLng(
+            (originalPositionJson['lat'] as num).toDouble(),
+            (originalPositionJson['lng'] as num).toDouble(),
+          )
+        : ll.LatLng(
+            (snapPointJson['lat'] as num).toDouble(),
+            (snapPointJson['lng'] as num).toDouble(),
+          );
+    
+    return WaypointSnapInfo(
+      snapPoint: ll.LatLng(
+        (snapPointJson['lat'] as num).toDouble(),
+        (snapPointJson['lng'] as num).toDouble(),
+      ),
+      originalPosition: originalPosition,
+      distanceFromRouteM: (json['distanceFromRouteM'] as num).toDouble(),
+      distanceAlongRouteKm: (json['distanceAlongRouteKm'] as num).toDouble(),
+      segmentIndex: (json['segmentIndex'] as num).toInt(),
+    );
+  }
+}
+
 /// A point of interest waypoint on a route
 class RouteWaypoint {
   final String id;
@@ -128,7 +221,10 @@ class RouteWaypoint {
 
   // Google Places data (for restaurants/activities/viewpoints)
   String? googlePlaceId;
+  /// First photo URL; kept for backward compatibility. Prefer [photoUrls] when non-empty.
   String? photoUrl;
+  /// Ordered list of photo storage URLs (Google-cached + user uploads). When non-empty, [photoUrl] should match first.
+  List<String>? photoUrls;
   double? rating;
   String? website;
   String? phoneNumber;
@@ -140,15 +236,24 @@ class RouteWaypoint {
   List<String>? amenities;
   String? hotelChain;
   PriceRange? estimatedPriceRange;
+  /// Single price estimate; preferred over [estimatedPriceRange] when set.
+  double? estimatedPrice;
+  /// Subcategory tags (display labels); authoritative. First tag is written back to typed field for legacy.
+  List<String>? subCategoryTags;
   String? bookingComUrl;
   String? airbnbPropertyUrl;
   String? airbnbPropertyId;
 
   // Restaurant-specific fields
+  EatCategory? eatCategory; // Eat & Drink subcategory
   MealTime? mealTime; // Only for restaurant type
 
   // Activity-specific fields
+  AttractionCategory? attractionCategory; // Do & See subcategory
   ActivityTime? activityTime; // Only for activity/attraction type
+
+  // See (viewingPoint) subcategory
+  SightCategory? sightCategory;
 
   // Service-specific fields
   ServiceCategory? serviceCategory; // Only for service type
@@ -160,6 +265,9 @@ class RouteWaypoint {
   int? travelTime; // Duration in seconds
   double? travelDistance; // Distance in meters
   List<ll.LatLng>? travelRouteGeometry; // Route polyline geometry for this segment
+  
+  // GPX route snapping information (when waypoint is snapped to imported GPX route)
+  WaypointSnapInfo? waypointSnapInfo;
   
   // Day grouping for multi-day trips
   int? day; // Day number (1, 2, 3, etc.)
@@ -200,6 +308,7 @@ class RouteWaypoint {
     required this.order,
     this.googlePlaceId,
     this.photoUrl,
+    this.photoUrls,
     this.rating,
     this.website,
     this.phoneNumber,
@@ -209,17 +318,23 @@ class RouteWaypoint {
     this.amenities,
     this.hotelChain,
     this.estimatedPriceRange,
+    this.estimatedPrice,
+    this.subCategoryTags,
     this.bookingComUrl,
     this.airbnbPropertyUrl,
     this.airbnbPropertyId,
+    this.eatCategory,
     this.mealTime,
+    this.attractionCategory,
     this.activityTime,
+    this.sightCategory,
     this.serviceCategory,
     this.logisticsCategory,
     this.travelMode,
     this.travelTime,
     this.travelDistance,
     this.travelRouteGeometry,
+    this.waypointSnapInfo,
     this.day,
     this.choiceGroupId,
     this.choiceLabel,
@@ -238,7 +353,9 @@ class RouteWaypoint {
         if (description != null) 'description': description,
         'order': order,
         if (googlePlaceId != null) 'googlePlaceId': googlePlaceId,
-        if (photoUrl != null) 'photoUrl': photoUrl,
+        if (photoUrls != null && photoUrls!.isNotEmpty) 'photoUrls': photoUrls,
+        if ((photoUrls != null && photoUrls!.isNotEmpty) || photoUrl != null)
+          'photoUrl': (photoUrls != null && photoUrls!.isNotEmpty) ? photoUrls!.first : photoUrl,
         if (rating != null) 'rating': rating,
         if (website != null) 'website': website,
         if (phoneNumber != null) 'phoneNumber': phoneNumber,
@@ -248,17 +365,23 @@ class RouteWaypoint {
         if (amenities != null) 'amenities': amenities,
         if (hotelChain != null) 'hotelChain': hotelChain,
         if (estimatedPriceRange != null) 'estimatedPriceRange': estimatedPriceRange!.toJson(),
+        if (estimatedPrice != null) 'estimatedPrice': estimatedPrice,
+        if (subCategoryTags != null) 'subCategoryTags': subCategoryTags,
         if (bookingComUrl != null) 'bookingComUrl': bookingComUrl,
         if (airbnbPropertyUrl != null) 'airbnbPropertyUrl': airbnbPropertyUrl,
         if (airbnbPropertyId != null) 'airbnbPropertyId': airbnbPropertyId,
+        if (eatCategory != null) 'eatCategory': eatCategory!.name,
         if (mealTime != null) 'mealTime': mealTime!.name,
+        if (attractionCategory != null) 'attractionCategory': attractionCategory!.name,
         if (activityTime != null) 'activityTime': activityTime!.name,
+        if (sightCategory != null) 'sightCategory': sightCategory!.name,
         if (serviceCategory != null) 'serviceCategory': serviceCategory!.name,
         if (logisticsCategory != null) 'logisticsCategory': logisticsCategory!.name,
         if (travelMode != null) 'travelMode': travelMode,
         if (travelTime != null) 'travelTime': travelTime,
         if (travelDistance != null) 'travelDistance': travelDistance,
         if (travelRouteGeometry != null) 'travelRouteGeometry': travelRouteGeometry!.map((p) => <String, double>{'lat': p.latitude, 'lng': p.longitude}).toList(),
+        if (waypointSnapInfo != null) 'waypointSnapInfo': waypointSnapInfo!.toJson(),
         if (day != null) 'day': day,
         if (choiceGroupId != null) 'choiceGroupId': choiceGroupId,
         if (choiceLabel != null) 'choiceLabel': choiceLabel,
@@ -269,7 +392,59 @@ class RouteWaypoint {
         if (linkImageUrl != null) 'linkImageUrl': linkImageUrl,
       };
 
-  factory RouteWaypoint.fromJson(Map<String, dynamic> json) => RouteWaypoint(
+  factory RouteWaypoint.fromJson(Map<String, dynamic> json) {
+    final accommodationType = json['accommodationType'] != null
+        ? POIAccommodationType.values.firstWhere(
+            (e) => e.name == json['accommodationType'],
+            orElse: () => POIAccommodationType.hotel,
+          )
+        : null;
+    final eatCategory = json['eatCategory'] != null
+        ? EatCategory.values.firstWhere(
+            (e) => e.name == json['eatCategory'],
+            orElse: () => EatCategory.diningRestaurant,
+          )
+        : null;
+    final attractionCategory = json['attractionCategory'] != null
+        ? AttractionCategory.values.firstWhere(
+            (e) => e.name == json['attractionCategory'],
+            orElse: () => AttractionCategory.sightsAndLandmarks,
+          )
+        : null;
+    final sightCategory = json['sightCategory'] != null
+        ? SightCategory.values.firstWhere(
+            (e) => e.name == json['sightCategory'],
+            orElse: () => SightCategory.landmark,
+          )
+        : null;
+    final serviceCategory = json['serviceCategory'] != null
+        ? ServiceCategory.values.firstWhere(
+            (e) => e.name == json['serviceCategory'],
+            orElse: () => ServiceCategory.gear,
+          )
+        : null;
+    final estimatedPriceRange = json['estimatedPriceRange'] != null
+        ? PriceRange.fromJson(json['estimatedPriceRange'] as Map<String, dynamic>)
+        : null;
+    final photoUrlsRaw = (json['photoUrls'] as List<dynamic>?)?.cast<String>();
+    final photoUrls = (photoUrlsRaw != null && photoUrlsRaw.isNotEmpty)
+        ? photoUrlsRaw
+        : (json['photoUrl'] != null ? [json['photoUrl'] as String] : null);
+    final estimatedPrice = (json['estimatedPrice'] as num?)?.toDouble() ??
+        (estimatedPriceRange != null
+            ? (estimatedPriceRange.min + estimatedPriceRange.max) / 2
+            : null);
+    final subCategoryTagsRaw = (json['subCategoryTags'] as List<dynamic>?)?.cast<String>();
+    final subCategoryTags = (subCategoryTagsRaw != null && subCategoryTagsRaw.isNotEmpty)
+        ? subCategoryTagsRaw
+        : subCategoryTagsFromTypedFields(
+            accommodationType: accommodationType,
+            eatCategory: eatCategory,
+            attractionCategory: attractionCategory,
+            sightCategory: sightCategory,
+            serviceCategory: serviceCategory,
+          );
+    return RouteWaypoint(
         id: json['id'] as String,
         type: _parseWaypointType(json['type'] as String?),
         position: ll.LatLng(
@@ -281,43 +456,37 @@ class RouteWaypoint {
         order: (json['order'] as num?)?.toInt() ?? 0,
         googlePlaceId: json['googlePlaceId'] as String?,
         photoUrl: json['photoUrl'] as String?,
+        photoUrls: photoUrls,
         rating: (json['rating'] as num?)?.toDouble(),
         website: json['website'] as String?,
         phoneNumber: json['phoneNumber'] as String?,
         address: json['address'] as String?,
-        accommodationType: json['accommodationType'] != null
-            ? POIAccommodationType.values.firstWhere(
-                (e) => e.name == json['accommodationType'],
-                orElse: () => POIAccommodationType.hotel,
-              )
-            : null,
+        accommodationType: accommodationType,
         amadeusPropertyId: json['amadeusPropertyId'] as String?,
         amenities: (json['amenities'] as List?)?.cast<String>(),
         hotelChain: json['hotelChain'] as String?,
-        estimatedPriceRange: json['estimatedPriceRange'] != null
-            ? PriceRange.fromJson(json['estimatedPriceRange'] as Map<String, dynamic>)
-            : null,
+        estimatedPriceRange: estimatedPriceRange,
+        estimatedPrice: estimatedPrice,
+        subCategoryTags: subCategoryTags.isEmpty ? null : subCategoryTags,
         bookingComUrl: json['bookingComUrl'] as String?,
         airbnbPropertyUrl: json['airbnbPropertyUrl'] as String?,
         airbnbPropertyId: json['airbnbPropertyId'] as String?,
+        eatCategory: eatCategory,
         mealTime: json['mealTime'] != null
             ? MealTime.values.firstWhere(
                 (e) => e.name == json['mealTime'],
                 orElse: () => MealTime.lunch,
               )
             : null,
+        attractionCategory: attractionCategory,
         activityTime: json['activityTime'] != null
             ? ActivityTime.values.firstWhere(
                 (e) => e.name == json['activityTime'],
                 orElse: () => ActivityTime.allDay,
               )
             : null,
-        serviceCategory: json['serviceCategory'] != null
-            ? ServiceCategory.values.firstWhere(
-                (e) => e.name == json['serviceCategory'],
-                orElse: () => ServiceCategory.gear,
-              )
-            : null,
+        sightCategory: sightCategory,
+        serviceCategory: serviceCategory,
         logisticsCategory: json['logisticsCategory'] != null
             ? LogisticsCategory.values.firstWhere(
                 (e) => e.name == json['logisticsCategory'],
@@ -336,6 +505,9 @@ class RouteWaypoint {
                 );
               }).toList()
             : null,
+        waypointSnapInfo: json['waypointSnapInfo'] != null
+            ? WaypointSnapInfo.fromJson(json['waypointSnapInfo'] as Map<String, dynamic>)
+            : null,
         day: json['day'] as int?,
         choiceGroupId: json['choiceGroupId'] as String?,
         choiceLabel: json['choiceLabel'] as String?,
@@ -350,6 +522,7 @@ class RouteWaypoint {
         linkUrl: json['linkUrl'] as String?,
         linkImageUrl: json['linkImageUrl'] as String?,
       );
+  }
 
   RouteWaypoint copyWith({
     String? id,
@@ -360,6 +533,7 @@ class RouteWaypoint {
     int? order,
     String? googlePlaceId,
     String? photoUrl,
+    List<String>? photoUrls,
     double? rating,
     String? website,
     String? phoneNumber,
@@ -369,17 +543,23 @@ class RouteWaypoint {
     List<String>? amenities,
     String? hotelChain,
     PriceRange? estimatedPriceRange,
+    double? estimatedPrice,
+    List<String>? subCategoryTags,
     String? bookingComUrl,
     String? airbnbPropertyUrl,
     String? airbnbPropertyId,
+    Object? eatCategory = _clear,
     MealTime? mealTime,
+    Object? attractionCategory = _clear,
     ActivityTime? activityTime,
+    Object? sightCategory = _clear,
     ServiceCategory? serviceCategory,
     LogisticsCategory? logisticsCategory,
     String? travelMode,
     int? travelTime,
     double? travelDistance,
     List<ll.LatLng>? travelRouteGeometry,
+    WaypointSnapInfo? waypointSnapInfo,
     int? day,
     String? choiceGroupId,
     String? choiceLabel,
@@ -398,6 +578,7 @@ class RouteWaypoint {
         order: order ?? this.order,
         googlePlaceId: googlePlaceId ?? this.googlePlaceId,
         photoUrl: photoUrl ?? this.photoUrl,
+        photoUrls: photoUrls ?? this.photoUrls,
         rating: rating ?? this.rating,
         website: website ?? this.website,
         phoneNumber: phoneNumber ?? this.phoneNumber,
@@ -407,17 +588,23 @@ class RouteWaypoint {
         amenities: amenities ?? this.amenities,
         hotelChain: hotelChain ?? this.hotelChain,
         estimatedPriceRange: estimatedPriceRange ?? this.estimatedPriceRange,
+        estimatedPrice: estimatedPrice ?? this.estimatedPrice,
+        subCategoryTags: subCategoryTags ?? this.subCategoryTags,
         bookingComUrl: bookingComUrl ?? this.bookingComUrl,
         airbnbPropertyUrl: airbnbPropertyUrl ?? this.airbnbPropertyUrl,
         airbnbPropertyId: airbnbPropertyId ?? this.airbnbPropertyId,
+        eatCategory: eatCategory == _clear ? this.eatCategory : eatCategory as EatCategory?,
         mealTime: mealTime ?? this.mealTime,
+        attractionCategory: attractionCategory == _clear ? this.attractionCategory : attractionCategory as AttractionCategory?,
         activityTime: activityTime ?? this.activityTime,
+        sightCategory: sightCategory == _clear ? this.sightCategory : sightCategory as SightCategory?,
         serviceCategory: serviceCategory ?? this.serviceCategory,
         logisticsCategory: logisticsCategory ?? this.logisticsCategory,
         travelMode: travelMode ?? this.travelMode,
         travelTime: travelTime ?? this.travelTime,
         travelDistance: travelDistance ?? this.travelDistance,
         travelRouteGeometry: travelRouteGeometry ?? this.travelRouteGeometry,
+        waypointSnapInfo: waypointSnapInfo ?? this.waypointSnapInfo,
         day: day ?? this.day,
         choiceGroupId: choiceGroupId ?? this.choiceGroupId,
         choiceLabel: choiceLabel ?? this.choiceLabel,
@@ -431,6 +618,8 @@ class RouteWaypoint {
 
 // Sentinel value for distinguishing between "not provided" and "explicitly null"
 const Object _undefined = Object();
+/// Sentinel for copyWith: pass _clear to explicitly set a nullable subcategory field to null.
+const Object _clear = Object();
 
 /// Parse waypoint type with backward compatibility
 WaypointType _parseWaypointType(String? typeName) {
@@ -474,27 +663,12 @@ IconData getWaypointIcon(WaypointType type) {
 /// Get the color for a waypoint type (aligned with map markers)
 /// Uses Waypoint brand colors for consistency
 Color getWaypointColor(WaypointType type) {
-  switch (type) {
-    case WaypointType.restaurant:
-      return const Color(0xFFFF9800); // Orange - keep for restaurants
-    case WaypointType.bar:
-      return const Color(0xFF9C27B0); // Purple - for bars/nightlife
-    case WaypointType.attraction:
-      return BrandColors.primary; // #2D6A4F - Primary green
-    case WaypointType.accommodation:
-      return BrandColors.primary; // #2D6A4F - Primary green
-    case WaypointType.service:
-      return BrandColors.primary; // #2D6A4F - Primary green
-    case WaypointType.viewingPoint:
-      return BrandColors.primary; // #2D6A4F - Primary green
-    case WaypointType.routePoint:
-      return BrandColors.primaryLight; // #52B788 - Lighter green for route points
-    // Legacy support
-    case WaypointType.activity:
-      return BrandColors.primary;
-    case WaypointType.servicePoint:
-      return BrandColors.primary;
-  }
+  // Map WaypointType enum to string for markerColor()
+  // NOTE: This assumes enum values like WaypointType.viewingPoint produce 'viewingpoint'
+  // (one word, no space). This holds for the current enum but is fragile if enum names change.
+  // For long-term maintainability, consider an explicit Map<WaypointType, String> instead.
+  final typeString = type.toString().split('.').last.toLowerCase();
+  return WaypointIconColors.markerColor(typeString);
 }
 
 /// Get the display label for a waypoint type
@@ -520,6 +694,130 @@ String getWaypointLabel(WaypointType type) {
     case WaypointType.servicePoint:
       return 'Service';
   }
+}
+
+String getEatCategoryLabel(EatCategory? c) {
+  if (c == null) return '';
+  switch (c) {
+    case EatCategory.diningRestaurant: return 'Dining restaurant';
+    case EatCategory.cafe: return 'Cafe';
+    case EatCategory.bar: return 'Bar';
+    case EatCategory.quickBite: return 'Quick bite';
+    case EatCategory.bakery: return 'Bakery';
+  }
+}
+
+String getAttractionCategoryLabel(AttractionCategory? c) {
+  if (c == null) return '';
+  switch (c) {
+    case AttractionCategory.sightsAndLandmarks: return 'Sights & landmarks';
+    case AttractionCategory.museumsAndCulture: return 'Museums & culture';
+    case AttractionCategory.natureAndOutdoors: return 'Nature & outdoors';
+    case AttractionCategory.toursAndExperiences: return 'Tours & experiences';
+    case AttractionCategory.entertainment: return 'Entertainment';
+    case AttractionCategory.nightlife: return 'Nightlife';
+    case AttractionCategory.sportsAndActivities: return 'Sports & activities';
+  }
+}
+
+String getSightCategoryLabel(SightCategory? c) {
+  if (c == null) return '';
+  switch (c) {
+    case SightCategory.landmark: return 'Landmark';
+    case SightCategory.viewpoint: return 'Viewpoint';
+    case SightCategory.scenicSpot: return 'Scenic spot';
+    case SightCategory.observationDeck: return 'Observation deck';
+    case SightCategory.monument: return 'Monument';
+  }
+}
+
+String getPOIAccommodationTypeLabel(POIAccommodationType? t) {
+  if (t == null) return '';
+  switch (t) {
+    case POIAccommodationType.hotel: return 'Hotel';
+    case POIAccommodationType.airbnb: return 'Airbnb';
+    case POIAccommodationType.bedAndBreakfast: return 'Bed & breakfast';
+    case POIAccommodationType.hostel: return 'Hostel';
+    case POIAccommodationType.camping: return 'Camping';
+    case POIAccommodationType.vacationRental: return 'Vacation rental';
+  }
+}
+
+String getServiceCategoryLabel(ServiceCategory? c) {
+  if (c == null) return '';
+  switch (c) {
+    case ServiceCategory.trainStation: return 'Train';
+    case ServiceCategory.carRental: return 'Car';
+    case ServiceCategory.bus: return 'Bus';
+    case ServiceCategory.plane: return 'Plane';
+    case ServiceCategory.bike: return 'Bike';
+    case ServiceCategory.other: return 'Other';
+    case ServiceCategory.gear: return 'Gear';
+    case ServiceCategory.transportation: return 'Transport';
+    case ServiceCategory.food: return 'Food';
+  }
+}
+
+/// Derive subcategory tag labels from already-parsed typed fields (for fromJson when subCategoryTags is null/empty).
+List<String> subCategoryTagsFromTypedFields({
+  POIAccommodationType? accommodationType,
+  EatCategory? eatCategory,
+  AttractionCategory? attractionCategory,
+  SightCategory? sightCategory,
+  ServiceCategory? serviceCategory,
+}) {
+  final list = <String>[];
+  final a = getPOIAccommodationTypeLabel(accommodationType);
+  if (a.isNotEmpty) list.add(a);
+  final e = getEatCategoryLabel(eatCategory);
+  if (e.isNotEmpty) list.add(e);
+  final at = getAttractionCategoryLabel(attractionCategory);
+  if (at.isNotEmpty) list.add(at);
+  final s = getSightCategoryLabel(sightCategory);
+  if (s.isNotEmpty) list.add(s);
+  final sv = getServiceCategoryLabel(serviceCategory);
+  if (sv.isNotEmpty) list.add(sv);
+  return list;
+}
+
+POIAccommodationType? accommodationTypeFromLabel(String label) {
+  final t = label.trim();
+  for (final e in POIAccommodationType.values) {
+    if (getPOIAccommodationTypeLabel(e) == t) return e;
+  }
+  return null;
+}
+
+EatCategory? eatCategoryFromLabel(String label) {
+  final t = label.trim();
+  for (final e in EatCategory.values) {
+    if (getEatCategoryLabel(e) == t) return e;
+  }
+  return null;
+}
+
+AttractionCategory? attractionCategoryFromLabel(String label) {
+  final t = label.trim();
+  for (final e in AttractionCategory.values) {
+    if (getAttractionCategoryLabel(e) == t) return e;
+  }
+  return null;
+}
+
+SightCategory? sightCategoryFromLabel(String label) {
+  final t = label.trim();
+  for (final e in SightCategory.values) {
+    if (getSightCategoryLabel(e) == t) return e;
+  }
+  return null;
+}
+
+ServiceCategory? serviceCategoryFromLabel(String label) {
+  final t = label.trim();
+  for (final e in ServiceCategory.values) {
+    if (getServiceCategoryLabel(e) == t) return e;
+  }
+  return null;
 }
 
 /// Get the display label for a meal time

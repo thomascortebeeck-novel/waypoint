@@ -25,7 +25,12 @@ class PlanService {
   // ============================================================================
 
   /// Get all published plan metadata
-  Future<List<PlanMeta>> getAllPlanMetas() async {
+  /// [userId] - Optional user ID for privacy filtering
+  /// [userFollowingList] - Optional list of creator IDs the user follows (for followers-only plans)
+  Future<List<PlanMeta>> getAllPlanMetas({
+    String? userId,
+    List<String>? userFollowingList,
+  }) async {
     try {
       final snapshot = await _firestore
           .collection(_collection)
@@ -33,7 +38,19 @@ class PlanService {
           .orderBy('created_at', descending: true)
           .limit(50)
           .get();
-      return snapshot.docs.map((doc) => PlanMeta.fromJson(doc.data())).toList();
+      final allPlans = snapshot.docs.map((doc) => PlanMeta.fromJson(doc.data())).toList();
+      
+      // Apply privacy filtering if user context provided
+      if (userId != null || userFollowingList != null) {
+        return allPlans.where((plan) => _canUserSeePlan(
+          plan,
+          userId,
+          userFollowingList,
+        )).toList();
+      }
+      
+      // If no user context, only show public plans
+      return allPlans.where((plan) => plan.privacyMode == PlanPrivacyMode.public).toList();
     } catch (e) {
       debugPrint('Error getting all plan metas: $e');
       return [];
@@ -41,7 +58,12 @@ class PlanService {
   }
 
   /// Get featured plan metadata
-  Future<List<PlanMeta>> getFeaturedPlanMetas() async {
+  /// [userId] - Optional user ID for privacy filtering
+  /// [userFollowingList] - Optional list of creator IDs the user follows (for followers-only plans)
+  Future<List<PlanMeta>> getFeaturedPlanMetas({
+    String? userId,
+    List<String>? userFollowingList,
+  }) async {
     try {
       final snapshot = await _firestore
           .collection(_collection)
@@ -50,7 +72,19 @@ class PlanService {
           .orderBy('created_at', descending: true)
           .limit(20)
           .get();
-      return snapshot.docs.map((doc) => PlanMeta.fromJson(doc.data())).toList();
+      final allPlans = snapshot.docs.map((doc) => PlanMeta.fromJson(doc.data())).toList();
+      
+      // Apply privacy filtering if user context provided
+      if (userId != null || userFollowingList != null) {
+        return allPlans.where((plan) => _canUserSeePlan(
+          plan,
+          userId,
+          userFollowingList,
+        )).toList();
+      }
+      
+      // If no user context, only show public plans
+      return allPlans.where((plan) => plan.privacyMode == PlanPrivacyMode.public).toList();
     } catch (e) {
       debugPrint('Error getting featured plan metas: $e');
       return [];
@@ -58,7 +92,12 @@ class PlanService {
   }
 
   /// Get discover plan metadata
-  Future<List<PlanMeta>> getDiscoverPlanMetas() async {
+  /// [userId] - Optional user ID for privacy filtering
+  /// [userFollowingList] - Optional list of creator IDs the user follows (for followers-only plans)
+  Future<List<PlanMeta>> getDiscoverPlanMetas({
+    String? userId,
+    List<String>? userFollowingList,
+  }) async {
     try {
       final snapshot = await _firestore
           .collection(_collection)
@@ -67,7 +106,19 @@ class PlanService {
           .orderBy('created_at', descending: true)
           .limit(50)
           .get();
-      return snapshot.docs.map((doc) => PlanMeta.fromJson(doc.data())).toList();
+      final allPlans = snapshot.docs.map((doc) => PlanMeta.fromJson(doc.data())).toList();
+      
+      // Apply privacy filtering if user context provided
+      if (userId != null || userFollowingList != null) {
+        return allPlans.where((plan) => _canUserSeePlan(
+          plan,
+          userId,
+          userFollowingList,
+        )).toList();
+      }
+      
+      // If no user context, only show public plans
+      return allPlans.where((plan) => plan.privacyMode == PlanPrivacyMode.public).toList();
     } catch (e) {
       debugPrint('Error getting discover plan metas: $e');
       return [];
@@ -763,7 +814,13 @@ class PlanService {
 
   /// Search published plans by location and name
   /// Searches for plans where location or name contains the query (case-insensitive)
-  Future<List<Plan>> searchPlans(String query) async {
+  /// [userId] - Optional user ID for privacy filtering
+  /// [userFollowingList] - Optional list of creator IDs the user follows (for followers-only plans)
+  Future<List<Plan>> searchPlans(
+    String query, {
+    String? userId,
+    List<String>? userFollowingList,
+  }) async {
     if (query.trim().isEmpty) {
       return [];
     }
@@ -781,8 +838,17 @@ class PlanService {
       
       final allPlans = snapshot.docs.map((doc) => Plan.fromJson(doc.data())).toList();
       
+      // Apply privacy filtering first
+      final privacyFilteredPlans = (userId != null || userFollowingList != null)
+          ? allPlans.where((plan) => _canUserSeeFullPlan(
+              plan,
+              userId,
+              userFollowingList,
+            )).toList()
+          : allPlans.where((plan) => plan.privacyMode == PlanPrivacyMode.public).toList();
+      
       // Filter plans where name or location contains the query
-      final filteredPlans = allPlans.where((plan) {
+      final filteredPlans = privacyFilteredPlans.where((plan) {
         final nameMatch = plan.name.toLowerCase().contains(lowerQuery);
         final locationMatch = plan.location.toLowerCase().contains(lowerQuery);
         return nameMatch || locationMatch;
@@ -899,6 +965,9 @@ class PlanService {
           packingCategories: planVersion.packingCategories,
           transportationOptions: planVersion.transportationOptions,
           faqItems: planFaqItems, // FAQ from plan level
+          prepare: versionData.prepare, // Prepare from version
+          localTips: versionData.localTips, // LocalTips from version
+          aiGeneratedAt: versionData.aiGeneratedAt, // AI timestamp from version
         ));
       }
       
@@ -1107,6 +1176,73 @@ class PlanService {
   }
 
   // ============================================================================
+  // FEED OPERATIONS (Fan-out pattern for following)
+  // ============================================================================
+
+  /// Get plans from user's feed (fan-out pattern)
+  /// Queries users/{userId}/feed collection
+  Future<List<Plan>> getFeedPlans(String userId) async {
+    try {
+      final feedSnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('feed')
+          .orderBy('created_at', descending: true)
+          .limit(20)
+          .get();
+
+      if (feedSnapshot.docs.isEmpty) {
+        return [];
+      }
+
+      // Extract plan IDs from feed documents
+      final planIds = feedSnapshot.docs
+          .map((doc) => doc.data()['plan_id'] as String?)
+          .where((id) => id != null)
+          .cast<String>()
+          .toList();
+
+      if (planIds.isEmpty) {
+        return [];
+      }
+
+      // Load full plans
+      return await getPlansByIds(planIds);
+    } catch (e) {
+      debugPrint('[PlanService] Error getting feed plans: $e');
+      return [];
+    }
+  }
+
+  /// Stream plans from user's feed (real-time updates)
+  Stream<List<Plan>> streamFeedPlans(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('feed')
+        .orderBy('created_at', descending: true)
+        .limit(20)
+        .snapshots()
+        .asyncMap((snapshot) async {
+      if (snapshot.docs.isEmpty) {
+        return <Plan>[];
+      }
+
+      final planIds = snapshot.docs
+          .map((doc) => doc.data()['plan_id'] as String?)
+          .where((id) => id != null)
+          .cast<String>()
+          .toList();
+
+      if (planIds.isEmpty) {
+        return <Plan>[];
+      }
+
+      return await getPlansByIds(planIds);
+    });
+  }
+
+  // ============================================================================
   // MIGRATION UTILITIES
   // ============================================================================
 
@@ -1139,6 +1275,82 @@ class PlanService {
     } catch (e) {
       debugPrint('Error migrating plan: $e');
       rethrow;
+    }
+  }
+
+  // ============================================================================
+  // PRIVACY FILTERING HELPERS
+  // ============================================================================
+
+  /// Get user's following list from Firestore
+  /// Returns list of creator IDs the user follows
+  Future<List<String>> getUserFollowingList(String userId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('following')
+          .get();
+      return snapshot.docs.map((doc) => doc.id).toList();
+    } catch (e) {
+      debugPrint('Error getting user following list: $e');
+      return [];
+    }
+  }
+
+  /// Check if user can see a plan based on privacy mode
+  /// [plan] - The plan to check
+  /// [userId] - Optional user ID (for invited plans)
+  /// [userFollowingList] - Optional list of creator IDs user follows (for followers-only plans)
+  bool _canUserSeePlan(
+    PlanMeta plan,
+    String? userId,
+    List<String>? userFollowingList,
+  ) {
+    switch (plan.privacyMode) {
+      case PlanPrivacyMode.public:
+        // Public plans visible to everyone
+        return true;
+      
+      case PlanPrivacyMode.followers:
+        // Followers-only plans: user must follow the creator
+        if (userFollowingList == null) return false;
+        return userFollowingList.contains(plan.creatorId);
+      
+      case PlanPrivacyMode.invited:
+        // Invited plans: user must be in invited list
+        // NOTE: This requires checking user's invitedPlanIds, which should be passed separately
+        // For now, only show if user is the creator
+        if (userId == null) return false;
+        return userId == plan.creatorId;
+    }
+  }
+
+  /// Check if user can see a Plan (not PlanMeta) based on privacy mode
+  /// [plan] - The plan to check
+  /// [userId] - Optional user ID (for invited plans)
+  /// [userFollowingList] - Optional list of creator IDs user follows (for followers-only plans)
+  bool _canUserSeeFullPlan(
+    Plan plan,
+    String? userId,
+    List<String>? userFollowingList,
+  ) {
+    switch (plan.privacyMode) {
+      case PlanPrivacyMode.public:
+        // Public plans visible to everyone
+        return true;
+      
+      case PlanPrivacyMode.followers:
+        // Followers-only plans: user must follow the creator
+        if (userFollowingList == null) return false;
+        return userFollowingList.contains(plan.creatorId);
+      
+      case PlanPrivacyMode.invited:
+        // Invited plans: user must be in invited list
+        // NOTE: This requires checking user's invitedPlanIds, which should be passed separately
+        // For now, only show if user is the creator
+        if (userId == null) return false;
+        return userId == plan.creatorId;
     }
   }
 }

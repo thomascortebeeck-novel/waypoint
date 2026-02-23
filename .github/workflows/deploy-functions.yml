@@ -78,6 +78,7 @@ jobs:
         run: |
           echo "GOOGLE_PLACES_KEY=${{ secrets.GOOGLE_PLACES_API_KEY }}" > .env
           echo "MAPBOX_SECRET_TOKEN=${{ secrets.MAPBOX_SECRET_TOKEN }}" >> .env
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> .env
           echo "✅ Created .env file"
           echo "📄 Verification:"
           ls -la .env

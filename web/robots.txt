@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /details/
+Disallow: /builder/
+Disallow: /trip/
+Disallow: /mytrips/
+Disallow: /profile/
+Disallow: /checkout/
+Sitemap: https://waypoint.app/sitemap.xml
+

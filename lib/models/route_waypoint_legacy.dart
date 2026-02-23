@@ -166,6 +166,9 @@ TimeSlotCategory? autoAssignTimeSlotCategory(RouteWaypoint waypoint) {
         case ServiceCategory.trainStation:
         case ServiceCategory.carRental:
         case ServiceCategory.bus:
+        case ServiceCategory.plane:
+        case ServiceCategory.bike:
+        case ServiceCategory.other:
           return TimeSlotCategory.logisticsTransportation;
         case ServiceCategory.food:
           return TimeSlotCategory.logisticsFood;
