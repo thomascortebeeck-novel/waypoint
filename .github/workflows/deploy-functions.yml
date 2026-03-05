@@ -80,6 +80,10 @@ jobs:
             SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY_TEST }}"
             WEBHOOK_SECRET="${{ secrets.STRIPE_WEBHOOK_SECRET_TEST }}"
           fi
+          if [ -z "$SECRET_KEY" ]; then
+            SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY_TEST }}"
+            WEBHOOK_SECRET="${{ secrets.STRIPE_WEBHOOK_SECRET_TEST }}"
+          fi
           if [ -n "$SECRET_KEY" ]; then
             echo -n "$SECRET_KEY" | firebase functions:secrets:set STRIPE_SECRET_KEY --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
           fi
