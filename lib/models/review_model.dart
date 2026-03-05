@@ -208,3 +208,13 @@ class ReviewStats {
     return (count / totalReviews) * 100;
   }
 }
+
+/// Aggregated rating/review stats for a creator (across all their plans).
+class CreatorStats {
+  final double averageRating;
+  final int totalReviews;
+
+  const CreatorStats({required this.averageRating, required this.totalReviews});
+
+  static const CreatorStats empty = CreatorStats(averageRating: 0.0, totalReviews: 0);
+}

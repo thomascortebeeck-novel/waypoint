@@ -1,7 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:waypoint/services/order_service.dart';
 import 'package:waypoint/theme.dart';
 
 /// Full-page success screen after successful checkout
@@ -10,6 +12,8 @@ class CheckoutSuccessScreen extends StatefulWidget {
   final String? orderId;
   final String? planName;
   final bool isFree;
+  /// True when createPaymentIntent returned alreadyPurchased
+  final bool alreadyPurchased;
   /// If true, user came from invite flow and should return to join
   final bool returnToJoin;
   /// Invite code to redirect back to
@@ -21,6 +25,7 @@ class CheckoutSuccessScreen extends StatefulWidget {
     this.orderId,
     this.planName,
     this.isFree = false,
+    this.alreadyPurchased = false,
     this.returnToJoin = false,
     this.inviteCode,
   });
@@ -34,6 +39,9 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
+  final OrderService _orderService = OrderService();
+  bool _purchaseConfirmed = false;
+  bool _timeoutReached = false;
 
   @override
   void initState() {
@@ -52,8 +60,13 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
     );
 
     _controller.forward();
+
+    if (!widget.isFree && !widget.alreadyPurchased) {
+      Future.delayed(const Duration(seconds: 30), () {
+        if (mounted) setState(() => _timeoutReached = true);
+      });
+    }
     
-    // Check if user came from invite flow and auto-redirect after animation
     if (widget.returnToJoin && widget.inviteCode != null) {
       _scheduleAutoRedirect();
     }
@@ -93,8 +106,37 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
     super.dispose();
   }
 
+  bool get _isPaidWaiting => !widget.isFree && !widget.alreadyPurchased;
+
   @override
   Widget build(BuildContext context) {
+    if (_isPaidWaiting) {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) context.go('/');
+        },
+        child: Scaffold(
+          body: SafeArea(
+            child: StreamBuilder<bool>(
+              stream: uid.isEmpty ? null : _orderService.streamPurchaseStatus(uid, widget.planId),
+              builder: (context, snapshot) {
+                if (snapshot.data == true && !_purchaseConfirmed) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _purchaseConfirmed = true);
+                  });
+                }
+                if (_purchaseConfirmed) return _buildSuccessContent();
+                if (_timeoutReached) return _buildTimeoutFallback();
+                return _buildConfirming();
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -103,64 +145,153 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
         }
       },
       child: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                const Spacer(flex: 2),
+        body: SafeArea(child: _buildSuccessContent()),
+      ),
+    );
+  }
 
-                // Success animation
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: _scaleAnimation.value,
-                      child: Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.check_circle,
-                          size: 80,
-                          color: Colors.green.shade600,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+  Widget _buildConfirming() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Confirming your purchase…',
+              style: context.textStyles.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your plan will be available in a moment.',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: Colors.grey.shade600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-                const SizedBox(height: 40),
+  Widget _buildTimeoutFallback() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.check_circle_outline, size: 64, color: Colors.green.shade600),
+          const SizedBox(height: 24),
+          Text(
+            'Payment received',
+            style: context.textStyles.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Your plan will be available shortly. Check your purchases in My Trips.',
+            style: context.textStyles.bodyMedium?.copyWith(
+              color: Colors.grey.shade600,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: () => context.go('/mytrips'),
+              icon: const Icon(Icons.list, size: 20),
+              label: const Text(
+                'Go to My Trips',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () => context.go('/details/${widget.planId}'),
+            child: Text(
+              'View adventure details',
+              style: TextStyle(color: context.colors.primary, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                // Success message
-                FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: Column(
-                    children: [
-                      Text(
-                        widget.isFree ? 'You\'re All Set!' : 'Purchase Complete!',
-                        style: context.textStyles.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                          'You now have full access to "${widget.planName ?? 'this adventure'}". Start exploring and plan your next trip!',
-                          style: context.textStyles.bodyLarge?.copyWith(
-                            color: Colors.grey.shade600,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
+  Widget _buildSuccessContent() {
+    final title = widget.alreadyPurchased
+        ? 'You already own this plan'
+        : (widget.isFree ? 'You\'re All Set!' : 'Purchase Complete!');
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          const Spacer(flex: 2),
+
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _scaleAnimation.value,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 80,
+                    color: Colors.green.shade600,
                   ),
                 ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 40),
+
+          FadeTransition(
+            opacity: _fadeAnimation,
+            child: Column(
+              children: [
+                Text(
+                  title,
+                  style: context.textStyles.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    'You now have full access to "${widget.planName ?? 'this adventure'}". Start exploring and plan your next trip!',
+                    style: context.textStyles.bodyLarge?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
                 const SizedBox(height: 24),
 
@@ -351,8 +482,6 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
               ],
             ),
           ),
-        ),
-      ),
     );
   }
 }

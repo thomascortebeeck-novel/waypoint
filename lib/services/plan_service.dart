@@ -5,6 +5,7 @@ import 'package:waypoint/models/plan_meta_model.dart';
 import 'package:waypoint/models/plan_version_model.dart';
 import 'package:waypoint/models/day_itinerary_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/models/review_model.dart';
 
 /// Service for managing plans with hybrid subcollection architecture
 /// 
@@ -541,6 +542,30 @@ class PlanService {
     }
   }
 
+  /// Aggregated review stats for a creator (across all their plans).
+  Future<CreatorStats> getCreatorStats(String creatorId) async {
+    try {
+      final plans = await getPlansByCreator(creatorId);
+      int totalReviews = 0;
+      double weightedSum = 0.0;
+      for (final plan in plans) {
+        final stats = plan.reviewStats;
+        if (stats != null && stats.totalReviews > 0) {
+          totalReviews += stats.totalReviews;
+          weightedSum += stats.averageRating * stats.totalReviews;
+        }
+      }
+      if (totalReviews == 0) return CreatorStats.empty;
+      return CreatorStats(
+        averageRating: weightedSum / totalReviews,
+        totalReviews: totalReviews,
+      );
+    } catch (e) {
+      debugPrint('Error getting creator stats: $e');
+      return CreatorStats.empty;
+    }
+  }
+
   /// Get plans by IDs (legacy format)
   /// This now automatically detects and loads from subcollections if available
   Future<List<Plan>> getPlansByIds(List<String> planIds) async {
@@ -812,6 +837,15 @@ class PlanService {
         .map((s) => s.docs.map((d) => Plan.fromJson(d.data())).toList());
   }
 
+  /// Stream all plans (for admin builder view). Ordered by created_at descending.
+  Stream<List<Plan>> streamAllPlansForAdmin() {
+    return _firestore
+        .collection(_collection)
+        .orderBy('created_at', descending: true)
+        .snapshots()
+        .map((s) => s.docs.map((d) => Plan.fromJson(d.data())).toList());
+  }
+
   /// Search published plans by location and name
   /// Searches for plans where location or name contains the query (case-insensitive)
   /// [userId] - Optional user ID for privacy filtering
@@ -967,6 +1001,7 @@ class PlanService {
           faqItems: planFaqItems, // FAQ from plan level
           prepare: versionData.prepare, // Prepare from version
           localTips: versionData.localTips, // LocalTips from version
+          checklistMigratedFromPrepare: versionData.checklistMigratedFromPrepare,
           aiGeneratedAt: versionData.aiGeneratedAt, // AI timestamp from version
         ));
       }

@@ -5,12 +5,17 @@ import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/components/badges/waypoint_badge.dart';
+import 'package:waypoint/utils/activity_icons.dart';
 
 
 enum AdventureCardVariant {
   standard,
   fullWidth,
   builder,
+  /// Smaller card for "More by creator" carousel; avoids overflow, same component.
+  compact,
+  /// Image-only card for "About the creator" / "More by" carousel: just image + price badge, no text.
+  imageOnly,
 }
 
 enum AdventureCardTheme {
@@ -51,6 +56,9 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   late Animation<double> _scaleAnimation;
   late Animation<double> _imageScaleAnimation;
   bool _isHovered = false;
+
+  bool get _isCompact => widget.variant == AdventureCardVariant.compact;
+  bool get _isImageOnly => widget.variant == AdventureCardVariant.imageOnly;
 
   @override
   void initState() {
@@ -105,7 +113,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             duration: const Duration(milliseconds: 300),
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1F2937) : Colors.white,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(_isCompact || _isImageOnly ? 16 : 24),
               border: isDark
                   ? Border.all(color: Colors.white.withValues(alpha: 0.05), width: 1)
                   : null,
@@ -122,21 +130,23 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(_isCompact || _isImageOnly ? 16 : 24),
               child: Stack(
                 children: [
-                  Column(
-                    children: [
-                      Expanded(
-                        flex: 60,
-                        child: _buildImageSection(context, isDark),
-                      ),
-                      Expanded(
-                        flex: 40,
-                        child: _buildBottomSection(context, isDark),
-                      ),
-                    ],
-                  ),
+                  _isImageOnly
+                      ? _buildImageSection(context, isDark)
+                      : Column(
+                          children: [
+                            Expanded(
+                              flex: 60,
+                              child: _buildImageSection(context, isDark),
+                            ),
+                            Expanded(
+                              flex: 40,
+                              child: _buildBottomSection(context, isDark),
+                            ),
+                          ],
+                        ),
                   if (widget.isDeleting) _buildDeletingOverlay(context),
                 ],
               ),
@@ -148,6 +158,11 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   }
 
   Widget _buildImageSection(BuildContext context, bool isDark) {
+    final hasValidImageUrl = widget.plan.heroImageUrl.trim().isNotEmpty;
+    final placeholder = Container(
+      color: context.colors.surfaceContainerHighest,
+      child: Icon(Icons.terrain, size: 48, color: context.colors.onSurface.withValues(alpha: 0.3)),
+    );
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -157,23 +172,22 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             scale: _isHovered ? _imageScaleAnimation.value : 1.0,
             child: child,
           ),
-          child: CachedNetworkImage(
-            imageUrl: widget.plan.heroImageUrl,
-            fit: BoxFit.cover,
-            placeholder: (context, url) => Container(
-              color: context.colors.surfaceContainerHighest,
-              child: Center(
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: context.colors.primary.withValues(alpha: 0.5),
-                ),
-              ),
-            ),
-            errorWidget: (context, url, error) => Container(
-              color: context.colors.surfaceContainerHighest,
-              child: Icon(Icons.terrain, size: 48, color: context.colors.onSurface.withValues(alpha: 0.3)),
-            ),
-          ),
+          child: hasValidImageUrl
+              ? CachedNetworkImage(
+                  imageUrl: widget.plan.heroImageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: context.colors.surfaceContainerHighest,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: context.colors.primary.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => placeholder,
+                )
+              : placeholder,
         ),
         Container(
           decoration: BoxDecoration(
@@ -207,22 +221,23 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         _buildPriceBadge(context),
         if (widget.variant == AdventureCardVariant.builder) _buildStatusBadge(context),
         if (widget.variant == AdventureCardVariant.builder && widget.onDelete != null) _buildDeleteButton(context),
-        Positioned(
-          left: 20,
-          right: 20,
-          bottom: 20,
+        if (!_isImageOnly)
+          Positioned(
+          left: _isCompact ? 12 : 20,
+          right: _isCompact ? 12 : 20,
+          bottom: _isCompact ? 12 : 20,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 widget.plan.name,
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.white,
-                  fontSize: 22,
+                  fontSize: _isCompact ? 16 : 22,
                   fontWeight: FontWeight.w700,
                   height: 1.3,
-                  shadows: [
+                  shadows: const [
                     Shadow(
                       color: Colors.black38,
                       blurRadius: 8,
@@ -230,25 +245,25 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                     ),
                   ],
                 ),
-                maxLines: 2,
+                maxLines: _isCompact ? 1 : 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: _isCompact ? 4 : 8),
               if (widget.plan.location.isNotEmpty)
                 Row(
                   children: [
                     Icon(
                       FontAwesomeIcons.locationDot,
                       color: Colors.white.withValues(alpha: 0.95),
-                      size: 12,
+                      size: _isCompact ? 10 : 12,
                     ),
-                    const SizedBox(width: 6),
+                    SizedBox(width: _isCompact ? 4 : 6),
                     Expanded(
                       child: Text(
                         widget.plan.location,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.95),
-                          fontSize: 14,
+                          fontSize: _isCompact ? 11 : 14,
                           fontWeight: FontWeight.w400,
                           shadows: const [
                             Shadow(
@@ -264,8 +279,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                     ),
                   ],
                 ),
-              // Season badge below location
-              if (_hasSeason(widget.plan)) ...[
+              // Season badge below location (skip in compact to save space)
+              if (!_isCompact && _hasSeason(widget.plan)) ...[
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -344,26 +359,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
            (plan.bestSeasonStartMonth != null && plan.bestSeasonEndMonth != null);
   }
 
-  // Mapping helpers kept intact
-  String _getActivityIcon(ActivityCategory category) {
-    switch (category) {
-      case ActivityCategory.hiking:
-        return '🥾';
-      case ActivityCategory.cycling:
-        return '🚴';
-      case ActivityCategory.roadTripping:
-        return '🚗';
-      case ActivityCategory.skis:
-        return '⛷️';
-      case ActivityCategory.climbing:
-        return '🧗';
-      case ActivityCategory.cityTrips:
-        return '🏙️';
-      case ActivityCategory.tours:
-        return '🌏';
-    }
-  }
-  
+  // Label helpers (icons from activity_icons.dart)
   String _getActivityLabel(ActivityCategory category) {
     switch (category) {
       case ActivityCategory.hiking:
@@ -381,10 +377,6 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
       case ActivityCategory.tours:
         return 'Tours';
     }
-  }
-  
-  String _getAccommodationIcon(AccommodationType type) {
-    return type == AccommodationType.comfort ? '💰' : '⛺';
   }
   
   String _getAccommodationLabel(AccommodationType type) {
@@ -503,35 +495,43 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   }
 
   Widget _buildBottomSection(BuildContext context, bool isDark) {
+    final hPad = _isCompact ? 12.0 : 20.0;
+    final vPad = _isCompact ? 6.0 : 10.0;
+    final descLines = _isCompact ? 1 : 2;
+    final descHeight = _isCompact ? 18.0 : 42.0;
+    final descSize = _isCompact ? 12.0 : 14.0;
+    // Option A: compact "More by" card omits description and rating to fit 160×220
+    final showDescription = !_isCompact && widget.plan.description.isNotEmpty;
+    final showRating = !_isCompact;
     return Container(
       color: isDark ? const Color(0xFF1F2937) : Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Badge Row (NEW position)
           if (widget.plan.activityCategory != null || widget.plan.accommodationType != null) ...[
             _buildBadgeRow(context, isDark),
-            const SizedBox(height: 10),
+            SizedBox(height: _isCompact ? 4 : 8),
           ],
-          if (widget.plan.description.isNotEmpty) ...[
-            Flexible(
+          if (showDescription) ...[
+            SizedBox(
+              height: descHeight,
               child: Text(
                 widget.plan.description,
                 style: TextStyle(
                   color: isDark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF374151),
-                  fontSize: 14,
+                  fontSize: descSize,
                   fontWeight: FontWeight.w400,
-                  height: 1.5,
+                  height: 1.4,
                 ),
-                maxLines: 2,
+                maxLines: descLines,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: _isCompact ? 4 : 6),
           ],
-          _buildRatingRow(context, isDark),
+          if (showRating) _buildRatingRow(context, isDark),
         ],
       ),
     );
@@ -541,25 +541,26 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     final activity = widget.plan.activityCategory;
     final accom = widget.plan.accommodationType;
     final hasSeason = _hasSeason(widget.plan);
+    final spacing = _isCompact ? 4.0 : 8.0;
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: spacing,
+      runSpacing: spacing,
       children: [
         if (activity != null)
           _buildInfoBadge(
-            icon: _getActivityIcon(activity),
+            iconData: getActivityIconData(activity),
             label: _getActivityLabel(activity),
             isDark: isDark,
           ),
         if (accom != null)
           _buildInfoBadge(
-            icon: _getAccommodationIcon(accom),
+            iconData: getAccommodationIconData(accom),
             label: _getAccommodationLabel(accom),
             isDark: isDark,
           ),
         if (hasSeason)
           _buildInfoBadge(
-            icon: '📅',
+            iconData: seasonChipIcon,
             label: _formatSeasons(widget.plan),
             isDark: isDark,
           ),
@@ -567,27 +568,36 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     );
   }
 
-  Widget _buildInfoBadge({required String icon, required String label, required bool isDark}) {
+  Widget _buildInfoBadge({required IconData iconData, required String label, required bool isDark}) {
     final tagColor = ActivityTagColors.getActivityColor(label);
-    final tagBgColor = ActivityTagColors.getActivityBgColor(label);
-    
+    final tagBgColor = isDark
+        ? tagColor.withValues(alpha: 0.3)
+        : ActivityTagColors.getActivityBgColor(label);
+    final textColor = isDark
+        ? Colors.white.withValues(alpha: 0.9)
+        : tagColor;
+    final padH = _isCompact ? 8.0 : 12.0;
+    final padV = _isCompact ? 4.0 : 6.0;
+    final iconSize = _isCompact ? 12.0 : 14.0;
+    final fontSize = _isCompact ? 11.0 : 12.0;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
       decoration: BoxDecoration(
         color: tagBgColor,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(_isCompact ? 12 : 16),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 14, height: 1)),
-          const SizedBox(width: 6),
+          Icon(iconData, size: iconSize, color: textColor),
+          SizedBox(width: _isCompact ? 4 : 6),
           Text(
             label,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: fontSize,
               fontWeight: FontWeight.w600,
-              color: tagColor,
+              color: textColor,
             ),
           ),
         ],
@@ -596,18 +606,19 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   }
 
   Widget _buildRatingRow(BuildContext context, bool isDark) {
-    // Using fake data for now since Plan model doesn't have rating fields yet
     final rating = 4.5;
     final reviewCount = widget.plan.salesCount > 0 ? widget.plan.salesCount : 12;
-    
+    final fontSize = _isCompact ? 12.0 : 16.0;
+    final countSize = _isCompact ? 11.0 : 13.0;
+
     return Row(
       children: [
         _buildStarRating(rating),
-        const SizedBox(width: 8),
+        SizedBox(width: _isCompact ? 4 : 8),
         Text(
           rating.toStringAsFixed(1),
           style: TextStyle(
-            fontSize: 16,
+            fontSize: fontSize,
             fontWeight: FontWeight.w600,
             color: isDark ? Colors.white : const Color(0xFF1F2937),
           ),
@@ -616,7 +627,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         Text(
           '($reviewCount)',
           style: TextStyle(
-            fontSize: 13,
+            fontSize: countSize,
             fontWeight: FontWeight.w400,
             color: isDark ? Colors.white.withValues(alpha: 0.7) : const Color(0xFF6B7280),
           ),
@@ -628,28 +639,16 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   Widget _buildStarRating(double rating) {
     final fullStars = rating.floor();
     final hasHalfStar = rating - fullStars >= 0.5;
-    
+    final starSize = _isCompact ? 12.0 : 14.0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(5, (index) {
         if (index < fullStars) {
-          return const Icon(
-            Icons.star,
-            size: 14,
-            color: Color(0xFFFCD34D),
-          );
+          return Icon(Icons.star, size: starSize, color: const Color(0xFFFCD34D));
         } else if (index == fullStars && hasHalfStar) {
-          return const Icon(
-            Icons.star_half,
-            size: 14,
-            color: Color(0xFFFCD34D),
-          );
+          return Icon(Icons.star_half, size: starSize, color: const Color(0xFFFCD34D));
         } else {
-          return const Icon(
-            Icons.star_border,
-            size: 14,
-            color: Color(0xFFE5E7EB),
-          );
+          return Icon(Icons.star_border, size: starSize, color: const Color(0xFFE5E7EB));
         }
       }),
     );

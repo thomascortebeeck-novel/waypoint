@@ -63,7 +63,7 @@ CategoryConfig getCategoryConfig(WaypointType type) {
       );
     case WaypointType.routePoint:
       return CategoryConfig(
-        color: WaypointColors.textTertiary, // Gray
+        color: WaypointColors.catFix, // Gray — route point
         icon: Icons.place,
         label: 'Route Point',
       );

@@ -10,6 +10,14 @@ export {googleDirections} from "./google-directions";
 export {googleDistanceMatrix} from "./google-distance-matrix";
 export {getOutdoorPOIs} from "./osm-pois";
 export {generateAdventureContext} from "./adventure-context";
+export {
+  createPaymentIntent,
+  stripeWebhook,
+  createConnectAccountLink,
+  getConnectAccountStatus,
+  cancelPaymentIntent,
+  cleanupPendingOrders,
+} from "./stripe";
 
 // Simple callable function to fetch OpenGraph/Twitter meta tags for a given URL.
 // Returns: { title, description, image, siteName }

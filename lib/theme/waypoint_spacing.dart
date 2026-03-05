@@ -20,6 +20,7 @@ class WaypointSpacing {
   static const double cardGap = 10.0;         // Between cards in grid
   static const double cardPadding = 14.0;     // Inside cards
   static const double cardRadius = 12.0;      // Card border radius
+  static const double radiusMd = 12.0;        // Medium radius (alias for cardRadius)
   static const double cardRadiusLg = 16.0;    // Hero, map border radius
   
   // ========================================

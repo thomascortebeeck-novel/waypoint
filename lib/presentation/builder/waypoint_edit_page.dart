@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:uuid/uuid.dart';
 import 'package:waypoint/core/theme/colors.dart';
+import 'package:waypoint/core/theme/layout_tokens.dart';
+import 'package:waypoint/core/models/waypoint_category.dart';
+import 'package:waypoint/components/waypoint/waypoint_cream_chip.dart';
 import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
@@ -112,7 +115,10 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
       _attractionCategory = wp.attractionCategory;
       _sightCategory = wp.sightCategory;
       _serviceCategory = wp.serviceCategory;
-      _selectedType = wp.type;
+      // 4-pill UI: map viewingPoint to Do (attraction)
+      _selectedType = wp.type == WaypointType.viewingPoint
+          ? WaypointType.attraction
+          : wp.type;
       _latLng = wp.position;
       _mealTime = wp.mealTime;
       _activityTime = wp.activityTime;
@@ -145,7 +151,9 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     _rating = details.rating;
     _applyPriceLevelToControllers(details.priceLevel);
     final suggestion = WaypointTypeSuggestion.fromGoogleTypes(details.types);
-    _selectedType = suggestion.type;
+    _selectedType = suggestion.type == WaypointType.viewingPoint
+        ? WaypointType.attraction
+        : suggestion.type;
     _subCategoryTags = List.from(suggestion.subCategoryLabels);
     _accommodationType = suggestion.accommodationType ?? _accommodationType;
     _eatCategory = suggestion.eatCategory ?? _eatCategory;
@@ -203,16 +211,7 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     return 'Add waypoint to ${widget.tripName.isNotEmpty ? widget.tripName : 'trip'}';
   }
 
-  String _typeLabel(WaypointType t) {
-    switch (t) {
-      case WaypointType.accommodation: return 'Sleep';
-      case WaypointType.restaurant: return 'Eat & Drink';
-      case WaypointType.attraction: return 'Do & See';
-      case WaypointType.viewingPoint: return 'See';
-      case WaypointType.service: return 'Move';
-      default: return 'place';
-    }
-  }
+  String _typeLabel(WaypointType t) => WaypointCategoryLabels.fromType(t);
 
   Future<void> _onSearchChanged(String value) async {
     final trimmed = value.trim();
@@ -422,25 +421,23 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     // googlePlaceId may not match displayed place if user edited name/address after place selection.
     final googlePlaceId = _placeDetails?.placeId ?? widget.existingWaypoint?.googlePlaceId;
 
-    // Write first tag back to typed field via reverse mapping (plan §3)
-    final String? firstTag = _subCategoryTags.isNotEmpty ? _subCategoryTags.first : null;
-    final accommodationType = _selectedType == WaypointType.accommodation
-        ? (firstTag != null ? accommodationTypeFromLabel(firstTag) : _accommodationType)
-        : null;
-    final eatCategory = _selectedType == WaypointType.restaurant
-        ? (firstTag != null ? eatCategoryFromLabel(firstTag) : _eatCategory)
-        : null;
+    // Use typed subcategory fields from chips (single source of truth); persist as subCategoryTags for display/backward compat.
+    final accommodationType = _selectedType == WaypointType.accommodation ? _accommodationType : null;
+    final eatCategory = _selectedType == WaypointType.restaurant ? _eatCategory : null;
     final mealTime = _selectedType == WaypointType.restaurant ? _mealTime : null;
-    final attractionCategory = _selectedType == WaypointType.attraction
-        ? (firstTag != null ? attractionCategoryFromLabel(firstTag) : _attractionCategory)
-        : null;
+    final attractionCategory = _selectedType == WaypointType.attraction ? _attractionCategory : null;
     final activityTime = _selectedType == WaypointType.attraction ? _activityTime : null;
-    final sightCategory = _selectedType == WaypointType.viewingPoint
-        ? (firstTag != null ? sightCategoryFromLabel(firstTag) : _sightCategory)
-        : null;
-    final serviceCategory = _selectedType == WaypointType.service
-        ? (firstTag != null ? serviceCategoryFromLabel(firstTag) : _serviceCategory)
-        : null;
+    final sightCategory = _selectedType == WaypointType.viewingPoint ? _sightCategory : null;
+    final serviceCategory = _selectedType == WaypointType.service ? _serviceCategory : null;
+    // Build subCategoryTags from typed fields for display/backward compat (single tag from selected chip).
+    final List<String>? subCategoryTags = _subCategoryTagsFromTyped(
+      selectedType: _selectedType,
+      accommodationType: accommodationType,
+      eatCategory: eatCategory,
+      attractionCategory: attractionCategory,
+      sightCategory: sightCategory,
+      serviceCategory: serviceCategory,
+    );
 
     RouteWaypoint wp;
     if (_isEditMode && widget.existingWaypoint != null) {
@@ -466,7 +463,7 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
         attractionCategory: attractionCategory,
         sightCategory: sightCategory,
         serviceCategory: serviceCategory,
-        subCategoryTags: _subCategoryTags.isEmpty ? null : _subCategoryTags,
+        subCategoryTags: subCategoryTags,
       );
       final index = waypoints.indexWhere((w) => w.id == id);
       if (index >= 0) {
@@ -498,7 +495,7 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
         attractionCategory: attractionCategory,
         sightCategory: sightCategory,
         serviceCategory: serviceCategory,
-        subCategoryTags: _subCategoryTags.isEmpty ? null : _subCategoryTags,
+        subCategoryTags: subCategoryTags,
       );
       waypoints.add(wp);
     }
@@ -521,17 +518,56 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     }
   }
 
+  static const _photoSize = 90.0;
+
+  Widget _buildAddPhotoCell() {
+    return GestureDetector(
+      onTap: _addPhoto,
+      child: Container(
+        width: _photoSize,
+        height: _photoSize,
+        decoration: BoxDecoration(
+          color: BrandingLightTokens.formFieldBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: BrandingLightTokens.formFieldBorder,
+            width: 1.5,
+            strokeAlign: BorderSide.strokeAlignInside,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_a_photo, size: 28, color: BrandingLightTokens.secondary),
+            const SizedBox(height: 4),
+            Text('Add', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: BrandingLightTokens.secondary)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPhotoSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Photos',
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: BrandingLightTokens.formLabel,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Builder(
+          builder: (context) {
     final hasAnyPhoto = _currentPhotoUrls.isNotEmpty || _photoBytes.isNotEmpty || _loadingPhoto;
     if (!hasAnyPhoto) {
-      return OutlinedButton.icon(
-        onPressed: _addPhoto,
-        icon: const Icon(Icons.add_photo_alternate, size: 20),
-        label: const Text('Add photo'),
-      );
+              return _buildAddPhotoCell();
     }
     return SizedBox(
-      height: 80,
+              height: _photoSize,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
@@ -539,11 +575,11 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Container(
-                width: 80,
-                height: 80,
+                        width: _photoSize,
+                        height: _photoSize,
                 decoration: BoxDecoration(
                   color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
               ),
@@ -554,8 +590,8 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
               clipBehavior: Clip.none,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(e.value, width: 80, height: 80, fit: BoxFit.cover),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(e.value, width: _photoSize, height: _photoSize, fit: BoxFit.cover),
                 ),
                 Positioned(
                   top: -4,
@@ -582,8 +618,8 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
               clipBehavior: Clip.none,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(e.value, width: 80, height: 80, fit: BoxFit.cover),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(e.value, width: _photoSize, height: _photoSize, fit: BoxFit.cover),
                 ),
                 Positioned(
                   top: -4,
@@ -601,29 +637,86 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
             ),
           )),
           Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: GestureDetector(
-              onTap: _addPhoto,
-              child: Container(
-                width: 80,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.add_photo_alternate, size: 32),
+                    padding: const EdgeInsets.only(left: 0),
+                    child: _buildAddPhotoCell(),
+                  ),
+                ],
               ),
-            ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  static final _waypointEditBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: const BorderSide(color: BrandingLightTokens.formFieldBorder),
+  );
+
+  InputDecoration _waypointEditDecoration({String? hintText, Widget? prefixIcon}) {
+    return InputDecoration(
+      filled: true,
+      fillColor: BrandingLightTokens.formFieldBackground,
+      border: _waypointEditBorder,
+      enabledBorder: _waypointEditBorder,
+      focusedBorder: _waypointEditBorder,
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: BrandingLightTokens.error),
+      ),
+      hintText: hintText,
+      hintStyle: const TextStyle(color: BrandingLightTokens.hint),
+      prefixIcon: prefixIcon,
+      prefixIconColor: BrandingLightTokens.secondary,
+    );
+  }
+
+  Widget _formFieldSection(String label, Widget field) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: BrandingLightTokens.formLabel,
           ),
-        ],
+        ),
+        const SizedBox(height: 8),
+        field,
+      ],
+    );
+  }
+
+  Widget _buildSectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+          color: BrandingLightTokens.formLabel,
+        ),
       ),
     );
   }
 
-  Widget _buildRatingRow() {
+  /// Returns only the rating widget (read-only box or TextField) for use in Phone|Rating 50/50 row.
+  Widget _buildRatingContent() {
     if (_placeDetails != null) {
       final r = _placeDetails!.rating ?? _rating;
       final count = _placeDetails!.userRatingCount;
-      return Row(
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color: BrandingLightTokens.formFieldBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: BrandingLightTokens.formFieldBorder),
+        ),
+        child: Row(
         children: [
           if (r != null) ...[
             Icon(Icons.star_rounded, size: 20, color: Colors.amber.shade700),
@@ -631,15 +724,16 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
             Text('${r.toStringAsFixed(1)} ★', style: Theme.of(context).textTheme.titleSmall),
             if (count != null && count > 0) ...[
               const SizedBox(width: 8),
-              Text('($count reviews)', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600)),
+                Text('($count reviews)', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: BrandingLightTokens.hint)),
             ],
           ],
         ],
+        ),
       );
     }
     return TextField(
       controller: _ratingController,
-      decoration: const InputDecoration(labelText: 'Rating (optional)', border: OutlineInputBorder()),
+      decoration: _waypointEditDecoration(hintText: 'Optional').copyWith(prefixIcon: const Icon(Icons.star_outline, size: 20)),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       onChanged: (v) => setState(() => _rating = double.tryParse(v)),
     );
@@ -649,10 +743,10 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: POIAccommodationType.values.map((v) => ChoiceChip(
-        label: Text(getPOIAccommodationTypeLabel(v)),
+      children: POIAccommodationType.values.map((v) => WaypointCreamChip(
+        label: getPOIAccommodationTypeLabel(v),
         selected: _accommodationType == v,
-        onSelected: (s) => setState(() => _accommodationType = s ? v : null),
+        onTap: () => setState(() => _accommodationType = _accommodationType == v ? null : v),
       )).toList(),
     );
   }
@@ -661,10 +755,10 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: EatCategory.values.map((v) => ChoiceChip(
-        label: Text(getEatCategoryLabel(v)),
+      children: EatCategory.values.map((v) => WaypointCreamChip(
+        label: getEatCategoryLabel(v),
         selected: _eatCategory == v,
-        onSelected: (s) => setState(() => _eatCategory = s ? v : null),
+        onTap: () => setState(() => _eatCategory = _eatCategory == v ? null : v),
       )).toList(),
     );
   }
@@ -673,10 +767,10 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: AttractionCategory.values.map((v) => ChoiceChip(
-        label: Text(getAttractionCategoryLabel(v)),
+      children: AttractionCategory.values.map((v) => WaypointCreamChip(
+        label: getAttractionCategoryLabel(v),
         selected: _attractionCategory == v,
-        onSelected: (s) => setState(() => _attractionCategory = s ? v : null),
+        onTap: () => setState(() => _attractionCategory = _attractionCategory == v ? null : v),
       )).toList(),
     );
   }
@@ -685,10 +779,10 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: SightCategory.values.map((v) => ChoiceChip(
-        label: Text(getSightCategoryLabel(v)),
+      children: SightCategory.values.map((v) => WaypointCreamChip(
+        label: getSightCategoryLabel(v),
         selected: _sightCategory == v,
-        onSelected: (s) => setState(() => _sightCategory = s ? v : null),
+        onTap: () => setState(() => _sightCategory = _sightCategory == v ? null : v),
       )).toList(),
     );
   }
@@ -698,106 +792,32 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
       spacing: 8,
       runSpacing: 8,
       children: [ServiceCategory.trainStation, ServiceCategory.carRental, ServiceCategory.bus, ServiceCategory.plane, ServiceCategory.bike, ServiceCategory.other]
-          .map((v) => ChoiceChip(
-        label: Text(getServiceCategoryLabel(v)),
+          .map((v) => WaypointCreamChip(
+        label: getServiceCategoryLabel(v),
         selected: _serviceCategory == v,
-        onSelected: (s) => setState(() => _serviceCategory = s ? v : null),
+        onTap: () => setState(() => _serviceCategory = _serviceCategory == v ? null : v),
       )).toList(),
     );
   }
 
-  Widget _buildTagsRow() {
-    final labels = WaypointTypeSuggestion.allowedSubCategoryLabels(_selectedType);
-    if (labels.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text('Tags', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline, size: 20),
-              onPressed: () => _showTagsSheet(),
-              tooltip: 'Add tags',
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            ..._subCategoryTags.map((tag) => Chip(
-              label: Text(tag),
-              onDeleted: () => setState(() => _subCategoryTags.remove(tag)),
-              deleteIcon: const Icon(Icons.close, size: 16),
-            )),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Future<void> _showTagsSheet() async {
-    final allowed = WaypointTypeSuggestion.allowedSubCategoryLabels(_selectedType);
-    if (allowed.isEmpty) return;
-    final selected = List<String>.from(_subCategoryTags);
-    final result = await showModalBottomSheet<List<String>>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.5,
-              minChildSize: 0.3,
-              maxChildSize: 0.8,
-              expand: false,
-              builder: (context, scrollController) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Text('Subcategory tags', style: Theme.of(context).textTheme.titleLarge),
-                    ),
-                    Flexible(
-                      child: ListView(
-                        controller: scrollController,
-                        shrinkWrap: true,
-                        children: allowed.map((label) {
-                          final isSelected = selected.contains(label);
-                          return CheckboxListTile(
-                            title: Text(label),
-                            value: isSelected,
-                            onChanged: (v) {
-                              if (v == true) {
-                                selected.add(label);
-                              } else {
-                                selected.remove(label);
-                              }
-                              setModalState(() {});
-                            },
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: FilledButton(
-                        onPressed: () => Navigator.of(context).pop<List<String>>(List.from(selected)),
-                        child: const Text('Apply'),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-    if (result != null && mounted) setState(() => _subCategoryTags = result);
+  /// Build subCategoryTags from typed chip fields (single source of truth) for persistence.
+  /// Only adds the label for the currently selected type; null/empty filtered so we never persist [''].
+  List<String>? _subCategoryTagsFromTyped({
+    required WaypointType selectedType,
+    POIAccommodationType? accommodationType,
+    EatCategory? eatCategory,
+    AttractionCategory? attractionCategory,
+    SightCategory? sightCategory,
+    ServiceCategory? serviceCategory,
+  }) {
+    final list = <String>[
+      if (selectedType == WaypointType.accommodation && accommodationType != null) getPOIAccommodationTypeLabel(accommodationType),
+      if (selectedType == WaypointType.restaurant && eatCategory != null) getEatCategoryLabel(eatCategory),
+      if (selectedType == WaypointType.attraction && attractionCategory != null) getAttractionCategoryLabel(attractionCategory),
+      if (selectedType == WaypointType.viewingPoint && sightCategory != null) getSightCategoryLabel(sightCategory),
+      if (selectedType == WaypointType.service && serviceCategory != null) getServiceCategoryLabel(serviceCategory),
+    ].where((s) => s.isNotEmpty).toList();
+    return list.isEmpty ? null : list;
   }
 
   void _showReviewsSheet(List<PlaceReview> reviews) {
@@ -922,12 +942,23 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: BrandingLightTokens.background,
       appBar: AppBar(
+        backgroundColor: BrandingLightTokens.appBarGreen,
+        foregroundColor: Colors.white,
+        centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => context.pop(),
         ),
-        title: Text(_title, overflow: TextOverflow.ellipsis),
+        title: Text(
+          _isEditMode ? 'Edit Waypoint' : 'Add waypoint',
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         actions: [
           if (_isStep2 && _isEditMode)
             IconButton(
@@ -945,7 +976,11 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
 
   Widget _buildStep1() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: LayoutTokens.formMaxWidth),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1026,13 +1061,20 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
           ),
         ],
       ),
+    ),
+    ),
+      ),
     );
   }
 
   Widget _buildStep2() {
     return SingleChildScrollView(
       key: const ValueKey('step2'),
-      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: LayoutTokens.formMaxWidth),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1045,90 +1087,83 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
                 label: const Text('Back to search'),
               ),
             ),
-          _buildCategoryRow(),
-          const SizedBox(height: 16),
           _buildPhotoSection(),
           const SizedBox(height: 16),
-          TextField(
+                _buildSectionLabel('Category'),
+                _buildCategoryRow(),
+                if (_selectedType == WaypointType.accommodation ||
+                    _selectedType == WaypointType.restaurant ||
+                    _selectedType == WaypointType.attraction ||
+                    _selectedType == WaypointType.service) ...[
+                  const SizedBox(height: 8),
+                  _buildSectionLabel('Type'),
+                  if (_selectedType == WaypointType.accommodation) _buildAccommodationTypeRow(),
+                  if (_selectedType == WaypointType.restaurant) _buildEatCategoryRow(),
+                  if (_selectedType == WaypointType.attraction) _buildAttractionCategoryRow(),
+                  if (_selectedType == WaypointType.service) _buildServiceCategoryRow(),
+                ],
+                const SizedBox(height: 16),
+                _formFieldSection('Name', TextField(
             controller: _nameController,
-            decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          TextField(
+            decoration: _waypointEditDecoration(),
+          )),
+          const SizedBox(height: 16),
+          _formFieldSection('Address', TextField(
             controller: _addressController,
-            decoration: const InputDecoration(labelText: 'Address', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          TextField(
+            decoration: _waypointEditDecoration(),
+          )),
+          const SizedBox(height: 16),
+          _formFieldSection('Description (optional)', TextField(
             controller: _descController,
             maxLines: 3,
-            decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          TextField(
+            decoration: _waypointEditDecoration(),
+          )),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _formFieldSection('Phone', TextField(
             controller: _phoneController,
-            decoration: const InputDecoration(labelText: 'Phone', border: OutlineInputBorder()),
+                  decoration: _waypointEditDecoration().copyWith(prefixIcon: const Icon(Icons.phone_outlined, size: 20)),
             keyboardType: TextInputType.phone,
+                )),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _formFieldSection('Rating (1-5)', _buildRatingContent()),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          _buildRatingRow(),
-          const SizedBox(height: 12),
-          TextField(
+          const SizedBox(height: 16),
+          _formFieldSection('Website', TextField(
             controller: _websiteController,
-            decoration: const InputDecoration(labelText: 'Website', border: OutlineInputBorder()),
+            decoration: _waypointEditDecoration(),
             keyboardType: TextInputType.url,
-          ),
-          if (_selectedType == WaypointType.accommodation) ...[
-            const SizedBox(height: 12),
-            _buildAccommodationTypeRow(),
-          ],
-          if (_selectedType == WaypointType.restaurant) ...[
-            const SizedBox(height: 12),
-            _buildEatCategoryRow(),
-          ],
-          if (_selectedType == WaypointType.attraction) ...[
-            const SizedBox(height: 12),
-            _buildAttractionCategoryRow(),
-          ],
-          if (_selectedType == WaypointType.viewingPoint) ...[
-            const SizedBox(height: 12),
-            _buildSightCategoryRow(),
-          ],
-          if (_selectedType == WaypointType.service) ...[
-            const SizedBox(height: 12),
-            _buildServiceCategoryRow(),
-          ],
-          if (WaypointTypeSuggestion.allowedSubCategoryLabels(_selectedType).isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _buildTagsRow(),
-          ],
-          const SizedBox(height: 12),
-          TextField(
+          )),
+          const SizedBox(height: 16),
+          _formFieldSection('Price (estimation)', TextField(
             controller: _estimatedPriceController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Price (estimation)',
-              border: OutlineInputBorder(),
-              hintText: 'Optional',
-            ),
-          ),
+            decoration: _waypointEditDecoration(hintText: 'Optional'),
+          )),
           if (_selectedType == WaypointType.restaurant && (_eatCategory == null || _eatCategory == EatCategory.diningRestaurant)) ...[
-            const SizedBox(height: 12),
-            DropdownButtonFormField<MealTime>(
+            const SizedBox(height: 16),
+            _formFieldSection('Meal time', DropdownButtonFormField<MealTime>(
               value: _mealTime,
-              decoration: const InputDecoration(labelText: 'Meal time', border: OutlineInputBorder()),
+              decoration: _waypointEditDecoration(),
               items: MealTime.values.map((m) => DropdownMenuItem(value: m, child: Text(m.name))).toList(),
               onChanged: (v) => setState(() => _mealTime = v),
-            ),
+            )),
           ],
           if (_selectedType == WaypointType.attraction) ...[
-            const SizedBox(height: 12),
-            DropdownButtonFormField<ActivityTime>(
+            const SizedBox(height: 16),
+            _formFieldSection('Activity time', DropdownButtonFormField<ActivityTime>(
               value: _activityTime,
-              decoration: const InputDecoration(labelText: 'Activity time', border: OutlineInputBorder()),
+              decoration: _waypointEditDecoration(),
               items: ActivityTime.values.map((a) => DropdownMenuItem(value: a, child: Text(a.name))).toList(),
               onChanged: (v) => setState(() => _activityTime = v),
-            ),
+            )),
           ],
           if (_placeDetails?.reviews.isNotEmpty == true) ...[
             const SizedBox(height: 20),
@@ -1138,63 +1173,63 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
           FilledButton(
             onPressed: _save,
             style: FilledButton.styleFrom(
-              backgroundColor: BrandColors.primary,
+              backgroundColor: BrandingLightTokens.appBarGreen,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 52),
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
             ),
-            child: Text(_isEditMode ? 'Save changes' : 'Add place to the list'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.check, size: 20, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(_isEditMode ? 'Save Changes' : 'Add place to the list'),
+              ],
+            ),
           ),
         ],
+      ),
+    ),
+    ),
       ),
     );
   }
 
   Widget _buildCategoryRow() {
-    const types = [
-      (WaypointType.accommodation, Icons.hotel, 'Sleep'),
-      (WaypointType.restaurant, Icons.restaurant, 'Eat & Drink'),
-      (WaypointType.attraction, Icons.local_activity, 'Do & See'),
-      (WaypointType.viewingPoint, Icons.visibility, 'See'),
-      (WaypointType.service, Icons.directions_bus, 'Move'),
+    final pills = [
+      (WaypointType.restaurant, WaypointCategoryLabels.eat),
+      (WaypointType.accommodation, WaypointCategoryLabels.sleep),
+      (WaypointType.service, WaypointCategoryLabels.move),
+      (WaypointType.attraction, WaypointCategoryLabels.doAndSee),
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: types.map((t) {
-            final selected = _selectedType == t.$1;
-            return ChoiceChip(
-              label: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(t.$2, size: 18, color: selected ? Colors.white : getWaypointColor(t.$1)),
-                  const SizedBox(width: 4),
-                  Text(t.$3),
-                ],
-              ),
+    return Row(
+      children: pills.map((p) {
+        final type = p.$1;
+        final label = p.$2;
+        final selected = _selectedType == type;
+        return Expanded(
+          child: WaypointCreamChip(
+            label: label,
               selected: selected,
-              onSelected: (_) => setState(() {
-                _selectedType = t.$1;
+            onTap: () {
+              setState(() {
+                _selectedType = type;
                 _subCategoryTags = [];
-                if (t.$1 != WaypointType.accommodation) _accommodationType = null;
-                if (t.$1 != WaypointType.restaurant) _eatCategory = null;
-                if (t.$1 != WaypointType.attraction) _attractionCategory = null;
-                if (t.$1 != WaypointType.viewingPoint) _sightCategory = null;
-                if (t.$1 != WaypointType.service) _serviceCategory = null;
-              }),
-              selectedColor: getWaypointColor(t.$1),
+                if (type != WaypointType.accommodation) _accommodationType = null;
+                if (type != WaypointType.restaurant) _eatCategory = null;
+                if (type != WaypointType.attraction) _attractionCategory = null;
+                if (type != WaypointType.service) _serviceCategory = null;
+                _sightCategory = null;
+              });
+            },
+            borderRadius: 22,
+            fillWidth: true,
+            minHeight: 44,
+          ),
             );
           }).toList(),
-        ),
-        const SizedBox(height: 8),
-        TextButton.icon(
-          onPressed: _showCategoryPicker,
-          icon: const Icon(Icons.list, size: 20),
-          label: const Text('Change category'),
-        ),
-      ],
     );
   }
 }

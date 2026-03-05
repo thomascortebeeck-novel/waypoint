@@ -2197,7 +2197,19 @@ padding: const EdgeInsets.all(24),
 child: Column(
 crossAxisAlignment: CrossAxisAlignment.start,
 children: [
-Text("FAQ's", style: context.textStyles.headlineSmall),
+Row(
+children: [
+Icon(Icons.help_outline, size: 20, color: context.colors.primary),
+const SizedBox(width: 8),
+Text(
+'Common Questions',
+style: context.textStyles.headlineSmall?.copyWith(
+color: context.colors.primary,
+fontWeight: FontWeight.w600,
+),
+),
+],
+),
 const SizedBox(height: 16),
 ...allFAQs.map((faq) => _buildFAQItem(context, faq)),
 ],
@@ -2216,6 +2228,8 @@ border: Border.all(color: context.colors.outline.withValues(alpha: 0.3)),
 child: Theme(
 data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
 child: ExpansionTile(
+iconColor: Theme.of(context).colorScheme.primary,
+collapsedIconColor: Theme.of(context).colorScheme.primary,
 tilePadding: const EdgeInsets.all(16),
 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
 title: Text(

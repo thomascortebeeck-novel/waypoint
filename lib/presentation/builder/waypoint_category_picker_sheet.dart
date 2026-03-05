@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:waypoint/core/models/waypoint_category.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 
 /// Modal content for picking a single waypoint category (Sleep, Eat & Drink, etc.).
@@ -13,20 +14,10 @@ class WaypointCategoryPickerSheet extends StatelessWidget {
 
   static String _label(WaypointType type) {
     switch (type) {
-      case WaypointType.accommodation:
-        return 'Sleep';
-      case WaypointType.restaurant:
-        return 'Eat & Drink';
-      case WaypointType.attraction:
-        return 'Do & See';
-      case WaypointType.viewingPoint:
-        return 'See';
-      case WaypointType.service:
-        return 'Move';
       case WaypointType.bar:
         return 'Bar';
       default:
-        return type.name;
+        return WaypointCategoryLabels.fromType(type);
     }
   }
 

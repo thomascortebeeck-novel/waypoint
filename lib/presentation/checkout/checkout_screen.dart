@@ -1,8 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 import 'package:waypoint/models/plan_model.dart';
-import 'package:waypoint/services/order_service.dart';
 import 'package:waypoint/theme.dart';
 
 /// Modern, professional checkout screen with two-column layout
@@ -25,11 +27,20 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  final OrderService _orderService = OrderService();
+  static const _uuid = Uuid();
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   bool _isProcessing = false;
   final ScrollController _scrollController = ScrollController();
+  late final String _idempotencyKey;
+  String? _pendingOrderId;
 
   bool get _isFree => widget.plan.basePrice == 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _idempotencyKey = _uuid.v4();
+  }
 
   @override
   void dispose() {
@@ -668,9 +679,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         children: [
           Text(
             question,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
             ),
           ),
           const SizedBox(height: 4),
@@ -1056,33 +1068,112 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      final order = await _orderService.createOrder(
-        planId: widget.plan.id,
-        buyerId: widget.buyerId,
-        sellerId: widget.plan.creatorId,
-        amount: widget.plan.basePrice,
+      final result = await _functions
+          .httpsCallable('createPaymentIntent')
+          .call<Map<Object?, Object?>>({
+        'planId': widget.plan.id,
+        'idempotencyKey': _idempotencyKey,
+      });
+
+      final data = result.data;
+      if (data == null || !mounted) return;
+
+      if (data['alreadyPurchased'] == true) {
+        if (mounted) {
+          context.go('/checkout/success/${widget.plan.id}', extra: {
+            'orderId': null,
+            'planName': widget.plan.name,
+            'isFree': _isFree,
+            'alreadyPurchased': true,
+            'returnToJoin': widget.returnToJoin,
+            'inviteCode': widget.inviteCode,
+          });
+        }
+        return;
+      }
+
+      if (data['completed'] == true) {
+        final orderId = data['orderId'] as String?;
+        if (mounted) {
+          context.go('/checkout/success/${widget.plan.id}', extra: {
+            'orderId': orderId,
+            'planName': widget.plan.name,
+            'isFree': true,
+            'returnToJoin': widget.returnToJoin,
+            'inviteCode': widget.inviteCode,
+          });
+        }
+        return;
+      }
+
+      final clientSecret = data['clientSecret'] as String?;
+      final orderId = data['orderId'] as String?;
+      if (clientSecret == null || orderId == null) {
+        throw Exception('Invalid response from server');
+      }
+      _pendingOrderId = orderId;
+
+      await Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: SetupPaymentSheetParameters(
+          paymentIntentClientSecret: clientSecret,
+          merchantDisplayName: 'Waypoint',
+        ),
       );
 
-      await _orderService.setOrderProcessing(order.id);
-      await Future.delayed(Duration(seconds: _isFree ? 1 : 2));
-      await _orderService.completeOrder(order.id);
+      if (!mounted) return;
+      await Stripe.instance.presentPaymentSheet();
 
       if (mounted) {
+        _pendingOrderId = null;
         context.go('/checkout/success/${widget.plan.id}', extra: {
-          'orderId': order.id,
+          'orderId': orderId,
           'planName': widget.plan.name,
-          'isFree': _isFree,
+          'isFree': false,
           'returnToJoin': widget.returnToJoin,
           'inviteCode': widget.inviteCode,
         });
       }
+    } on StripeException catch (e) {
+      if (e.error.code == FailureCode.Canceled) {
+        final orderIdToCancel = _pendingOrderId;
+        _pendingOrderId = null;
+        if (orderIdToCancel != null) {
+          try {
+            await _functions.httpsCallable('cancelPaymentIntent').call({'orderId': orderIdToCancel});
+          } catch (_) {}
+        }
+        if (mounted) setState(() => _isProcessing = false);
+        return;
+      }
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.error.localizedMessage ?? 'Payment failed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message ?? e.code),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
+        setState(() => _isProcessing = false);
         context.go('/checkout/error/${widget.plan.id}', extra: {
           'errorMessage': e.toString(),
           'planName': widget.plan.name,
         });
       }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 

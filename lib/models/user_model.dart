@@ -16,10 +16,17 @@ class UserModel {
   final bool marketingOptIn;
   final bool emailVerified;
   final String? shortBio; // Short creator bio (max ~150 chars)
+  final String? location; // Display location (e.g. city, region)
   final List<String> followingIds; // Creators this user follows
   final List<String> followerIds; // Users following this creator
   final Map<String, String>? socialLinks; // Instagram, YouTube, blog URLs
   final bool canCreatePublicPlans; // Whether user can create public plans (influencer status)
+  /// Whether user has influencer status; can access Builder page. Firestore: is_influencer.
+  final bool isInfluencer;
+  /// Stripe Connect account id (acct_...) for payouts. Firestore: stripe_account_id.
+  final String? stripeAccountId;
+  /// Cached from Stripe Connect account.updated; used by createPaymentIntent. Firestore: charges_enabled.
+  final bool? chargesEnabled;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -38,10 +45,14 @@ class UserModel {
     this.marketingOptIn = false,
     this.emailVerified = false,
     this.shortBio,
+    this.location,
     this.followingIds = const [],
     this.followerIds = const [],
     this.socialLinks,
     this.canCreatePublicPlans = false,
+    this.isInfluencer = false,
+    this.stripeAccountId,
+    this.chargesEnabled,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -62,12 +73,16 @@ class UserModel {
       marketingOptIn: json['marketing_opt_in'] as bool? ?? false,
       emailVerified: json['email_verified'] as bool? ?? false,
       shortBio: json['short_bio'] as String?,
+      location: json['location'] as String?,
       followingIds: List<String>.from(json['following_ids'] ?? []),
       followerIds: List<String>.from(json['follower_ids'] ?? []),
       socialLinks: json['social_links'] != null
           ? Map<String, String>.from(json['social_links'] as Map)
           : null,
       canCreatePublicPlans: json['can_create_public_plans'] as bool? ?? false,
+      isInfluencer: json['is_influencer'] as bool? ?? false,
+      stripeAccountId: json['stripe_account_id'] as String?,
+      chargesEnabled: json['charges_enabled'] as bool?,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
     );
@@ -89,10 +104,14 @@ class UserModel {
       'marketing_opt_in': marketingOptIn,
       'email_verified': emailVerified,
       if (shortBio != null) 'short_bio': shortBio,
+      if (location != null) 'location': location,
       'following_ids': followingIds,
       'follower_ids': followerIds,
       if (socialLinks != null) 'social_links': socialLinks,
       'can_create_public_plans': canCreatePublicPlans,
+      'is_influencer': isInfluencer,
+      if (stripeAccountId != null) 'stripe_account_id': stripeAccountId,
+      if (chargesEnabled != null) 'charges_enabled': chargesEnabled,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
     };
@@ -113,10 +132,14 @@ class UserModel {
     bool? marketingOptIn,
     bool? emailVerified,
     String? shortBio,
+    String? location,
     List<String>? followingIds,
     List<String>? followerIds,
     Map<String, String>? socialLinks,
     bool? canCreatePublicPlans,
+    bool? isInfluencer,
+    String? stripeAccountId,
+    bool? chargesEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -135,10 +158,14 @@ class UserModel {
       marketingOptIn: marketingOptIn ?? this.marketingOptIn,
       emailVerified: emailVerified ?? this.emailVerified,
       shortBio: shortBio ?? this.shortBio,
+      location: location ?? this.location,
       followingIds: followingIds ?? this.followingIds,
       followerIds: followerIds ?? this.followerIds,
       socialLinks: socialLinks ?? this.socialLinks,
       canCreatePublicPlans: canCreatePublicPlans ?? this.canCreatePublicPlans,
+      isInfluencer: isInfluencer ?? this.isInfluencer,
+      stripeAccountId: stripeAccountId ?? this.stripeAccountId,
+      chargesEnabled: chargesEnabled ?? this.chargesEnabled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

@@ -19,6 +19,7 @@ class GoogleMapWidget extends StatelessWidget {
   final Function(CameraPosition)? onCameraChanged;
   final List<MapAnnotation> annotations;
   final List<MapPolyline> polylines;
+  final double? mapWidth;
 
   const GoogleMapWidget({
     super.key,
@@ -31,6 +32,7 @@ class GoogleMapWidget extends StatelessWidget {
     this.onCameraChanged,
     this.annotations = const [],
     this.polylines = const [],
+    this.mapWidth,
   });
 
   @override

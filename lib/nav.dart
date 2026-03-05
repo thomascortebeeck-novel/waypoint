@@ -12,6 +12,7 @@ import 'package:waypoint/presentation/builder/edit_plan_screen.dart';
 import 'package:waypoint/presentation/builder/route_builder_screen.dart';
 import 'package:waypoint/presentation/builder/waypoint_edit_page.dart';
 import 'package:waypoint/presentation/adventure/adventure_detail_screen.dart';
+import 'package:waypoint/presentation/adventure/waypoint_detail_page.dart';
 import 'package:waypoint/presentation/profile/profile_screen.dart';
 import 'package:waypoint/presentation/creator/creator_profile_screen.dart';
 import 'package:waypoint/presentation/explore/explore_screen.dart';
@@ -32,6 +33,7 @@ import 'package:waypoint/presentation/itinerary/itinerary_day_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_select_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_review_screen.dart';
 import 'package:waypoint/presentation/trips/member_packing_screen.dart';
+import 'package:waypoint/presentation/trips/checklist_screen.dart';
 import 'package:waypoint/presentation/mytrips/onboarding/onboarding_name_screen.dart';
 import 'package:waypoint/presentation/mytrips/onboarding/onboarding_version_screen.dart';
 import 'package:waypoint/presentation/mytrips/onboarding/onboarding_date_screen.dart';
@@ -45,6 +47,7 @@ import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/models/trip_model.dart';
 import 'theme.dart';
 import 'package:waypoint/utils/logger.dart';
 
@@ -71,6 +74,7 @@ class AppRoutes {
   static const String itinerarySelect = '/itinerary/:planId/select/:tripId';
   static const String itineraryReview = '/itinerary/:planId/review/:tripId';
   static const String memberPacking = '/trip/:tripId/packing';
+  static const String checklist = '/trip/:tripId/checklist';
   // Trip sharing routes
   static const String joinTrip = '/join/:inviteCode';
   static const String tripMembers = '/trip/:tripId/members';
@@ -237,6 +241,7 @@ class AppRouter {
             orderId: extra?['orderId'],
             planName: extra?['planName'],
             isFree: extra?['isFree'] ?? false,
+            alreadyPurchased: extra?['alreadyPurchased'] ?? false,
             returnToJoin: extra?['returnToJoin'] ?? false,
             inviteCode: extra?['inviteCode'],
           );
@@ -282,6 +287,75 @@ class AppRouter {
           return AdventureDetailScreen(
             mode: AdventureMode.trip,
             tripId: tripId,
+          );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/trip/:tripId/waypoint/:dayNum/:waypointId',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          final waypoint = extra['waypoint'] as RouteWaypoint?;
+          if (waypoint == null) {
+            return Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Waypoint not found'),
+                    TextButton(
+                      onPressed: () => GoRouter.of(context).pop(),
+                      child: const Text('Back'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          final dayNum = int.tryParse(state.pathParameters['dayNum'] ?? '1') ?? 1;
+          return WaypointDetailPage(
+            waypoint: waypoint,
+            dayNum: dayNum,
+            tripId: state.pathParameters['tripId'],
+            planId: extra['planId'] as String?,
+            versionIndex: extra['versionIndex'] as int? ?? 0,
+            isTripOwner: extra['isTripOwner'] as bool? ?? false,
+            isBuilder: extra['isBuilder'] as bool? ?? false,
+            trip: extra['trip'] as Trip?,
+          );
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/plan/:planId/waypoint-view/:versionIndex/:dayNum/:waypointId',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          final waypoint = extra['waypoint'] as RouteWaypoint?;
+          if (waypoint == null) {
+            return Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Waypoint not found'),
+                    TextButton(
+                      onPressed: () => GoRouter.of(context).pop(),
+                      child: const Text('Back'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          final dayNum = int.tryParse(state.pathParameters['dayNum'] ?? '1') ?? 1;
+          final versionIndex = int.tryParse(state.pathParameters['versionIndex'] ?? '0') ?? 0;
+          return WaypointDetailPage(
+            waypoint: waypoint,
+            dayNum: dayNum,
+            planId: state.pathParameters['planId'],
+            versionIndex: versionIndex,
+            isTripOwner: false,
+            isBuilder: extra['isBuilder'] as bool? ?? false,
           );
         },
       ),
@@ -354,6 +428,14 @@ class AppRouter {
         builder: (context, state) {
           final tripId = state.pathParameters['tripId'] ?? '';
           return MemberPackingScreen(tripId: tripId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.checklist,
+        builder: (context, state) {
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return ChecklistScreen(tripId: tripId);
         },
       ),
       // Trip sharing routes

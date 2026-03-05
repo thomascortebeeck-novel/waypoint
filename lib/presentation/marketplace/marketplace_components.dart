@@ -4,6 +4,7 @@ import 'package:waypoint/core/constants/breakpoints.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/theme/colors.dart';
+import 'package:waypoint/theme/waypoint_colors.dart';
 
 /// Activity Categories Carousel
 class ActivityCategoriesCarousel extends StatelessWidget {
@@ -173,6 +174,108 @@ class _ActivityCircleState extends State<ActivityCircle> {
   }
 }
 
+/// Rounded rect activity card for Explore by Activity: cream background, image, icon, label.
+class ActivityCard extends StatelessWidget {
+  const ActivityCard({
+    super.key,
+    required this.activity,
+    required this.onTap,
+    this.cardWidth = 100.0,
+    this.cardHeight = 140.0,
+  });
+
+  final ActivityItem activity;
+  final VoidCallback onTap;
+  final double cardWidth;
+  final double cardHeight;
+
+  static IconData _iconForCategory(ActivityCategory category) {
+    switch (category) {
+      case ActivityCategory.hiking:
+        return Icons.hiking;
+      case ActivityCategory.cycling:
+        return Icons.directions_bike;
+      case ActivityCategory.skis:
+        return Icons.downhill_skiing;
+      case ActivityCategory.climbing:
+        return Icons.terrain;
+      case ActivityCategory.cityTrips:
+        return Icons.location_city;
+      case ActivityCategory.tours:
+        return Icons.tour;
+      case ActivityCategory.roadTripping:
+        return Icons.directions_car;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: cardWidth,
+        height: cardHeight,
+        decoration: BoxDecoration(
+          color: context.colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: context.colors.outline, width: 1),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                child: SizedBox(
+                  width: cardWidth,
+                  child: CachedNetworkImage(
+                    imageUrl: activity.imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(color: context.colors.surfaceContainerHighest),
+                    errorWidget: (context, url, error) => Container(
+                      color: context.colors.surfaceContainerHighest,
+                      child: Icon(Icons.terrain, color: context.colors.onSurface.withValues(alpha: 0.6), size: 28),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _iconForCategory(activity.category),
+                    size: 18,
+                    color: context.colors.primary,
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      activity.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: context.colors.onSurface,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Promotional Card variants
 enum PromoVariant { upgrade, gift, community }
 
@@ -200,103 +303,87 @@ class PromoCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
+        color: const Color(0xFF2E6A2E),
         borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [BrandColors.primaryLight, BrandColors.primary],
-        ),
         boxShadow: [
           BoxShadow(
-            color: BrandColors.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          children: [
-            if (isDesktop)
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final parentWidth = MediaQuery.of(context).size.width - 32;
-                    final imageWidth = parentWidth * 0.7;
-                    return SizedBox(
-                      width: imageWidth,
-                      child: CachedNetworkImage(
-                        imageUrl: 'https://images.unsplash.com/photo-1464207687429-7505649dae38?w=800',
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                        errorWidget: (context, url, error) => Container(
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            Padding(
-              padding: EdgeInsets.all(isDesktop ? 48 : 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Padding(
+          padding: EdgeInsets.all(isDesktop ? 32 : 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
                 children: [
-                  const Text(
-                    '✨',
-                    style: TextStyle(fontSize: 32),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: context.colors.primary.withValues(alpha: 0.9),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.check_rounded, color: Colors.white, size: 20),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(width: 12),
                   Text(
-                    'Upgrade Your\nAdventure',
+                    'Waypoint Pro',
                     style: TextStyle(
-                      fontSize: isDesktop ? 32 : 28,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: isDesktop ? 400 : double.infinity,
-                    child: Text(
-                      'Premium routes, offline maps, and exclusive features await',
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.white.withValues(alpha: 0.9),
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: () {},
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: BrandColors.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      'Learn More',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                'Unlock Offline Maps',
+                style: TextStyle(
+                  fontSize: isDesktop ? 26 : 22,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  height: 1.2,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Navigate without signal and get exclusive terrain data.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white.withValues(alpha: 0.9),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Center(
+                child: FilledButton(
+                  onPressed: () {},
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF6FB949),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Upgrade Now',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

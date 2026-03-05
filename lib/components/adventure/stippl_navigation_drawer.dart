@@ -14,6 +14,9 @@ enum NavigationItem {
   review,
 }
 
+/// Light warm background used by the drawer and plan page content.
+const Color kDrawerAndPlanPageBackground = Color(0xFFFDFBF7);
+
 /// Stippl-style left sidebar navigation drawer
 /// Replaces the TabController-based navigation system
 class StipplNavigationDrawer extends StatelessWidget {
@@ -53,6 +56,7 @@ class StipplNavigationDrawer extends StatelessWidget {
 
     return Drawer(
       width: drawerWidth,
+      backgroundColor: kDrawerAndPlanPageBackground,
       child: SafeArea(
         child: Column(
           // ALWAYS a Column — same structure to avoid DrawerController hit-test issues
@@ -78,10 +82,10 @@ class StipplNavigationDrawer extends StatelessWidget {
   Widget _buildHeader(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Colors.grey.shade200,
+            color: Color(0xFFD2B48C),
             width: 1,
           ),
         ),
@@ -220,6 +224,10 @@ class StipplNavigationDrawer extends StatelessWidget {
     required _NavigationItemData itemData,
     required bool isSelected,
   }) {
+    const Color activeBackground = Color(0xFFF0E8D2);
+    const Color activeForeground = Color(0xFF1A1D21);   // dark text on light bg
+    const Color passiveForeground = Color(0xFFA8A29E);
+
     return InkWell(
       onTap: () {
         Navigator.of(context).pop(); // Close drawer
@@ -228,10 +236,10 @@ class StipplNavigationDrawer extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.grey.shade100 : Colors.transparent,
+          color: isSelected ? activeBackground : Colors.transparent,
           border: Border(
             left: BorderSide(
-              color: isSelected ? const Color(0xFF1B4332) : Colors.transparent,
+              color: isSelected ? const Color(0xFF5D3A1A) : Colors.transparent,  // dark brown accent line
               width: 3,
             ),
           ),
@@ -241,9 +249,7 @@ class StipplNavigationDrawer extends StatelessWidget {
             Icon(
               itemData.icon,
               size: 22,
-              color: isSelected
-                  ? const Color(0xFF1B4332)
-                  : Colors.grey.shade700,
+              color: isSelected ? activeForeground : passiveForeground,
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -251,9 +257,7 @@ class StipplNavigationDrawer extends StatelessWidget {
                 itemData.label,
                 style: WaypointTypography.bodyMedium.copyWith(
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                  color: isSelected
-                      ? const Color(0xFF1B4332)
-                      : Colors.grey.shade700,
+                  color: isSelected ? activeForeground : passiveForeground,
                 ),
               ),
             ),
@@ -266,10 +270,10 @@ class StipplNavigationDrawer extends StatelessWidget {
   Widget _buildFooter(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         border: Border(
           top: BorderSide(
-            color: Colors.grey.shade200,
+            color: Color(0xFFD2B48C),
             width: 1,
           ),
         ),
@@ -285,7 +289,7 @@ class StipplNavigationDrawer extends StatelessWidget {
           label: const Text('Back to home'),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            side: BorderSide(color: Colors.grey.shade300),
+            side: const BorderSide(color: Color(0xFFD2B48C)),
           ),
         ),
       ),

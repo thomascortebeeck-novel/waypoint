@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/reorder_controls.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 
 /// Reusable sidebar waypoint tile component
 /// Displays a waypoint in the sidebar with number badge, reorder controls, and actions
@@ -52,26 +53,11 @@ class SidebarWaypointTile extends StatelessWidget {
                       color: Colors.grey.shade300,
                     ),
                   ),
-                // Number badge circle
+                // Number badge (plectrum pin)
                 if (waypointNumber != null)
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: waypointColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$waypointNumber',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                  WaypointPinBadge(
+                    orderIndex: waypointNumber!,
+                    color: waypointColor,
                   )
                 else
                   // Fallback: icon without number

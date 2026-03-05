@@ -40,7 +40,7 @@ Waypoint is a premium multi-day trekking and travel navigation app built with Fl
 ### Core Files
 - `main.dart`: App initialization, Firebase setup
 - `nav.dart`: go_router configuration with bottom tabs
-- `theme.dart`: Premium design system (Montserrat + Inter, Deep Slate palette)
+- `theme.dart`: App theme; see [BRANDING_GUIDELINES.md](BRANDING_GUIDELINES.md) for canonical branding
 
 ## Firebase Integration
 
@@ -80,11 +80,14 @@ Waypoint is a premium multi-day trekking and travel navigation app built with Fl
 - Deep navigation: Marketplace → Plan Details → Map View
 - Context actions: Empty state buttons navigate to relevant tabs
 
-## Design System
-- **Fonts**: Montserrat (headings), Inter (body)
-- **Colors**: Deep Slate, Muted Terra Cotta, Clean Whites
-- **Style**: Premium/Adventure aesthetic with generous whitespace
-- **Components**: Material 3 with custom elevation and rounded corners
+## Branding and theme guidelines
+
+Canonical branding and theme tokens are defined in **[BRANDING_GUIDELINES.md](BRANDING_GUIDELINES.md)**. Summary:
+
+- **Fonts:** Primary = Fira Sans, Secondary = Source Sans Pro. Use Fira Sans for headings and primary UI, Source Sans Pro for body and secondary text.
+- **Colors (light):** primary `#228B22`, secondary `#5D3A1A`, background `#FDFBF7`, surface `#F2E8CF`, on_surface / primary_text `#212529`, secondary_text `#5D3A1A`, error `#D62828`, accent `#E67E22`, divider `#D2B48C`, hint `#A8A29E`, success `#386641`. See BRANDING_GUIDELINES.md for the full token table.
+- **Design tokens:** Spacing preset = Tight; corner radius = Default (e.g. 8–12px for cards); text size base = 1.0x. Constants for spacing, radii, typography, and shadows are documented in the branding doc; implementation lives in `lib/core/theme/` (spacing.dart, radius.dart, typography.dart, shadows.dart).
+- **Implementation:** Theme and color tokens are applied via `lib/theme.dart`, `lib/core/theme/waypoint_theme.dart`, and `lib/core/theme/colors.dart`. New UI (e.g. itinerary restyle) should use these tokens so the app matches the reference design.
 
 ## Map System Architecture
 

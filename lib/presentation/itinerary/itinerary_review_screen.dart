@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:waypoint/core/models/waypoint_category.dart';
+import 'package:waypoint/core/theme/layout_tokens.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/trip_selection_model.dart';
@@ -109,10 +111,14 @@ class _ItineraryReviewScreenState extends State<ItineraryReviewScreen> {
         centerTitle: false,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: LayoutTokens.pageMaxWidth),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             // Trip summary card
             _TripSummaryCard(
               trip: _trip!,
@@ -157,6 +163,9 @@ class _ItineraryReviewScreenState extends State<ItineraryReviewScreen> {
             const SizedBox(height: 100),
           ],
         ),
+      ),
+    ),
+  ),
       ),
       bottomNavigationBar: ItineraryBottomBar(
         onBack: () => context.go('/itinerary/${widget.planId}/select/${widget.tripId}'),
@@ -411,7 +420,7 @@ class _DayReviewCard extends StatelessWidget {
               if (selection.selectedAccommodation != null)
                 _SelectionItem(
                   icon: Icons.hotel,
-                  label: 'Stay',
+                  label: WaypointCategoryLabels.sleep,
                   value: selection.selectedAccommodation!.name,
                   cost: selection.selectedAccommodation!.cost,
                   bookingStatus: selection.selectedAccommodation!.bookingStatus,
@@ -461,7 +470,7 @@ class _DayReviewCard extends StatelessWidget {
 
   String _getSelectionSummary() {
     final parts = <String>[];
-    if (selection.selectedAccommodation != null) parts.add('Stay');
+    if (selection.selectedAccommodation != null) parts.add(WaypointCategoryLabels.sleep);
     if (selection.selectedRestaurants.isNotEmpty) {
       parts.add('${selection.selectedRestaurants.length} meal${selection.selectedRestaurants.length > 1 ? 's' : ''}');
     }

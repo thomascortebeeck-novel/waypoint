@@ -24,6 +24,7 @@ class GoogleMapWidget extends StatefulWidget {
   
   final List<MapAnnotation> annotations;
   final List<MapPolyline> polylines;
+  final double? mapWidth;
 
   const GoogleMapWidget({
     super.key,
@@ -36,6 +37,7 @@ class GoogleMapWidget extends StatefulWidget {
     this.onCameraChanged,
     this.annotations = const [],
     this.polylines = const [],
+    this.mapWidth,
   });
 
   @override
@@ -51,10 +53,28 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
   bool _hasInitialized = false;
   bool _isLoadingMarkers = false;
   Timer? _updateDebounce;
+  Timer? _scaleDebounce;
+  double? _currentZoom;
+
+  /// Markers kept small: max ~18px (0.39×46). Higher zoom = larger; lower zoom = smaller. Reference 700px width.
+  double _markerScale() {
+    final zoom = _currentZoom ?? widget.configuration?.initialZoom ?? 12.0;
+    final safeZoom = zoom.clamp(1.0, 22.0);
+    final width = widget.mapWidth ?? 400.0;
+    return ((width / 700.0) * (safeZoom / 14.0)).clamp(0.125, 0.39);
+  }
+
+  void _scheduleMarkerRescale() {
+    _scaleDebounce?.cancel();
+    _scaleDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _updateMarkers();
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    MapMarkerService.clearCache(); // Avoid serving stale full-size rasters after scale formula changes
     // Pre-warm marker cache for common types to improve initial load
     _preWarmMarkerCache();
     // Don't call _updateMarkers() here - MediaQuery isn't available yet
@@ -75,6 +95,7 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
   @override
   void dispose() {
     _updateDebounce?.cancel();
+    _scaleDebounce?.cancel();
     super.dispose();
   }
 
@@ -106,6 +127,9 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
       _updateDebounce = Timer(const Duration(milliseconds: 100), () {
         if (mounted) _updateMarkers();
       });
+    }
+    if (oldWidget.mapWidth != widget.mapWidth) {
+      _scheduleMarkerRescale();
     }
     if (oldWidget.polylines != widget.polylines) {
       _updatePolylines();
@@ -145,15 +169,13 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
 
       final isSelected = annotation.id == _selectedWaypointId;
 
-      // Get order number from annotation (set in MapAnnotation.fromWaypoint)
-      final orderNumber = annotation.orderNumber;
-
-      // Paint custom marker (async - all paint concurrently)
+      // Map shows category icon in pin (not order number). Scale by zoom and map width.
       final icon = await MapMarkerService.markerForType(
         typeString,
         devicePixelRatio: pixelRatio,
         isSelected: isSelected,
-        orderNumber: orderNumber,
+        orderNumber: null,
+        displayScale: _markerScale(),
       );
 
       // TODO: Google Maps Marker deprecation warning
@@ -314,6 +336,10 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
                     ll.LatLng(position.latitude, position.longitude),
                   )
               : null,
+          onCameraMove: (gmaps.CameraPosition position) {
+            _currentZoom = position.zoom;
+            _scheduleMarkerRescale();
+          },
           mapType: gmaps.MapType.normal,
           myLocationEnabled: false,
           zoomControlsEnabled: true,

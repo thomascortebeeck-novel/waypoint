@@ -47,6 +47,7 @@ import 'package:waypoint/models/gpx_route_model.dart';
 import 'package:waypoint/services/gpx_waypoint_snapper.dart';
 import 'package:waypoint/utils/activity_utils.dart';
 import 'package:waypoint/utils/travel_formatting_utils.dart';
+import 'package:waypoint/data/checklist_suggestions.dart';
 import 'package:waypoint/components/builder/sidebar_waypoint_tile.dart';
 import 'package:waypoint/models/waypoint_edit_result.dart';
 // Phase 1: Add new state classes and services
@@ -1730,6 +1731,11 @@ Text(
 'Organize packing items by category',
 style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
 ),
+const SizedBox(height: 16),
+
+// Quick add: category-level and item-level suggestions
+_buildChecklistSuggestions(version),
+
 const SizedBox(height: 24),
 
 // Packing categories
@@ -1759,100 +1765,6 @@ side: BorderSide(color: context.colors.primary, style: BorderStyle.solid),
 ),
 ),
 
-const SizedBox(height: 32),
-
-// Travel Preparation Section
-Divider(),
-const SizedBox(height: 16),
-Text(
-  'Travel Preparation',
-  style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-),
-const SizedBox(height: 8),
-// Phase 3.4: Use new state - get Prepare from active version
-ListenableBuilder(
-listenable: version,
-builder: (context, _) {
-final prepare = version.generatedPrepare ?? Prepare();
-return Column(
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Text(
-version.generatedPrepare != null
-? 'Review and edit the travel information (AI-generated or manually entered)'
-: 'Fill in travel preparation information manually, or use "Generate Info" in Step 1 to auto-fill',
-style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
-),
-const SizedBox(height: 24),
-_buildPrepareSection(prepare, version),
-],
-);
-},
-),
-
-const SizedBox(height: 32),
-
-// How to Get There Section (relocated from Step 4)
-Text(
-'How to Get There',
-style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-),
-const SizedBox(height: 8),
-Text(
-'Add different ways to reach the starting point',
-style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
-),
-const SizedBox(height: 24),
-
-// Transportation options
-// Phase 5: Use new state directly
-...version.transportationOptions.asMap().entries.map((entry) {
-final index = entry.key;
-final option = entry.value;
-return Padding(
-padding: const EdgeInsets.only(bottom: 16),
-child: _buildTransportationCard(version, index, option),
-);
-}),
-
-// Add option button
-OutlinedButton.icon(
-onPressed: () {
-if (formState != null) {
-setState(() {
-version.transportationOptions.add(TransportationFormState.initial());
-});
-}
-},
-icon: const Icon(Icons.add),
-label: const Text('Add Transportation Option'),
-style: OutlinedButton.styleFrom(
-minimumSize: const Size(double.infinity, 50),
-side: BorderSide(color: context.colors.primary, style: BorderStyle.solid),
-),
-),
-
-const SizedBox(height: 16),
-Container(
-padding: AppSpacing.paddingMd,
-decoration: BoxDecoration(
-color: Colors.blue.shade50,
-borderRadius: BorderRadius.circular(8),
-border: Border.all(color: Colors.blue.shade200),
-),
-child: Row(
-children: [
-Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-const SizedBox(width: 12),
-Expanded(
-child: Text(
-'Tip: Describe each route option (e.g., "Flying from Brussels") and select transport types that travelers can combine',
-style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
-),
-),
-],
-),
-),
 ],
 ),
 ),
@@ -1873,6 +1785,100 @@ onUpdate: () {
 version.notifyListeners();
 setState(() {});
 },
+);
+}
+
+Widget _buildChecklistSuggestions(VersionFormState version) {
+String categoryNameTrimmed(PackingCategoryFormState c) => c.nameCtrl.text.trim().toLowerCase();
+final existingNames = version.packingCategories.map(categoryNameTrimmed).toSet();
+return Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text(
+'Quick add',
+style: context.textStyles.titleSmall?.copyWith(
+fontWeight: FontWeight.w600,
+color: context.colors.onSurfaceVariant,
+),
+),
+const SizedBox(height: 8),
+Wrap(
+spacing: 8,
+runSpacing: 8,
+children: [
+for (final suggestion in checklistCategorySuggestions)
+  if (!existingNames.contains(suggestion.name.trim().toLowerCase()))
+    FilterChip(
+      label: Text('+ ${suggestion.name}'),
+      onSelected: (_) {
+        setState(() {
+          final nameCtrl = TextEditingController(text: suggestion.name);
+          version.packingCategories.add(PackingCategoryFormState(
+            nameCtrl: nameCtrl,
+            descriptionCtrl: null,
+            items: [],
+          ));
+          version.notifyListeners();
+        });
+      },
+      selected: false,
+    ),
+],
+),
+const SizedBox(height: 8),
+ExpansionTile(
+title: Text(
+'Add suggested item',
+style: context.textStyles.bodyMedium?.copyWith(
+fontWeight: FontWeight.w500,
+color: context.colors.onSurfaceVariant,
+),
+),
+children: [
+Padding(
+padding: const EdgeInsets.only(bottom: 12),
+child: Wrap(
+spacing: 8,
+runSpacing: 8,
+children: [
+for (final itemName in checklistSuggestedItemNames)
+  ActionChip(
+    label: Text(itemName),
+    onPressed: () {
+      final categoryName = checklistItemToCategory[itemName];
+      if (categoryName == null) return;
+      setState(() {
+        final idx = findCategoryIndexByName(
+          version.packingCategories,
+          categoryName,
+          (c) => c.nameCtrl.text,
+        );
+        final newItem = PackingItemFormState(
+          id: 'suggest_${DateTime.now().millisecondsSinceEpoch}',
+          nameCtrl: TextEditingController(text: itemName),
+        );
+        if (idx == null) {
+          final nameCtrl = TextEditingController(text: categoryName);
+          final cat = PackingCategoryFormState(
+            nameCtrl: nameCtrl,
+            descriptionCtrl: null,
+            items: [newItem],
+          );
+          version.packingCategories.add(cat);
+        } else {
+          version.packingCategories[idx].items.add(newItem);
+          version.packingCategories[idx].notifyListeners();
+        }
+        version.notifyListeners();
+      });
+    },
+  ),
+],
+),
+),
+  ],
+),
+  ],
 );
 }
 
@@ -2014,7 +2020,7 @@ Widget _buildPrepareSection(Prepare prepare, VersionFormState version) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      // Travel Insurance
+      // Travel Insurance (kept for AI save path; not shown in Step 4)
       _buildInfoCard(
           icon: Icons.shield_outlined,
           title: 'Travel Insurance',
@@ -2403,55 +2409,6 @@ Widget _buildPrepareSection(Prepare prepare, VersionFormState version) {
           ],
         ),
       ),
-
-      // Climate
-      if (prepare.climate != null && prepare.climate!.data.isNotEmpty)
-        _buildInfoCard(
-          icon: Icons.thermostat_outlined,
-          title: 'Climate Data',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                prepare.climate!.location,
-                style: context.textStyles.titleSmall,
-              ),
-              const SizedBox(height: 16),
-              // Simple table view of climate data
-              ...prepare.climate!.data.map((month) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          month.month,
-                          style: context.textStyles.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Temp: ${month.avgTempLowC.toStringAsFixed(0)}°C - ${month.avgTempHighC.toStringAsFixed(0)}°C'),
-                            Text('Rain: ${month.avgRainMm.toStringAsFixed(0)}mm'),
-                            Text('Days: ${month.avgDaylightHours.toStringAsFixed(1)}h'),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ],
-          ),
-        ),
     ],
   );
 }
@@ -4576,6 +4533,12 @@ const SizedBox(height: 32),
 _buildPublishStatusToggle(),
 const SizedBox(height: 24),
 
+// How to Get There (editor for active version; same data source as rest of overview)
+if (formState != null && formState!.versions.isNotEmpty) ...[
+  _buildTransportEditorSection(formState!.activeVersion),
+  const SizedBox(height: 24),
+],
+
 // Summary Cards
 _buildActivityTypeCard(),
 _buildLocationsCard(),
@@ -5024,6 +4987,69 @@ Widget _buildPackingCard() {
   );
 }
 
+/// Full transportation editor for Overview step. Uses [version] (active version) for consistent state.
+Widget _buildTransportEditorSection(VersionFormState version) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'How to Get There',
+        style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        'Add different ways to reach the starting point',
+        style: context.textStyles.bodyMedium?.copyWith(color: Colors.grey.shade700),
+      ),
+      const SizedBox(height: 24),
+      ...version.transportationOptions.asMap().entries.map((entry) {
+        final index = entry.key;
+        final option = entry.value;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: _buildTransportationCard(version, index, option),
+        );
+      }),
+      OutlinedButton.icon(
+        onPressed: () {
+          if (formState != null) {
+            setState(() {
+              version.transportationOptions.add(TransportationFormState.initial());
+            });
+          }
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Add Transportation Option'),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 50),
+          side: BorderSide(color: context.colors.primary, style: BorderStyle.solid),
+        ),
+      ),
+      const SizedBox(height: 16),
+      Container(
+        padding: AppSpacing.paddingMd,
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blue.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Tip: Describe each route option (e.g., "Flying from Brussels") and select transport types that travelers can combine',
+                style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
 Widget _buildTransportCard() {
   // Phase 5: Use new state
   if (formState == null) return const SizedBox.shrink();
@@ -5037,10 +5063,7 @@ Widget _buildTransportCard() {
     icon: Icons.directions_outlined,
     title: 'How to Get There',
     badge: hasTransport ? '$totalOptions options' : null,
-    onEdit: () {
-      _pageController.animateToPage(stepPrepare, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-      setState(() => _currentStep = 2);
-    },
+    onEdit: () {}, // Editor is on this page (Overview); no navigation
     isComplete: hasTransport,
     child: hasTransport
         ? Column(
@@ -6357,6 +6380,8 @@ late TextEditingController _itemDescCtrl;
 late TextEditingController _categoryDescCtrl;
 bool _showCategoryDescription = false;
 bool _showItemDescription = false;
+/// Option B: when set, this item is shown as an expanded card instead of a chip.
+String? _expandedItemId;
 
 @override
 void initState() {
@@ -6587,6 +6612,9 @@ runSpacing: 8,
 children: widget.category.items.asMap().entries.map((entry) {
 final itemIndex = entry.key;
 final item = entry.value;
+if (item.id == _expandedItemId) {
+return _buildItemExpandedCard(item, itemIndex);
+}
 return _buildItemChipNew(item, itemIndex);
 }).toList(),
 ),
@@ -6595,45 +6623,179 @@ return _buildItemChipNew(item, itemIndex);
 );
 }
 
-Widget _buildItemChipNew(PackingItemFormState item, int itemIndex) {
-final hasDescription = item.descriptionCtrl?.text.isNotEmpty ?? false;
+/// Option B: small card in place of chip when "Show more" is expanded. Shows name, quantity, description, note, link, price.
+Widget _buildItemExpandedCard(PackingItemFormState item, int itemIndex) {
+  return Container(
+    constraints: const BoxConstraints(minWidth: 200, maxWidth: 320),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.grey.shade300),
+      boxShadow: [
+        BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8, offset: const Offset(0, 2)),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: item.nameCtrl,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  border: OutlineInputBorder(),
+                  labelText: 'Item',
+                ),
+                onChanged: (_) => widget.onUpdate(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 56,
+              child: TextField(
+                controller: item.quantityCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  border: OutlineInputBorder(),
+                  labelText: 'Qty',
+                ),
+                onChanged: (_) => widget.onUpdate(),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.expand_less),
+              onPressed: () => setState(() => _expandedItemId = null),
+              tooltip: 'Show less',
+            ),
+            IconButton(
+              icon: Icon(Icons.close, size: 18, color: Colors.grey.shade600),
+              onPressed: () => _deleteItemNew(itemIndex),
+              tooltip: 'Remove item',
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: item.descriptionCtrl,
+          maxLines: 2,
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            border: OutlineInputBorder(),
+            labelText: 'Description',
+          ),
+          onChanged: (_) => widget.onUpdate(),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: item.noteCtrl,
+          maxLines: 1,
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            border: OutlineInputBorder(),
+            labelText: 'Note',
+          ),
+          onChanged: (_) => widget.onUpdate(),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: item.linkCtrl,
+          maxLines: 1,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            border: OutlineInputBorder(),
+            labelText: 'Link',
+          ),
+          onChanged: (_) => widget.onUpdate(),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: item.priceCtrl,
+          maxLines: 1,
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            border: OutlineInputBorder(),
+            labelText: 'Price',
+          ),
+          onChanged: (_) => widget.onUpdate(),
+        ),
+      ],
+    ),
+  );
+}
 
-return GestureDetector(
-onLongPress: () => _showEditItemDialogNew(item, itemIndex),
-child: Container(
-padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-decoration: BoxDecoration(
-color: Colors.grey.shade100,
-borderRadius: BorderRadius.circular(20),
-border: Border.all(color: Colors.grey.shade300),
-),
-child: Row(
-mainAxisSize: MainAxisSize.min,
-children: [
-Text(item.nameCtrl.text, style: const TextStyle(fontSize: 14)),
-if (hasDescription) ...[
-const SizedBox(width: 6),
-GestureDetector(
-onTap: () => _showItemInfoTooltipNew(item),
-child: MouseRegion(
-cursor: SystemMouseCursors.click,
-child: Icon(
-Icons.info_outline,
-size: 16,
-color: context.colors.primary,
-),
-),
-),
-],
-const SizedBox(width: 6),
-GestureDetector(
-onTap: () => _deleteItemNew(itemIndex),
-child: Icon(Icons.close, size: 16, color: Colors.grey.shade500),
-),
-],
-),
-),
-);
+Widget _buildItemChipNew(PackingItemFormState item, int itemIndex) {
+  final hasDescription = item.descriptionCtrl.text.isNotEmpty;
+  final hasNote = item.noteCtrl.text.trim().isNotEmpty;
+  final hasLink = item.linkCtrl.text.trim().isNotEmpty;
+  final hasPrice = item.priceCtrl.text.trim().isNotEmpty;
+  final hasOptional = hasNote || hasLink || hasPrice;
+
+  return GestureDetector(
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasLink)
+            GestureDetector(
+              onTap: () {
+                final url = item.linkCtrl.text.trim();
+                if (url.isNotEmpty) {
+                  launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                }
+              },
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: Icon(Icons.link, size: 14, color: context.colors.primary),
+              ),
+            ),
+          if (hasLink) const SizedBox(width: 4),
+          Text(item.nameCtrl.text, style: const TextStyle(fontSize: 14)),
+          if (item.quantityCtrl.text.trim().isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Text('(${item.quantityCtrl.text}x)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          ],
+          if (hasPrice) ...[
+            const SizedBox(width: 4),
+            Text('· ${item.priceCtrl.text.trim()}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          ],
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () => setState(() => _expandedItemId = item.id),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Text(
+                'Show more',
+                style: TextStyle(fontSize: 12, color: context.colors.primary, decoration: TextDecoration.underline),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () => _deleteItemNew(itemIndex),
+            child: Icon(Icons.close, size: 16, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 void _addItem() {
@@ -6662,113 +6824,6 @@ widget.category.items[itemIndex].dispose();
 widget.category.items.removeAt(itemIndex);
 widget.category.notifyListeners();
 widget.onUpdate();
-}
-
-void _showItemInfoTooltipNew(PackingItemFormState item) {
-showModalBottomSheet(
-context: context,
-builder: (context) => Container(
-padding: const EdgeInsets.all(20),
-child: Column(
-mainAxisSize: MainAxisSize.min,
-crossAxisAlignment: CrossAxisAlignment.start,
-children: [
-Row(
-children: [
-Icon(Icons.info_outline, color: context.colors.primary),
-const SizedBox(width: 8),
-Expanded(
-child: Text(
-item.nameCtrl.text,
-style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-),
-),
-],
-),
-const SizedBox(height: 12),
-if (item.descriptionCtrl?.text.isNotEmpty ?? false)
-MarkdownBody(
-data: item.descriptionCtrl!.text,
-styleSheet: MarkdownStyleSheet(
-a: TextStyle(color: context.colors.primary, decoration: TextDecoration.underline),
-),
-onTapLink: (text, href, title) {
-Navigator.pop(context);
-if (href != null) {
-launchUrl(Uri.parse(href), mode: LaunchMode.externalApplication);
-}
-},
-),
-const SizedBox(height: 20),
-],
-),
-),
-);
-}
-
-void _showEditItemDialogNew(PackingItemFormState item, int itemIndex) {
-final nameController = TextEditingController(text: item.nameCtrl.text);
-final descController = TextEditingController(text: item.descriptionCtrl?.text ?? '');
-
-showDialog(
-context: context,
-builder: (context) => AlertDialog(
-title: const Text('Edit Item'),
-content: Column(
-mainAxisSize: MainAxisSize.min,
-children: [
-Directionality(
-textDirection: TextDirection.ltr,
-child: TextField(
-controller: nameController,
-textDirection: TextDirection.ltr,
-decoration: const InputDecoration(labelText: 'Item name'),
-),
-),
-const SizedBox(height: 16),
-Directionality(
-textDirection: TextDirection.ltr,
-child: TextField(
-controller: descController,
-textDirection: TextDirection.ltr,
-maxLines: 3,
-decoration: const InputDecoration(labelText: 'Description (optional)'),
-),
-),
-],
-),
-actions: [
-TextButton(
-onPressed: () {
-nameController.dispose();
-descController.dispose();
-Navigator.pop(context);
-},
-child: const Text('Cancel'),
-),
-FilledButton(
-onPressed: () {
-item.nameCtrl.text = nameController.text;
-// Note: descriptionCtrl is final, so we can't assign it
-// The description will be preserved if it already exists
-// For new descriptions, they'll be saved when the category is saved
-if (item.descriptionCtrl != null && descController.text.isNotEmpty) {
-item.descriptionCtrl!.text = descController.text;
-} else if (item.descriptionCtrl != null && descController.text.isEmpty) {
-// Can't remove the controller since it's final, but we can clear it
-item.descriptionCtrl!.clear();
-}
-widget.category.notifyListeners();
-nameController.dispose();
-descController.dispose();
-Navigator.pop(context);
-widget.onUpdate();
-},
-child: const Text('Save'),
-),
-],
-),
-);
 }
 }
 

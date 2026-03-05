@@ -99,7 +99,7 @@
     2. Restrict the key to your domain (e.g., localhost:*, yourdomain.com/*)
     3. Enable only the APIs you need (Maps JavaScript API, Places API, etc.)
   -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAbK1n5nk4DUKsWps05V8c4hv94b2vI-cA&libraries=places,geometry"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAbK1n5nk4DUKsWps05V8c4hv94b2vI-cA&libraries=places,geometry&loading=async" async defer></script>
   
   <!-- Suppress non-critical AssetManifest.json errors in console -->
   <script>
@@ -115,7 +115,9 @@
           message.includes('AssetManifest') ||
           (message.includes('Unable to load asset') && (message.includes('asset') || message.includes('Asset'))) ||
           message.includes('asset does not exist') ||
-          (message.includes('google_fonts') && message.includes('Unable to load asset'));
+          (message.includes('google_fonts') && message.includes('Unable to load asset')) ||
+          message.includes('EncodingError') ||
+          message.includes('source image cannot be decoded');
       }
       function shouldSuppress(args) {
         const message = args.map(function(a) {

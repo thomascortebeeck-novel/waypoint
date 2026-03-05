@@ -30,7 +30,13 @@ export 'dialogs/waypoint_bottom_sheet.dart';
 // Lists
 export 'lists/settings_item.dart';
 
-// Waypoint cards
+// Unified (builder overview, section cards)
+export 'unified/section_card.dart';
+export 'unified/section_add_button.dart';
+
+// Waypoint cards & shared components (Home, My Trips, Checklist, Explore)
+export 'waypoint/waypoint_shared_components.dart';
+export 'waypoint/waypoint_cream_chip.dart';
 export 'waypoint/unified_waypoint_card.dart';
 export 'waypoint/waypoint_timeline_card.dart';
 export 'waypoint/waypoint_timeline_list.dart';

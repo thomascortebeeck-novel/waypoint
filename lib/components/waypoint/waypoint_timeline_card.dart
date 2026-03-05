@@ -36,184 +36,161 @@ class WaypointTimelineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final config = _getCategoryConfig(waypoint.type);
+    final theme = Theme.of(context);
     
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: Material(
+          elevation: 1,
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE8EAED)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.02),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Thumbnail image
-            _buildThumbnail(config),
-            
-            // Main content
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Category chip
-                    _buildCategoryChip(config),
-                    const SizedBox(height: 3),
-                    
-                    // Name
-                    Text(
-                      waypoint.name,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A1D21),
-                        height: 1.3,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    
-                    // Address
-                    if (waypoint.address != null)
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Left color bar (4px)
+              Container(width: 4, color: config.color),
+              // Thumbnail image 100×90, right-only radius
+              _buildThumbnail(config),
+              // Main content — 12px padding
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Name — titleSmall, w600
                       Text(
-                        waypoint.address!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF8B9099),
+                        waypoint.name,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1A1D21),
+                          height: 1.3,
+                        ) ?? const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1D21),
                           height: 1.3,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    
-                    // Rating
-                    if (waypoint.rating != null) ...[
-                      const SizedBox(height: 1),
-                      _buildRating(waypoint.rating!),
+                      const SizedBox(height: 2),
+                      // Address — bodySmall grey
+                      if (waypoint.address != null)
+                        Text(
+                          waypoint.address!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF8B9099),
+                            height: 1.3,
+                          ) ?? const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF8B9099),
+                            height: 1.3,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      // Rating and category on one row: ⭐ 4.5  |  • Cafe
+                      _buildRatingAndCategoryRow(config, theme),
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-            
-            // Right actions column
-            _buildActionsColumn(config),
-          ],
+              _buildActionsColumn(config),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  Widget _buildRatingAndCategoryRow(CategoryConfig config, ThemeData theme) {
+    final hasRating = waypoint.rating != null;
+    final labelStyle = theme.textTheme.bodySmall?.copyWith(
+      color: const Color(0xFF8B9099),
+      height: 1.3,
+    ) ?? const TextStyle(fontSize: 12, color: Color(0xFF8B9099), height: 1.3);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasRating) ...[
+            Text(
+              '⭐',
+              style: labelStyle?.copyWith(fontSize: 12),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              waypoint.rating!.toStringAsFixed(1),
+              style: labelStyle?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF444444),
+              ),
+            ),
+          ],
+          if (hasRating) const SizedBox(width: 6),
+          if (hasRating) Text('|', style: labelStyle),
+          if (hasRating) const SizedBox(width: 6),
+          // 6px colored dot + category label
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: config.color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(config.label, style: labelStyle),
+        ],
+      ),
+    );
+  }
+
   Widget _buildThumbnail(CategoryConfig config) {
-    final hasImage = waypoint.photoUrl != null || waypoint.linkImageUrl != null;
-    final imageUrl = waypoint.photoUrl ?? waypoint.linkImageUrl;
+    final imageUrl = waypoint.photoUrls?.isNotEmpty == true
+        ? waypoint.photoUrls!.first
+        : (waypoint.photoUrl ?? waypoint.linkImageUrl);
+    const double width = 100;
+    const double height = 90;
     
     return Container(
-      width: 80,
-      height: 80,
+      width: width,
+      height: height,
       decoration: BoxDecoration(
         color: config.color.withValues(alpha: 0.15),
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(14),
-          bottomLeft: Radius.circular(14),
-        ),
-        border: Border(
-          right: BorderSide(color: const Color(0xFFF0F0F0), width: 1),
+          topRight: Radius.circular(12),
+          bottomRight: Radius.circular(12),
         ),
       ),
-      child: hasImage && imageUrl != null
+      child: imageUrl != null && imageUrl.isNotEmpty
           ? ClipRRect(
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(14),
-                bottomLeft: Radius.circular(14),
+                topRight: Radius.circular(12),
+                bottomRight: Radius.circular(12),
               ),
               child: CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: config.color.withValues(alpha: 0.15),
-                  child: Icon(
-                    config.icon,
-                    size: 26,
-                    color: config.color,
-                  ),
+                  child: Icon(config.icon, size: 26, color: config.color),
                 ),
                 errorWidget: (context, url, error) => Container(
                   color: config.color.withValues(alpha: 0.15),
-                  child: Icon(
-                    config.icon,
-                    size: 26,
-                    color: config.color,
-                  ),
+                  child: Icon(config.icon, size: 26, color: config.color),
                 ),
               ),
             )
-          : Icon(
-              config.icon,
-              size: 26,
-              color: config.color,
+          : Center(
+              child: Icon(config.icon, size: 26, color: config.color),
             ),
-    );
-  }
-
-  Widget _buildCategoryChip(CategoryConfig config) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: config.color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        config.label.toUpperCase(),
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: config.color,
-          letterSpacing: 0.05,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRating(double rating) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          '⭐',
-          style: TextStyle(fontSize: 12),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          rating.toStringAsFixed(1),
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF444444),
-          ),
-        ),
-        const SizedBox(width: 4),
-        const Text(
-          'Google',
-          style: TextStyle(
-            fontSize: 11,
-            color: Color(0xFFAAAAAA),
-          ),
-        ),
-      ],
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/trip_selection_model.dart';
@@ -359,11 +360,15 @@ class _PackingCategoryCard extends StatelessWidget {
             // Items
             ...category.items.map((item) {
               final isChecked = packing?.items[item.id] == true;
+              final hasNote = item.note != null && item.note!.isNotEmpty;
+              final hasLink = item.link != null && item.link!.isNotEmpty;
+              final hasPrice = item.price != null && item.price!.isNotEmpty;
               return InkWell(
                 onTap: () => onToggleItem(item.id, !isChecked),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Checkbox(
                         value: isChecked,
@@ -374,14 +379,62 @@ class _PackingCategoryCard extends StatelessWidget {
                         activeColor: Colors.green,
                       ),
                       Expanded(
-                        child: Text(
-                          item.name,
-                          style: context.textStyles.bodyMedium?.copyWith(
-                            decoration: isChecked ? TextDecoration.lineThrough : null,
-                            color: isChecked
-                                ? context.colors.onSurfaceVariant
-                                : context.colors.onSurface,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              item.name,
+                              style: context.textStyles.bodyMedium?.copyWith(
+                                decoration: isChecked ? TextDecoration.lineThrough : null,
+                                color: isChecked
+                                    ? context.colors.onSurfaceVariant
+                                    : context.colors.onSurface,
+                              ),
+                            ),
+                            if (hasPrice || hasLink || hasNote) ...[
+                              const SizedBox(height: 4),
+                              if (hasPrice)
+                                Text(
+                                  item.price!,
+                                  style: context.textStyles.bodySmall?.copyWith(
+                                    color: context.colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              if (hasLink)
+                                InkWell(
+                                  onTap: () {
+                                    launchUrl(Uri.parse(item.link!), mode: LaunchMode.externalApplication);
+                                  },
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.link, size: 14, color: Theme.of(context).colorScheme.primary),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Open link',
+                                        style: context.textStyles.bodySmall?.copyWith(
+                                          color: Theme.of(context).colorScheme.primary,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (hasNote)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    item.note!,
+                                    style: context.textStyles.bodySmall?.copyWith(
+                                      color: context.colors.onSurfaceVariant,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                          ],
                         ),
                       ),
                     ],

@@ -55,6 +55,9 @@ class VersionFormState extends ChangeNotifier {
   // --- Packing (per-version, inside Prepare tab) ---
   final List<PackingCategoryFormState> packingCategories;
   
+  /// Set to true when we ran Prepare→checklist migration on load so next save persists the flag.
+  final bool checklistMigratedFromPrepare;
+  
   // --- Transportation (per-version, inside Prepare tab) ---
   final List<TransportationFormState> transportationOptions;
   
@@ -111,6 +114,7 @@ class VersionFormState extends ChangeNotifier {
     required this.prepareClimateDescriptionCtrl,
     required this.prepareClimateBestTimeCtrl,
     required this.packingCategories,
+    this.checklistMigratedFromPrepare = false,
     required this.transportationOptions,
     LocalTips? generatedLocalTips,
     required this.foodSpecialties,
@@ -248,9 +252,11 @@ class VersionFormState extends ChangeNotifier {
         items: cat.items.map((item) => PackingItemFormState(
           id: item.id,
           nameCtrl: TextEditingController(text: item.nameCtrl.text),
-          descriptionCtrl: item.descriptionCtrl != null
-              ? TextEditingController(text: item.descriptionCtrl!.text)
-              : null,
+          descriptionCtrl: TextEditingController(text: item.descriptionCtrl.text),
+          quantityCtrl: TextEditingController(text: item.quantityCtrl.text),
+          noteCtrl: item.noteCtrl.text.isNotEmpty ? TextEditingController(text: item.noteCtrl.text) : null,
+          linkCtrl: item.linkCtrl.text.isNotEmpty ? TextEditingController(text: item.linkCtrl.text) : null,
+          priceCtrl: item.priceCtrl.text.isNotEmpty ? TextEditingController(text: item.priceCtrl.text) : null,
           isEssential: item.isEssential,
         )).toList(),
       );
@@ -330,9 +336,9 @@ class VersionFormState extends ChangeNotifier {
       prepareClimateBestTimeCtrl: TextEditingController(
         text: '', // Climate best time not in model structure
       ),
-      packingCategories: version.packingCategories
-          .map((cat) => PackingCategoryFormState.fromModel(cat))
-          .toList(),
+      packingCategories: _buildPackingCategoriesWithMigration(version),
+      checklistMigratedFromPrepare: version.checklistMigratedFromPrepare == true ||
+          _prepareHasDocVaccineData(version.prepare),
       transportationOptions: version.transportationOptions
           .map((t) => TransportationFormState.fromModel(t))
           .toList(),
@@ -470,6 +476,94 @@ class VersionFormState extends ChangeNotifier {
     // Dispose days
     for (final day in _days.values) { day.dispose(); }
     super.dispose();
+  }
+
+  /// True if Prepare contains document/vaccine data that can be migrated to checklist categories.
+  static bool _prepareHasDocVaccineData(Prepare? p) {
+    if (p == null) return false;
+    return p.travelInsurance != null ||
+        p.visa != null ||
+        p.passport != null ||
+        p.permits.isNotEmpty ||
+        p.vaccines != null;
+  }
+
+  /// Build packing categories from version; if migration needed, append Documents/Vaccines from Prepare.
+  static List<PackingCategoryFormState> _buildPackingCategoriesWithMigration(PlanVersion version) {
+    final list = version.packingCategories
+        .map((cat) => PackingCategoryFormState.fromModel(cat))
+        .toList();
+    if (version.checklistMigratedFromPrepare == true) return list;
+    if (!_prepareHasDocVaccineData(version.prepare)) return list;
+    final prepare = version.prepare!;
+    // Documents category
+    final docItems = <PackingItemFormState>[];
+    if (prepare.travelInsurance != null) {
+      final t = prepare.travelInsurance!;
+      final note = [t.recommendation, t.note].where((s) => s.isNotEmpty).join('\n');
+      docItems.add(PackingItemFormState(
+        id: 'migrate_insurance_${DateTime.now().millisecondsSinceEpoch}',
+        nameCtrl: TextEditingController(text: 'Travel insurance'),
+        noteCtrl: note.isNotEmpty ? TextEditingController(text: note) : null,
+        linkCtrl: t.url.isNotEmpty ? TextEditingController(text: t.url) : null,
+      ));
+    }
+    if (prepare.visa != null) {
+      final v = prepare.visa!;
+      final note = [v.requirement, v.note].where((s) => s != null && s.isNotEmpty).join('\n');
+      docItems.add(PackingItemFormState(
+        id: 'migrate_visa_${DateTime.now().millisecondsSinceEpoch}',
+        nameCtrl: TextEditingController(text: 'Visa'),
+        noteCtrl: note.isNotEmpty ? TextEditingController(text: note) : null,
+      ));
+    }
+    if (prepare.passport != null) {
+      final p = prepare.passport!;
+      final note = [p.validityRequirement, p.blankPagesRequired].where((s) => s.isNotEmpty).join('\n');
+      docItems.add(PackingItemFormState(
+        id: 'migrate_passport_${DateTime.now().millisecondsSinceEpoch}',
+        nameCtrl: TextEditingController(text: 'Passport'),
+        noteCtrl: note.isNotEmpty ? TextEditingController(text: note) : null,
+      ));
+    }
+    var migrateId = DateTime.now().millisecondsSinceEpoch;
+    for (final permit in prepare.permits) {
+      docItems.add(PackingItemFormState(
+        id: 'migrate_permit_${migrateId}_${docItems.length}',
+        nameCtrl: TextEditingController(text: permit.type.isNotEmpty ? permit.type : 'Permit'),
+        noteCtrl: [permit.details, permit.howToObtain].where((s) => s.isNotEmpty).join('\n').isNotEmpty
+            ? TextEditingController(text: [permit.details, permit.howToObtain].where((s) => s.isNotEmpty).join('\n'))
+            : null,
+        priceCtrl: permit.cost != null && permit.cost!.isNotEmpty ? TextEditingController(text: permit.cost!) : null,
+      ));
+    }
+    if (docItems.isNotEmpty) {
+      list.add(PackingCategoryFormState(
+        nameCtrl: TextEditingController(text: 'Documents'),
+        descriptionCtrl: null,
+        items: docItems,
+      ));
+    }
+    // Vaccines category
+    if (prepare.vaccines != null) {
+      final v = prepare.vaccines!;
+      final all = [...v.required, ...v.recommended];
+      if (all.isNotEmpty) {
+        final vaccineItems = all.asMap().entries.map((e) {
+          return PackingItemFormState(
+            id: 'migrate_vaccine_${migrateId}_${e.key}',
+            nameCtrl: TextEditingController(text: e.value),
+            noteCtrl: v.note != null && v.note!.isNotEmpty ? TextEditingController(text: v.note!) : null,
+          );
+        }).toList();
+        list.add(PackingCategoryFormState(
+          nameCtrl: TextEditingController(text: 'Vaccines'),
+          descriptionCtrl: null,
+          items: vaccineItems,
+        ));
+      }
+    }
+    return list;
   }
 }
 

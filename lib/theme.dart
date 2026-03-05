@@ -86,6 +86,8 @@ ThemeData get lightTheme => ThemeData(
     secondaryContainer: LightModeColors.secondaryContainer,
     tertiary: LightModeColors.tertiary,
     onTertiary: LightModeColors.onTertiary,
+    tertiaryContainer: LightModeColors.tertiaryContainer,
+    onTertiaryContainer: LightModeColors.onTertiaryContainer,
     error: LightModeColors.error,
     onError: LightModeColors.onError,
     surface: LightModeColors.surface,
@@ -95,17 +97,17 @@ ThemeData get lightTheme => ThemeData(
   ),
   scaffoldBackgroundColor: LightModeColors.background,
   appBarTheme: const AppBarTheme(
-    backgroundColor: LightModeColors.primary,
-    foregroundColor: LightModeColors.onPrimary,
+    backgroundColor: Colors.white,
+    foregroundColor: LightModeColors.onSurface,
     elevation: 0,
     centerTitle: false,
     scrolledUnderElevation: 0,
-    iconTheme: IconThemeData(color: LightModeColors.onPrimary),
+    iconTheme: IconThemeData(color: LightModeColors.onSurface),
   ),
   cardTheme: CardThemeData(
     elevation: 2,
     shadowColor: LightModeColors.shadow.withValues(alpha: 0.08),
-    color: Colors.white,
+    color: LightModeColors.surface,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(WaypointRadius.md),
       side: BorderSide.none,
@@ -148,7 +150,7 @@ ThemeData get lightTheme => ThemeData(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
-      textStyle: GoogleFonts.inter(
+      textStyle: GoogleFonts.firaSans(
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: 0.3,
@@ -164,7 +166,7 @@ ThemeData get lightTheme => ThemeData(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
       side: const BorderSide(color: LightModeColors.primary, width: 1),
-      textStyle: GoogleFonts.inter(
+      textStyle: GoogleFonts.firaSans(
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: 0.3,
@@ -174,7 +176,7 @@ ThemeData get lightTheme => ThemeData(
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
       foregroundColor: LightModeColors.primary,
-      textStyle: GoogleFonts.inter(
+      textStyle: GoogleFonts.firaSans(
         fontWeight: FontWeight.w600,
         fontSize: 16,
       ),
@@ -258,13 +260,13 @@ ThemeData get lightTheme => ThemeData(
     height: 72,
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return GoogleFonts.inter(
+        return GoogleFonts.firaSans(
           fontSize: 12,
           fontWeight: FontWeight.w600,
           color: LightModeColors.primary,
         );
       }
-      return GoogleFonts.inter(
+      return GoogleFonts.sourceSans3(
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: NeutralColors.textSecondary,
@@ -429,90 +431,94 @@ TextTheme _buildTextTheme(Brightness brightness) {
       ? NeutralColors.textSecondary
       : DarkModeColors.onSurfaceSecondary;
 
+  // Fira Sans for headings/primary UI, Source Sans 3 for body (BRANDING_GUIDELINES)
+  final headlineFont = GoogleFonts.firaSans;
+  final bodyFont = GoogleFonts.sourceSans3;
+
   return TextTheme(
-    displayLarge: GoogleFonts.inter(
+    displayLarge: headlineFont(
       fontSize: FontSizes.displayLarge,
       fontWeight: FontWeight.w800,
       letterSpacing: -1.5,
       color: textColor,
     ),
-    displayMedium: GoogleFonts.inter(
+    displayMedium: headlineFont(
       fontSize: FontSizes.displayMedium,
       fontWeight: FontWeight.w800,
       letterSpacing: -1.0,
       color: textColor,
     ),
-    displaySmall: GoogleFonts.inter(
+    displaySmall: headlineFont(
       fontSize: FontSizes.displaySmall,
       fontWeight: FontWeight.w700,
       letterSpacing: -0.5,
       color: textColor,
     ),
-    headlineLarge: GoogleFonts.inter(
+    headlineLarge: headlineFont(
       fontSize: FontSizes.headlineLarge,
       fontWeight: FontWeight.w700,
       letterSpacing: -0.3,
       color: textColor,
     ),
-    headlineMedium: GoogleFonts.inter(
+    headlineMedium: headlineFont(
       fontSize: FontSizes.headlineMedium,
       fontWeight: FontWeight.w600,
       letterSpacing: -0.2,
       color: textColor,
     ),
-    headlineSmall: GoogleFonts.inter(
+    headlineSmall: headlineFont(
       fontSize: FontSizes.headlineSmall,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    titleLarge: GoogleFonts.inter(
+    titleLarge: headlineFont(
       fontSize: FontSizes.titleLarge,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    titleMedium: GoogleFonts.inter(
+    titleMedium: headlineFont(
       fontSize: FontSizes.titleMedium,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    titleSmall: GoogleFonts.inter(
+    titleSmall: headlineFont(
       fontSize: FontSizes.titleSmall,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    bodyLarge: GoogleFonts.inter(
+    bodyLarge: bodyFont(
       fontSize: FontSizes.bodyLarge,
       fontWeight: FontWeight.w400,
       height: 1.5,
       letterSpacing: 0.15,
       color: textColor,
     ),
-    bodyMedium: GoogleFonts.inter(
+    bodyMedium: bodyFont(
       fontSize: FontSizes.bodyMedium,
       fontWeight: FontWeight.w400,
       height: 1.5,
       letterSpacing: 0.15,
       color: textColor,
     ),
-    bodySmall: GoogleFonts.inter(
+    bodySmall: bodyFont(
       fontSize: FontSizes.bodySmall,
       fontWeight: FontWeight.w500,
       height: 1.4,
       color: textColor,
     ),
-    labelLarge: GoogleFonts.inter(
+    labelLarge: bodyFont(
       fontSize: 14.0,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.1,
       color: secondaryColor,
     ),
-    labelMedium: GoogleFonts.inter(
+    labelMedium: bodyFont(
       fontSize: 12.0,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.5,
       color: secondaryColor,
     ),
-    labelSmall: GoogleFonts.inter(
+    labelSmall: bodyFont(
       fontSize: FontSizes.labelSmall,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.5,

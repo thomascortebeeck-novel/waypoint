@@ -241,7 +241,7 @@ class _MediaCarouselState extends State<MediaCarousel> {
     return Container(
       height: widget.height ?? 200,
       decoration: BoxDecoration(
-        color: WaypointColors.borderLight,
+        color: WaypointColors.surface,
         borderRadius: BorderRadius.circular(WaypointSpacing.cardRadius),
         border: Border.all(color: WaypointColors.border),
       ),
@@ -249,17 +249,22 @@ class _MediaCarouselState extends State<MediaCarousel> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.add_photo_alternate, size: 48, color: WaypointColors.textTertiary),
+            Icon(Icons.camera_alt_outlined, size: 48, color: WaypointColors.textSecondary),
             const SizedBox(height: 8),
             Text(
-              'Add Media',
-              style: TextStyle(color: WaypointColors.textTertiary),
+              'Add cover photo',
+              style: TextStyle(color: WaypointColors.textSecondary, fontSize: 14),
             ),
             if (widget.onAddMedia != null) ...[
               const SizedBox(height: 12),
               OutlinedButton(
                 onPressed: widget.onAddMedia,
-                child: const Text('Upload Images/Videos'),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: WaypointColors.primarySurface.withValues(alpha: 0.5),
+                  foregroundColor: WaypointColors.textPrimary,
+                  side: const BorderSide(color: WaypointColors.primary),
+                ),
+                child: const Text('Upload'),
               ),
             ],
           ],

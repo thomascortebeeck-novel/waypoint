@@ -103,6 +103,12 @@ enum ServiceCategory {
 @Deprecated('Use ServiceCategory instead')
 typedef LogisticsCategory = ServiceCategory;
 
+/// Alternative waypoint mode: pickOne = traveler chooses one; addOn = shown by default, owner can skip.
+enum AlternativeMode {
+  pickOne,
+  addOn,
+}
+
 /// Time slot category for organizing waypoints chronologically
 /// 
 /// **Deprecated**: This enum is deprecated in favor of sequential ordering.
@@ -272,7 +278,15 @@ class RouteWaypoint {
   // Day grouping for multi-day trips
   int? day; // Day number (1, 2, 3, etc.)
 
-  // Choice group fields (for OR logic)
+  // Alternative waypoint fields (replaces choiceGroupId for new system; choiceGroupId kept for migration)
+  /// True if this waypoint is an alternative (not always in the active list).
+  bool isAlternative;
+  /// Id of the primary waypoint this alternative belongs to (only when isAlternative is true).
+  String? primaryWaypointId;
+  /// Mode: pickOne = traveler chooses one; addOn = shown by default, owner can skip.
+  AlternativeMode? alternativeMode;
+
+  // Choice group fields (for OR logic) — legacy, kept for migration
   /// Groups waypoints with the same order as OR options.
   /// 
   /// When multiple waypoints share the same `order` and `choiceGroupId`,
@@ -336,6 +350,9 @@ class RouteWaypoint {
     this.travelRouteGeometry,
     this.waypointSnapInfo,
     this.day,
+    this.isAlternative = false,
+    this.primaryWaypointId,
+    this.alternativeMode,
     this.choiceGroupId,
     this.choiceLabel,
     this.timeSlotCategory,
@@ -383,6 +400,9 @@ class RouteWaypoint {
         if (travelRouteGeometry != null) 'travelRouteGeometry': travelRouteGeometry!.map((p) => <String, double>{'lat': p.latitude, 'lng': p.longitude}).toList(),
         if (waypointSnapInfo != null) 'waypointSnapInfo': waypointSnapInfo!.toJson(),
         if (day != null) 'day': day,
+        if (isAlternative) 'isAlternative': isAlternative,
+        if (primaryWaypointId != null) 'primaryWaypointId': primaryWaypointId,
+        if (alternativeMode != null) 'alternativeMode': alternativeMode!.name,
         if (choiceGroupId != null) 'choiceGroupId': choiceGroupId,
         if (choiceLabel != null) 'choiceLabel': choiceLabel,
         if (timeSlotCategory != null) 'timeSlotCategory': timeSlotCategory!.name,
@@ -509,6 +529,14 @@ class RouteWaypoint {
             ? WaypointSnapInfo.fromJson(json['waypointSnapInfo'] as Map<String, dynamic>)
             : null,
         day: json['day'] as int?,
+        isAlternative: json['isAlternative'] as bool? ?? false,
+        primaryWaypointId: json['primaryWaypointId'] as String?,
+        alternativeMode: json['alternativeMode'] != null
+            ? AlternativeMode.values.firstWhere(
+                (e) => e.name == json['alternativeMode'],
+                orElse: () => AlternativeMode.pickOne,
+              )
+            : null,
         choiceGroupId: json['choiceGroupId'] as String?,
         choiceLabel: json['choiceLabel'] as String?,
         timeSlotCategory: json['timeSlotCategory'] != null
@@ -561,6 +589,9 @@ class RouteWaypoint {
     List<ll.LatLng>? travelRouteGeometry,
     WaypointSnapInfo? waypointSnapInfo,
     int? day,
+    bool? isAlternative,
+    String? primaryWaypointId,
+    AlternativeMode? alternativeMode,
     String? choiceGroupId,
     String? choiceLabel,
     TimeSlotCategory? timeSlotCategory,
@@ -606,6 +637,9 @@ class RouteWaypoint {
         travelRouteGeometry: travelRouteGeometry ?? this.travelRouteGeometry,
         waypointSnapInfo: waypointSnapInfo ?? this.waypointSnapInfo,
         day: day ?? this.day,
+        isAlternative: isAlternative ?? this.isAlternative,
+        primaryWaypointId: primaryWaypointId ?? this.primaryWaypointId,
+        alternativeMode: alternativeMode ?? this.alternativeMode,
         choiceGroupId: choiceGroupId ?? this.choiceGroupId,
         choiceLabel: choiceLabel ?? this.choiceLabel,
         timeSlotCategory: timeSlotCategory ?? this.timeSlotCategory,

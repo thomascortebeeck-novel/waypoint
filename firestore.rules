@@ -221,9 +221,9 @@ service cloud.firestore {
     // ORDERS COLLECTION
     // ============================================
     match /orders/{orderId} {
-      // Users can read their own orders (as buyer)
+      // Users can read their own orders (as buyer or as seller/creator)
       // Admins can read all orders
-      allow read: if (isSignedIn() && request.auth.uid == resource.data.buyer_id) || isAdmin();
+      allow read: if (isSignedIn() && (request.auth.uid == resource.data.buyer_id || request.auth.uid == resource.data.seller_id)) || isAdmin();
       
       // Signed-in users can create orders for themselves
       allow create: if isSignedIn() && 
@@ -353,6 +353,24 @@ service cloud.firestore {
         allow delete: if (isSignedIn() && 
                         get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid) ||
                         isAdmin();
+      }
+      
+      // ============================================
+      // WAYPOINT OVERRIDES (date, time, status, price per waypoint)
+      // ============================================
+      match /waypoint_overrides/{overrideId} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow create, update: if isTripMember(tripId) || isAdmin();
+        allow delete: if isTripMember(tripId) || isAdmin();
+      }
+      
+      // ============================================
+      // WAYPOINT DOCUMENTS (uploaded confirmations, etc.)
+      // ============================================
+      match /waypoint_docs/{docId} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow create, update: if isTripMember(tripId) || isAdmin();
+        allow delete: if isTripMember(tripId) || isAdmin();
       }
     }
   }

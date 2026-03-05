@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:waypoint/models/route_waypoint.dart' show RouteWaypoint, WaypointType, getWaypointIcon, getWaypointColor;
+import 'package:waypoint/components/waypoint/waypoint_timeline_config.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 
 /// Route waypoint card component for route sections
 /// Horizontal layout with order badge, larger image, and reorder controls
@@ -68,28 +70,13 @@ class _RouteWaypointCardState extends State<RouteWaypointCard> {
           ),
           child: Row(
             children: [
-              // ---- Order badge ----
+              // ---- Order badge (plectrum pin) ----
               Container(
                 width: 44,
                 alignment: Alignment.center,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: typeColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${widget.orderIndex}',
-                      style: TextStyle(
-                        fontFamily: 'DMSans',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: _labelColor(typeColor),
-                      ),
-                    ),
-                  ),
+                child: WaypointPinBadge(
+                  orderIndex: widget.orderIndex,
+                  color: getCategoryConfig(widget.waypoint.type).color,
                 ),
               ),
 
@@ -223,9 +210,6 @@ class _RouteWaypointCardState extends State<RouteWaypointCard> {
       child: Icon(icon, size: 18, color: const Color(0xFF6C757D)),
     ),
   );
-
-  Color _labelColor(Color bg) =>
-      bg.computeLuminance() > 0.35 ? const Color(0xFF212529) : Colors.white;
 
   void _showContextMenu(BuildContext context) {
     showModalBottomSheet(

@@ -47,6 +47,30 @@ class StorageService {
     }
   }
 
+  /// Uploads any file (e.g. PDF, image) to Firebase Storage. Returns download URL.
+  Future<String> uploadFile({
+    required String path,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    try {
+      Log.i('storage', 'Uploading file to: $path (${bytes.length} bytes)');
+      final ref = _storage.ref().child(path);
+      final metadata = SettableMetadata(
+        contentType: contentType,
+        customMetadata: {'uploaded': DateTime.now().toIso8601String()},
+      );
+      final uploadTask = ref.putData(bytes, metadata);
+      await uploadTask;
+      final downloadUrl = await ref.getDownloadURL();
+      Log.i('storage', 'Upload successful: $downloadUrl');
+      return downloadUrl;
+    } catch (e, stack) {
+      Log.e('storage', 'Upload failed for path: $path - Error: $e', e, stack);
+      rethrow;
+    }
+  }
+
   /// Deletes an image from Firebase Storage
   Future<void> deleteImage(String path) async {
     try {
@@ -188,6 +212,21 @@ class StorageService {
       Log.e('storage', 'Failed to pick video', e, stack);
       rethrow;
     }
+  }
+
+  /// Upload profile photo for a user. Returns download URL.
+  /// Path: users/{userId}/avatar.jpg
+  Future<String> uploadProfilePhoto({
+    required String userId,
+    required Uint8List bytes,
+    String contentType = 'image/jpeg',
+  }) async {
+    final path = 'users/$userId/avatar.jpg';
+    return await uploadImage(
+      path: path,
+      bytes: bytes,
+      contentType: contentType,
+    );
   }
 
   /// Upload a review photo

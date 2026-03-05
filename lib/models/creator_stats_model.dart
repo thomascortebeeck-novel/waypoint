@@ -4,11 +4,14 @@ class CreatorStats {
   final int adventuresCreated;
   final int followersCount;
   final double totalDistanceKm;
+  /// When set, profile UI shows "Trips" | "Plans Built" | "Followers" instead of Adventures/Distance.
+  final int? tripsCount;
 
   CreatorStats({
     required this.adventuresCreated,
     required this.followersCount,
     required this.totalDistanceKm,
+    this.tripsCount,
   });
 
   /// Format followers count for display (e.g., 1200 -> "1.2k")
@@ -37,11 +40,13 @@ class CreatorStats {
     int? adventuresCreated,
     int? followersCount,
     double? totalDistanceKm,
+    int? tripsCount,
   }) {
     return CreatorStats(
       adventuresCreated: adventuresCreated ?? this.adventuresCreated,
       followersCount: followersCount ?? this.followersCount,
       totalDistanceKm: totalDistanceKm ?? this.totalDistanceKm,
+      tripsCount: tripsCount ?? this.tripsCount,
     );
   }
 }

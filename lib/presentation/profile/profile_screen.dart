@@ -5,9 +5,20 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/auth/auth_exception.dart';
+import 'package:waypoint/models/user_model.dart';
+import 'package:waypoint/models/creator_stats_model.dart';
 import 'package:waypoint/services/user_service.dart';
+import 'package:waypoint/services/storage_service.dart';
+import 'package:waypoint/services/trip_service.dart';
+import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/providers/theme_provider.dart';
+import 'package:waypoint/components/creator/creator_stats_widget.dart';
+import 'package:waypoint/nav.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/presentation/widgets/adventure_card.dart';
 
 /// Profile screen where users can sign in/up and manage their account
 class ProfileScreen extends StatefulWidget {
@@ -89,14 +100,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     stream: userService.streamUser(firebaseUser.uid),
                     builder: (context, userSnap) {
                       final user = userSnap.data;
-                      final displayName = user?.displayName ?? firebaseUser.displayName ?? firebaseUser.email ?? 'Explorer';
-                      final initials = _initialsFrom(displayName);
-                      final isAdmin = user?.isAdmin ?? false;
                       return _LoggedInView(
-                        displayName: displayName,
+                        user: user,
+                        uid: firebaseUser.uid,
                         email: firebaseUser.email,
-                        initials: initials,
-                        isAdmin: isAdmin,
                         auth: auth,
                         isDesktop: isDesktop,
                       );
@@ -122,14 +129,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                context.colors.primary.withValues(alpha: 0.08),
-                context.colors.surface,
-              ],
-            ),
+            color: context.colors.surface,
           ),
           child: SafeArea(
             bottom: false,
@@ -185,34 +185,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
 }
 
 class _LoggedInView extends StatelessWidget {
-  final String displayName;
+  final UserModel? user;
+  final String uid;
   final String? email;
-  final String initials;
-  final bool isAdmin;
   final FirebaseAuthManager auth;
   final bool isDesktop;
 
   const _LoggedInView({
-    required this.displayName,
+    required this.user,
+    required this.uid,
     required this.email,
-    required this.initials,
-    required this.isAdmin,
     required this.auth,
     required this.isDesktop,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = user?.isAdmin ?? false;
+    final isInfluencer = user?.isInfluencer ?? false;
+    final displayName = user != null
+        ? ([user!.firstName, user!.lastName].where((e) => e != null && e.isNotEmpty).join(' ').trim().isNotEmpty
+            ? [user!.firstName, user!.lastName].where((e) => e != null && e.isNotEmpty).join(' ').trim()
+            : user!.displayName)
+        : (email ?? 'Explorer');
+    final initials = _ProfileScreenState._initialsFrom(displayName);
+
     return Column(
       children: [
         const SizedBox(height: 16),
-        _UserInfoCard(
+        _EditableProfileHeader(
+          user: user,
+          uid: uid,
           displayName: displayName,
-          email: email,
           initials: initials,
-          isAdmin: isAdmin,
+          email: email,
+        ),
+        const SizedBox(height: 16),
+        StreamBuilder<List<Trip>>(
+          stream: TripService().streamTripsForUser(uid),
+          builder: (context, tripSnap) {
+            final tripCount = tripSnap.data?.length ?? 0;
+            final stats = CreatorStats(
+              tripsCount: tripCount,
+              adventuresCreated: user?.createdPlanIds.length ?? 0,
+              followersCount: user?.followerIds.length ?? 0,
+              totalDistanceKm: 0,
+            );
+            return CreatorStatsWidget(stats: stats);
+          },
         ),
         const SizedBox(height: 32),
+        if (isAdmin || isInfluencer) ...[
+          _CreatedPlansSection(uid: uid, isAdmin: isAdmin),
+          const SizedBox(height: 24),
+          SizedBox(width: double.infinity, child: _CreatorStudioCard()),
+          const SizedBox(height: 32),
+        ],
         if (isAdmin) ...[
           _SettingsSection(
             label: 'ADMIN',
@@ -220,6 +248,7 @@ class _LoggedInView extends StatelessWidget {
               _SettingsTile(
                 icon: FontAwesomeIcons.database,
                 title: 'Database Migration',
+                subtitle: 'Manage system data and schema',
                 onTap: () => context.push('/admin/migration'),
               ),
             ],
@@ -239,16 +268,19 @@ class _LoggedInView extends StatelessWidget {
             _SettingsTile(
               icon: FontAwesomeIcons.gear,
               title: 'Preferences',
+              subtitle: 'App behavior and defaults',
               onTap: () {},
             ),
             _SettingsTile(
               icon: FontAwesomeIcons.download,
               title: 'Offline Maps',
+              subtitle: 'Download maps for offline use',
               onTap: () {},
             ),
             _SettingsTile(
               icon: FontAwesomeIcons.creditCard,
-              title: 'Payment Methods',
+              title: 'Payments',
+              subtitle: 'Manage your cards and billing',
               onTap: () {},
             ),
           ],
@@ -260,37 +292,268 @@ class _LoggedInView extends StatelessWidget {
             _SettingsTile(
               icon: FontAwesomeIcons.circleQuestion,
               title: 'Help Center',
+              subtitle: 'Guides and support tickets',
               onTap: () {},
             ),
             _SettingsTile(
               icon: FontAwesomeIcons.shieldHalved,
               title: 'Privacy Policy',
+              subtitle: 'Data usage and legal terms',
               onTap: () {},
             ),
           ],
         ),
         const SizedBox(height: 32),
         _LogoutButton(auth: auth),
+        const SizedBox(height: 16),
+        Center(
+          child: Text(
+            'Waypoint v1.0.0',
+            style: context.textStyles.bodySmall?.copyWith(
+              color: context.colors.onSurface.withValues(alpha: 0.5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 32),
       ],
     );
   }
 }
 
-class _UserInfoCard extends StatelessWidget {
-  final String displayName;
-  final String? email;
-  final String initials;
+class _CreatedPlansSection extends StatelessWidget {
+  final String uid;
   final bool isAdmin;
 
-  const _UserInfoCard({
-    required this.displayName,
-    required this.email,
-    required this.initials,
-    required this.isAdmin,
-  });
+  const _CreatedPlansSection({required this.uid, required this.isAdmin});
 
   @override
   Widget build(BuildContext context) {
+    final planService = PlanService();
+    final stream = isAdmin ? planService.streamAllPlansForAdmin() : planService.streamPlansByCreator(uid);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth >= 1024;
+    final cardWidth = isDesktop ? 300.0 : 280.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Created plans'),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: isDesktop ? 400 : 380,
+          child: StreamBuilder<List<Plan>>(
+            stream: stream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final plans = snapshot.data ?? [];
+              if (plans.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No adventures yet',
+                    style: context.textStyles.bodyMedium?.copyWith(
+                      color: context.colors.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                );
+              }
+              return ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.zero,
+                clipBehavior: Clip.none,
+                itemCount: plans.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 24),
+                itemBuilder: (context, index) {
+                  final plan = plans[index];
+                  return SizedBox(
+                    width: cardWidth,
+                    child: AdventureCard(
+                      plan: plan,
+                      variant: AdventureCardVariant.standard,
+                      onTap: () => context.push('/details/${plan.id}'),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreatorStudioCard extends StatelessWidget {
+  /// Use light-theme green in both themes so Creator Studio stays consistent.
+  static const Color _creatorStudioGreen = Color(0xFF228B22); // BrandingLightTokens.primary
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.go(AppRoutes.builder),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _creatorStudioGreen,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            boxShadow: [
+              BoxShadow(
+                color: _creatorStudioGreen.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Creator Studio',
+                style: context.textStyles.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Design and sell your own custom adventure itineraries.',
+                style: context.textStyles.bodyMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => context.go(AppRoutes.builder),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: _creatorStudioGreen,
+                ),
+                child: const Text('Open Builder'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditableProfileHeader extends StatefulWidget {
+  final UserModel? user;
+  final String uid;
+  final String displayName;
+  final String initials;
+  final String? email;
+
+  const _EditableProfileHeader({
+    required this.user,
+    required this.uid,
+    required this.displayName,
+    required this.initials,
+    required this.email,
+  });
+
+  @override
+  State<_EditableProfileHeader> createState() => _EditableProfileHeaderState();
+}
+
+class _EditableProfileHeaderState extends State<_EditableProfileHeader> {
+  final UserService _userService = UserService();
+  final StorageService _storageService = StorageService();
+  bool _uploadingPhoto = false;
+
+  Future<void> _pickAndUploadPhoto() async {
+    final user = widget.user;
+    if (user == null) return;
+    final result = await _storageService.pickImage();
+    if (result == null || !mounted) return;
+    setState(() => _uploadingPhoto = true);
+    try {
+      final url = await _storageService.uploadProfilePhoto(
+        userId: widget.uid,
+        bytes: result.bytes,
+      );
+      await _userService.updateUser(user.copyWith(photoUrl: url));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update photo: $e'), backgroundColor: context.colors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPhoto = false);
+    }
+  }
+
+  Future<void> _editName() async {
+    final user = widget.user;
+    if (user == null) return;
+    final fn = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _InlineEditDialog(
+        title: 'First name',
+        initial: user.firstName ?? '',
+      ),
+    );
+    if (fn == null || !mounted) return;
+    final ln = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _InlineEditDialog(
+        title: 'Last name',
+        initial: user.lastName ?? '',
+      ),
+    );
+    if (!mounted) return;
+    await _userService.updateUser(user.copyWith(
+      firstName: fn.isEmpty ? null : fn,
+      lastName: (ln ?? '').isEmpty ? null : ln,
+    ));
+  }
+
+  Future<void> _editLocation() async {
+    final user = widget.user;
+    if (user == null) return;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _InlineEditDialog(
+        title: 'Location',
+        initial: user.location ?? '',
+      ),
+    );
+    if (value == null || !mounted) return;
+    await _userService.updateUser(user.copyWith(
+      location: value.isEmpty ? null : value,
+    ));
+  }
+
+  Future<void> _editDescription() async {
+    final user = widget.user;
+    if (user == null) return;
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _InlineEditDialog(
+        title: 'Description',
+        initial: user.shortBio ?? '',
+        maxLines: 4,
+      ),
+    );
+    if (value == null || !mounted) return;
+    await _userService.updateUser(user.copyWith(
+      shortBio: value.isEmpty ? null : value,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = widget.user;
+    final isAdmin = user?.isAdmin ?? false;
+    final isInfluencer = user?.isInfluencer ?? false;
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -302,35 +565,53 @@ class _UserInfoCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  context.colors.primary,
-                  context.colors.primary.withValues(alpha: 0.7),
-                ],
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: context.colors.primary.withValues(alpha: 0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+          GestureDetector(
+            onTap: _uploadingPhoto ? null : _pickAndUploadPhoto,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: context.colors.primary.withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: user?.photoUrl != null && user!.photoUrl!.isNotEmpty
+                      ? ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl: user.photoUrl!,
+                            fit: BoxFit.cover,
+                            width: 80,
+                            height: 80,
+                            placeholder: (_, __) => _buildInitialsCircle(),
+                            errorWidget: (_, __, ___) => _buildInitialsCircle(),
+                          ),
+                        )
+                      : _buildInitialsCircle(),
                 ),
+                if (_uploadingPhoto)
+                  Positioned.fill(
+                    child: ClipOval(
+                      child: Container(
+                        color: Colors.black54,
+                        child: const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
-            ),
-            child: Center(
-              child: Text(
-                initials,
-                style: context.textStyles.headlineMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -338,17 +619,26 @@ class _UserInfoCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Flexible(
-                child: Text(
-                  displayName,
-                  style: context.textStyles.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
+                child: GestureDetector(
+                  onTap: _editName,
+                  child: Text(
+                    widget.displayName,
+                    style: context.textStyles.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (isAdmin) ...[
-                const SizedBox(width: 8),
+            ],
+          ),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              if (isAdmin)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -363,20 +653,181 @@ class _UserInfoCard extends StatelessWidget {
                     ),
                   ),
                 ),
-              ],
+              if (isInfluencer)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: context.colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
+                  ),
+                  child: Text(
+                    'CREATOR',
+                    style: context.textStyles.labelSmall?.copyWith(
+                      color: context.colors.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
             ],
           ),
-          if (email != null) ...[
+          if (user?.location != null && user!.location!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: _editLocation,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.location_on_outlined, size: 16, color: context.colors.onSurface.withValues(alpha: 0.6)),
+                  const SizedBox(width: 4),
+                  Text(
+                    user.location!,
+                    style: context.textStyles.bodyMedium?.copyWith(
+                      color: context.colors.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: _editLocation,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.location_on_outlined, size: 16, color: context.colors.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Add location',
+                    style: context.textStyles.bodyMedium?.copyWith(
+                      color: context.colors.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (widget.email != null) ...[
             const SizedBox(height: 4),
             Text(
-              email!,
+              widget.email!,
               style: context.textStyles.bodyMedium?.copyWith(
                 color: context.colors.onSurface.withValues(alpha: 0.6),
               ),
             ),
           ],
+          if (user?.shortBio != null && user!.shortBio!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: _editDescription,
+              child: Text(
+                user.shortBio!,
+                style: context.textStyles.bodyMedium?.copyWith(
+                  color: context.colors.onSurface.withValues(alpha: 0.6),
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: _editDescription,
+              child: Text(
+                'Add description',
+                style: context.textStyles.bodyMedium?.copyWith(
+                  color: context.colors.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildInitialsCircle() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            context.colors.primary,
+            context.colors.primary.withValues(alpha: 0.7),
+          ],
+        ),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          widget.initials,
+          style: context.textStyles.headlineMedium?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineEditDialog extends StatefulWidget {
+  final String title;
+  final String initial;
+  final int maxLines;
+
+  const _InlineEditDialog({
+    required this.title,
+    required this.initial,
+    this.maxLines = 1,
+  });
+
+  @override
+  State<_InlineEditDialog> createState() => _InlineEditDialogState();
+}
+
+class _InlineEditDialogState extends State<_InlineEditDialog> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initial);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        maxLines: widget.maxLines,
+        autofocus: true,
+        decoration: InputDecoration(
+          hintText: widget.title,
+          border: const OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

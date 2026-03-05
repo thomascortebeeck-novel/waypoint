@@ -11,7 +11,7 @@ import 'package:waypoint/components/creator/creator_stats_widget.dart';
 import 'package:waypoint/components/creator/follow_button.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
-import 'package:waypoint/theme/waypoint_typography.dart';
+import 'package:waypoint/theme.dart';
 import 'package:waypoint/theme/waypoint_spacing.dart';
 
 /// Creator profile screen displaying creator info, stats, and adventures
@@ -122,7 +122,7 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
               const SizedBox(height: 16),
               Text(
                 _errorMessage ?? 'Creator not found',
-                style: WaypointTypography.bodyLarge?.copyWith(
+                style: context.textStyles.bodyLarge?.copyWith(
                   color: WaypointColors.textSecondary,
                 ),
               ),
@@ -147,7 +147,7 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section
+            // Header Section (read-only, aligned with profile design)
             Container(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -164,7 +164,7 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                             _creator!.displayName.isNotEmpty
                                 ? _creator!.displayName[0].toUpperCase()
                                 : '?',
-                            style: WaypointTypography.headlineMedium?.copyWith(
+                            style: context.textStyles.headlineMedium?.copyWith(
                               color: WaypointColors.textSecondary,
                             ),
                           )
@@ -173,17 +173,83 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                   const SizedBox(height: 16),
                   // Name
                   Text(
-                    _creator!.displayName,
-                    style: WaypointTypography.headlineSmall?.copyWith(
+                    ([_creator!.firstName, _creator!.lastName]
+                                .where((e) => e != null && e.isNotEmpty)
+                                .join(' ')
+                                .trim()
+                                .isNotEmpty
+                            ? [_creator!.firstName, _creator!.lastName]
+                                .where((e) => e != null && e.isNotEmpty)
+                                .join(' ')
+                                .trim()
+                            : _creator!.displayName),
+                    style: context.textStyles.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
+                    textAlign: TextAlign.center,
                   ),
+                  // Role chips (ADMIN / CREATOR)
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      if (_creator!.isAdmin)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: context.colors.primaryContainer,
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                          ),
+                          child: Text(
+                            'ADMIN',
+                            style: context.textStyles.labelSmall?.copyWith(
+                              color: context.colors.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      if (_creator!.isInfluencer)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: context.colors.primaryContainer,
+                            borderRadius: BorderRadius.circular(AppRadius.full),
+                          ),
+                          child: Text(
+                            'CREATOR',
+                            style: context.textStyles.labelSmall?.copyWith(
+                              color: context.colors.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  // Location
+                  if (_creator!.location != null && _creator!.location!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.location_on_outlined,
+                            size: 16, color: WaypointColors.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          _creator!.location!,
+                          style: context.textStyles.bodyMedium?.copyWith(
+                            color: WaypointColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   // Bio
                   if (_creator!.shortBio != null && _creator!.shortBio!.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
                       _creator!.shortBio!,
-                      style: WaypointTypography.bodyMedium?.copyWith(
+                      style: context.textStyles.bodyMedium?.copyWith(
                         color: WaypointColors.textSecondary,
                       ),
                       textAlign: TextAlign.center,
@@ -222,52 +288,44 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
               ),
               const SizedBox(height: 24),
             ],
-            // Adventures Section
+            // Adventures Section (swimming lane like profile/marketplace)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Adventures',
-                    style: WaypointTypography.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  const SectionHeader(title: 'Created plans'),
                   const SizedBox(height: 16),
-                  if (_plans.isEmpty)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Text(
-                          'No adventures yet',
-                          style: WaypointTypography.bodyMedium?.copyWith(
-                            color: WaypointColors.textSecondary,
+                  SizedBox(
+                    height: 380,
+                    child: _plans.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No adventures yet',
+                              style: context.textStyles.bodyMedium?.copyWith(
+                                color: WaypointColors.textSecondary,
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: EdgeInsets.zero,
+                            clipBehavior: Clip.none,
+                            itemCount: _plans.length,
+                            separatorBuilder: (_, __) => const SizedBox(width: 24),
+                            itemBuilder: (context, index) {
+                              final plan = _plans[index];
+                              return SizedBox(
+                                width: 280,
+                                child: AdventureCard(
+                                  plan: plan,
+                                  variant: AdventureCardVariant.standard,
+                                  onTap: () => context.push('/details/${plan.id}'),
+                                ),
+                              );
+                            },
                           ),
-                        ),
-                      ),
-                    )
-                  else
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 0.75,
-                      ),
-                      itemCount: _plans.length,
-                      itemBuilder: (context, index) {
-                        final plan = _plans[index];
-                        return AdventureCard(
-                          plan: plan,
-                          onTap: () {
-                            context.push('/details/${plan.id}');
-                          },
-                        );
-                      },
-                    ),
+                  ),
                 ],
               ),
             ),
@@ -323,7 +381,7 @@ class _SocialLink extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               platform,
-              style: WaypointTypography.bodySmall,
+              style: context.textStyles.bodySmall,
             ),
           ],
         ),

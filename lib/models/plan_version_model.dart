@@ -24,6 +24,9 @@ class PlanVersionDoc {
   final Prepare? prepare;
   /// AI-generated local tips and cultural information (per-version)
   final LocalTips? localTips;
+  /// If true, document/vaccine data was migrated from Prepare into packing_categories (one-time).
+  /// When set, do not re-run migration on load.
+  final bool? checklistMigratedFromPrepare;
   /// Timestamp when AI info was last generated
   final DateTime? aiGeneratedAt;
   final DateTime createdAt;
@@ -38,6 +41,7 @@ class PlanVersionDoc {
     this.transportationOptions = const [],
     this.prepare,
     this.localTips,
+    this.checklistMigratedFromPrepare,
     this.aiGeneratedAt,
     required this.createdAt,
     required this.updatedAt,
@@ -58,6 +62,7 @@ class PlanVersionDoc {
             items: oldList.asMap().entries.map((entry) => PackingItem(
               id: 'legacy_${entry.key}',
               name: entry.value,
+              quantity: null,
             )).toList(),
           )
         ];
@@ -79,6 +84,7 @@ class PlanVersionDoc {
       localTips: json['local_tips'] != null
           ? LocalTips.fromJson(json['local_tips'] as Map<String, dynamic>)
           : null,
+      checklistMigratedFromPrepare: json['checklist_migrated_from_prepare'] as bool?,
       aiGeneratedAt: json['ai_generated_at'] != null
           ? (json['ai_generated_at'] as Timestamp).toDate()
           : null,
@@ -96,6 +102,7 @@ class PlanVersionDoc {
     'transportation_options': transportationOptions.map((t) => t.toJson()).toList(),
     if (prepare != null) 'prepare': prepare!.toJson(),
     if (localTips != null) 'local_tips': localTips!.toJson(),
+    if (checklistMigratedFromPrepare != null) 'checklist_migrated_from_prepare': checklistMigratedFromPrepare,
     if (aiGeneratedAt != null) 'ai_generated_at': Timestamp.fromDate(aiGeneratedAt!),
     'created_at': Timestamp.fromDate(createdAt),
     'updated_at': Timestamp.fromDate(updatedAt),
@@ -110,6 +117,7 @@ class PlanVersionDoc {
     List<TransportationOption>? transportationOptions,
     Prepare? prepare,
     LocalTips? localTips,
+    bool? checklistMigratedFromPrepare,
     DateTime? aiGeneratedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -122,6 +130,7 @@ class PlanVersionDoc {
     transportationOptions: transportationOptions ?? this.transportationOptions,
     prepare: prepare ?? this.prepare,
     localTips: localTips ?? this.localTips,
+    checklistMigratedFromPrepare: checklistMigratedFromPrepare ?? this.checklistMigratedFromPrepare,
     aiGeneratedAt: aiGeneratedAt ?? this.aiGeneratedAt,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -139,6 +148,7 @@ class PlanVersionDoc {
     transportationOptions: version.transportationOptions,
     prepare: version.prepare,
     localTips: version.localTips,
+    checklistMigratedFromPrepare: version.checklistMigratedFromPrepare,
     aiGeneratedAt: version.aiGeneratedAt,
     createdAt: DateTime.now(),
     updatedAt: DateTime.now(),
@@ -159,6 +169,7 @@ class PlanVersionDoc {
     faqItems: const [], // FAQ is now at plan level
     prepare: prepare,
     localTips: localTips,
+    checklistMigratedFromPrepare: checklistMigratedFromPrepare,
     aiGeneratedAt: aiGeneratedAt,
   );
 }

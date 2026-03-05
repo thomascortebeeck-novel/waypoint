@@ -1,13 +1,16 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/services/plan_service.dart';
-import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme/waypoint_typography.dart';
-import 'package:waypoint/theme/waypoint_spacing.dart';
 import 'package:waypoint/layout/waypoint_breakpoints.dart';
+import 'package:waypoint/core/theme/colors.dart';
+import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
+import 'package:waypoint/utils/plan_display_utils.dart';
+import 'package:waypoint/utils/activity_icons.dart';
 
 /// Pinterest-style explore screen with masonry grid
 class ExploreScreen extends StatefulWidget {
@@ -25,7 +28,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   List<Plan> _allPlans = [];
   List<Plan> _filteredPlans = [];
   bool _isLoading = true;
-  String _searchQuery = '';
   ActivityCategory? _selectedCategory;
 
   @override
@@ -33,10 +35,31 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.initState();
     _loadPlans();
     _scrollController.addListener(_onScroll);
+    _searchController.addListener(_applyFilters);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Always sync filter from URL when navigating from Home (e.g. /explore?activity=hiking).
+    final activityName = GoRouterState.of(context).uri.queryParameters['activity'];
+    if (activityName != null && activityName.isNotEmpty) {
+      ActivityCategory? category;
+      try {
+        category = ActivityCategory.values.firstWhere((c) => c.name == activityName);
+      } catch (_) {
+        category = null;
+      }
+      if (category != null && _selectedCategory != category) {
+        _selectedCategory = category;
+        _applyFilters();
+      }
+    }
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_applyFilters);
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -78,22 +101,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _applyFilters() {
+    final query = _searchController.text.trim().toLowerCase();
     setState(() {
       _filteredPlans = _allPlans.where((plan) {
-        // Search filter
-        if (_searchQuery.isNotEmpty) {
-          final query = _searchQuery.toLowerCase();
+        if (query.isNotEmpty) {
           final matchesSearch = plan.name.toLowerCase().contains(query) ||
               plan.description.toLowerCase().contains(query) ||
               plan.location.toLowerCase().contains(query);
           if (!matchesSearch) return false;
         }
-
-        // Category filter
         if (_selectedCategory != null) {
           if (plan.activityCategory != _selectedCategory) return false;
         }
-
         return true;
       }).toList();
     });
@@ -101,133 +120,127 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Depend on route so we rebuild when navigating with ?activity= (e.g. from Home).
+    final _ = GoRouterState.of(context).uri;
     final isDesktop = MediaQuery.of(context).size.width >= WaypointBreakpoints.desktop;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Explore'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(120),
-          child: Column(
-            children: [
-              // Search bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search adventures...',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                              _applyFilters();
-                            },
-                          )
-                        : null,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: WaypointColors.surface,
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value;
-                    });
-                    _applyFilters();
-                  },
-                ),
-              ),
-              // Category filter chips
-              SizedBox(
-                height: 50,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    _CategoryChip(
-                      label: 'All',
-                      isSelected: _selectedCategory == null,
-                      onTap: () {
-                        setState(() {
-                          _selectedCategory = null;
-                        });
-                        _applyFilters();
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    ...ActivityCategory.values.map((category) {
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _CategoryChip(
-                          label: _getCategoryLabel(category),
-                          isSelected: _selectedCategory == category,
-                          onTap: () {
-                            setState(() {
-                              _selectedCategory = category;
-                            });
-                            _applyFilters();
-                          },
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            ],
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          WaypointPageHeader(
+            title: 'Explore',
+            subtitle: 'Discover your next waypoint adventure',
           ),
-        ),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _filteredPlans.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.explore_off,
-                        size: 64,
-                        color: WaypointColors.textSecondary,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No adventures found',
-                        style: WaypointTypography.headlineSmall?.copyWith(
-                          color: WaypointColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Try adjusting your search or filters',
-                        style: WaypointTypography.bodyMedium?.copyWith(
-                          color: WaypointColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : MasonryGridView.count(
-                  controller: _scrollController,
-                  crossAxisCount: isDesktop ? 4 : 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _filteredPlans.length,
-                  itemBuilder: (context, index) {
-                    final plan = _filteredPlans[index];
-                    return _AdventureGridCard(
-                      plan: plan,
-                      onTap: () => context.push('/details/${plan.id}'),
-                    );
+          const SizedBox(height: 4),
+          WaypointSearchBar(
+            placeholder: 'Search destinations, trails, or activi…',
+            showFilterIcon: true,
+            controller: _searchController,
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                WaypointCreamChip(
+                  label: 'All',
+                  selected: _selectedCategory == null,
+                  prominent: true,
+                  onTap: () {
+                    setState(() {
+                      _selectedCategory = null;
+                      _applyFilters();
+                    });
                   },
                 ),
+                ...ActivityCategory.values.map((category) => WaypointCreamChip(
+                  label: _getCategoryLabel(category),
+                  selected: _selectedCategory == category,
+                  prominent: true,
+                  icon: _getCategoryIcon(category),
+                  onTap: () {
+                    setState(() {
+                      _selectedCategory = category;
+                      _applyFilters();
+                    });
+                  },
+                )),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredPlans.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.explore_off, size: 64, color: WaypointColors.textSecondary),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No adventures found',
+                              style: WaypointTypography.headlineSmall?.copyWith(color: WaypointColors.textSecondary),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Try adjusting your search or filters',
+                              style: WaypointTypography.bodyMedium?.copyWith(color: WaypointColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      )
+                    : MasonryGridView.count(
+                        controller: _scrollController,
+                        crossAxisCount: isDesktop ? 4 : 2,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredPlans.length,
+                        itemBuilder: (context, index) {
+                          final plan = _filteredPlans[index];
+                          final initials = plan.creatorName.isNotEmpty
+                              ? plan.creatorName.trim().split(' ').take(2).map((s) => s.isNotEmpty ? s[0].toUpperCase() : '?').toList()
+                              : <String>['?'];
+                          final tagLabels = activityTagLabelsForPlan(plan);
+                          return WaypointFeaturedPlanCard(
+                            title: plan.name,
+                            creatorName: plan.creatorName,
+                            rating: 4.5,
+                            reviewCount: 2,
+                            price: plan.minPrice > 0 ? plan.minPrice : null,
+                            location: plan.location.isNotEmpty ? plan.location : null,
+                            isFree: plan.minPrice == 0,
+                            imageWidget: plan.heroImageUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: plan.heroImageUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => Container(color: BrandingLightTokens.surface),
+                                    errorWidget: (_, __, ___) => Container(
+                                      color: BrandingLightTokens.surface,
+                                      child: const Icon(Icons.landscape_outlined),
+                                    ),
+                                  )
+                                : null,
+                            initials: initials,
+                            tagLabels: tagLabels,
+                            onTap: () => context.push('/details/${plan.id}'),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+      floatingActionButton: WaypointFAB(
+        icon: Icons.map_outlined,
+        label: 'Map View',
+        onPressed: () {},
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -249,116 +262,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
         return 'Road Trips';
     }
   }
-}
 
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _CategoryChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) => onTap(),
-      selectedColor: WaypointColors.primary.withOpacity(0.2),
-      checkmarkColor: WaypointColors.primary,
-      labelStyle: TextStyle(
-        color: isSelected ? WaypointColors.primary : WaypointColors.textPrimary,
-        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-      ),
-    );
+  IconData _getCategoryIcon(ActivityCategory category) {
+    return getActivityIconData(category);
   }
 }
-
-class _AdventureGridCard extends StatelessWidget {
-  final Plan plan;
-  final VoidCallback onTap;
-
-  const _AdventureGridCard({
-    required this.plan,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image
-            AspectRatio(
-              aspectRatio: 1.0,
-              child: plan.heroImageUrl.isNotEmpty
-                  ? Image.network(
-                      plan.heroImageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: WaypointColors.borderLight,
-                          child: const Icon(Icons.image_not_supported),
-                        );
-                      },
-                    )
-                  : Container(
-                      color: WaypointColors.borderLight,
-                      child: const Icon(Icons.image),
-                    ),
-            ),
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    plan.name,
-                    style: WaypointTypography.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    plan.location,
-                    style: WaypointTypography.bodySmall?.copyWith(
-                      color: WaypointColors.textSecondary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (plan.activityCategory != null) ...[
-                    const SizedBox(height: 8),
-                    Chip(
-                      label: Text(
-                        plan.activityCategory!.name.toUpperCase(),
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/trip_meta_model.dart';
 import 'package:waypoint/models/trip_selection_model.dart';
+import 'package:waypoint/models/trip_waypoint_override_model.dart';
+import 'package:waypoint/models/waypoint_document_model.dart';
 import 'package:waypoint/services/user_service.dart';
 
 /// Service for managing trips with hybrid subcollection architecture
@@ -20,6 +22,8 @@ class TripService {
   static const String _trackingCollection = 'tracking';
   static const String _selectionsCollection = 'selections';
   static const String _memberPackingCollection = 'member_packing';
+  static const String _waypointOverridesCollection = 'waypoint_overrides';
+  static const String _waypointDocsCollection = 'waypoint_docs';
   final UserService _userService = UserService();
 
   // ============================================================================
@@ -996,6 +1000,122 @@ class TripService {
           .set(selection.copyWith(updatedAt: DateTime.now()).toJson());
     } catch (e) {
       debugPrint('Error updating day selection: $e');
+      rethrow;
+    }
+  }
+
+  // ============================================================================
+  // WAYPOINT OVERRIDES (trip-level date, time, status, price)
+  // ============================================================================
+
+  /// Get all waypoint overrides for a trip
+  Future<List<TripWaypointOverride>> getWaypointOverrides(String tripId) async {
+    try {
+      final snap = await _firestore
+          .collection(_collection)
+          .doc(tripId)
+          .collection(_waypointOverridesCollection)
+          .get();
+      return snap.docs
+          .map((d) => TripWaypointOverride.fromJson(d.data(), tripId))
+          .toList();
+    } catch (e) {
+      debugPrint('Error getting waypoint overrides: $e');
+      return [];
+    }
+  }
+
+  /// Get override for one waypoint
+  Future<TripWaypointOverride?> getWaypointOverride(
+    String tripId,
+    int dayNum,
+    String waypointId,
+  ) async {
+    try {
+      final doc = await _firestore
+          .collection(_collection)
+          .doc(tripId)
+          .collection(_waypointOverridesCollection)
+          .doc(TripWaypointOverride.docId(dayNum, waypointId))
+          .get();
+      if (!doc.exists || doc.data() == null) return null;
+      return TripWaypointOverride.fromJson(doc.data()!, tripId);
+    } catch (e) {
+      debugPrint('Error getting waypoint override: $e');
+      return null;
+    }
+  }
+
+  /// Save or update waypoint override
+  Future<void> setWaypointOverride(TripWaypointOverride override) async {
+    try {
+      final id = TripWaypointOverride.docId(override.dayNum, override.waypointId);
+      await _firestore
+          .collection(_collection)
+          .doc(override.tripId)
+          .collection(_waypointOverridesCollection)
+          .doc(id)
+          .set(override.toJson());
+    } catch (e) {
+      debugPrint('Error setting waypoint override: $e');
+      rethrow;
+    }
+  }
+
+  // ============================================================================
+  // WAYPOINT DOCUMENTS (trip-level uploads: confirmations, screenshots)
+  // ============================================================================
+
+  /// List documents for a waypoint (shared with all trip participants).
+  Future<List<WaypointDocument>> getWaypointDocuments(
+    String tripId,
+    int dayNum,
+    String waypointId,
+  ) async {
+    try {
+      final snap = await _firestore
+          .collection(_collection)
+          .doc(tripId)
+          .collection(_waypointDocsCollection)
+          .where('day_num', isEqualTo: dayNum)
+          .where('waypoint_id', isEqualTo: waypointId)
+          .get();
+      final list = snap.docs
+          .map((d) => WaypointDocument.fromJson(d.data(), d.id, tripId))
+          .toList();
+      list.sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
+      return list;
+    } catch (e) {
+      debugPrint('Error getting waypoint documents: $e');
+      return [];
+    }
+  }
+
+  /// Add document metadata after file has been uploaded to Storage. Caller must upload first and pass [downloadUrl].
+  Future<void> addWaypointDocument({
+    required String tripId,
+    required int dayNum,
+    required String waypointId,
+    required String downloadUrl,
+    required String fileName,
+    String? uploadedBy,
+  }) async {
+    try {
+      final col = _firestore
+          .collection(_collection)
+          .doc(tripId)
+          .collection(_waypointDocsCollection);
+      final docRef = col.doc();
+      await docRef.set({
+        'day_num': dayNum,
+        'waypoint_id': waypointId,
+        'download_url': downloadUrl,
+        'file_name': fileName,
+        'uploaded_at': Timestamp.now(),
+        if (uploadedBy != null) 'uploaded_by': uploadedBy,
+      });
+    } catch (e) {
+      debugPrint('Error adding waypoint document: $e');
       rethrow;
     }
   }

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme/waypoint_typography.dart';
 import 'package:waypoint/theme/waypoint_spacing.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/state/adventure_form_state.dart';
+import 'package:waypoint/utils/activity_icons.dart';
 
 /// Adventure tags row component
 /// 
@@ -20,7 +20,9 @@ class AdventureTagsRow extends StatelessWidget {
   final List<SeasonRange>? bestSeasons;
   final bool? isEntireYear;
   final String? location;
-  
+  /// When false, location is not shown as a chip (e.g. when location is in header).
+  final bool showLocationChip;
+
   const AdventureTagsRow({
     super.key,
     this.formState,
@@ -29,6 +31,7 @@ class AdventureTagsRow extends StatelessWidget {
     this.bestSeasons,
     this.isEntireYear,
     this.location,
+    this.showLocationChip = true,
   });
   
   // Get values from formState if provided, otherwise use direct parameters
@@ -56,49 +59,54 @@ class AdventureTagsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final tags = <Widget>[];
     
+    final colorScheme = Theme.of(context).colorScheme;
     // Activity type tag
     if (_activityCategory != null) {
       tags.add(_buildTag(
-        emoji: _getActivityEmoji(_activityCategory!),
+        context: context,
+        iconData: getActivityIconData(_activityCategory!),
         label: _getActivityLabel(_activityCategory!),
-        color: WaypointColors.catStay,
-        backgroundColor: WaypointColors.catStaySurface,
-        borderColor: WaypointColors.catStayBorder,
+        color: colorScheme.primary,
+        backgroundColor: colorScheme.primaryContainer.withValues(alpha: 0.6),
+        borderColor: colorScheme.outlineVariant,
       ));
     }
     
     // Accommodation type tag
     if (_accommodationType != null) {
       tags.add(_buildTag(
-        emoji: _accommodationType == AccommodationType.comfort ? '🏨' : '⛺',
+        context: context,
+        iconData: getAccommodationIconData(_accommodationType!),
         label: _accommodationType == AccommodationType.comfort ? 'Comfort' : 'Adventure',
-        color: const Color(0xFFE65100), // Orange tint
-        backgroundColor: WaypointColors.catEatSurface,
-        borderColor: WaypointColors.catEatBorder,
+        color: colorScheme.tertiary,
+        backgroundColor: colorScheme.tertiaryContainer.withValues(alpha: 0.6),
+        borderColor: colorScheme.outlineVariant,
       ));
     }
     
-    // Best season tag
+    // Best season tag (Icons.calendar_month; label carries range e.g. "Feb – Mar")
     final seasonText = _getBestSeasonDisplay();
     if (seasonText.isNotEmpty) {
       tags.add(_buildTag(
-        emoji: '📅',
+        context: context,
+        iconData: seasonChipIcon,
         label: seasonText,
-        color: const Color(0xFF1565C0), // Blue tint
-        backgroundColor: WaypointColors.catDoSurface,
-        borderColor: WaypointColors.catDoBorder,
+        color: colorScheme.secondary,
+        backgroundColor: colorScheme.secondaryContainer.withValues(alpha: 0.6),
+        borderColor: colorScheme.outlineVariant,
       ));
     }
     
-    // Location tag(s) - shows multiple locations joined by " · "
-    final locationText = _locationDisplay;
+    // Location tag(s) - shows multiple locations joined by " · " (omit when in header)
+    final locationText = showLocationChip ? _locationDisplay : '';
     if (locationText.isNotEmpty) {
       tags.add(_buildTag(
-        emoji: '📍',
+        context: context,
+        iconData: locationChipIcon,
         label: locationText,
-        color: WaypointColors.textSecondary,
-        backgroundColor: WaypointColors.surface,
-        borderColor: WaypointColors.border,
+        color: colorScheme.onSurfaceVariant,
+        backgroundColor: colorScheme.surfaceContainerHighest,
+        borderColor: colorScheme.outlineVariant,
       ));
     }
     
@@ -107,14 +115,15 @@ class AdventureTagsRow extends StatelessWidget {
     }
     
     return Wrap(
-      spacing: 8.0,
-      runSpacing: 8.0,
+      spacing: WaypointSpacing.gapSm,
+      runSpacing: WaypointSpacing.gapSm,
       children: tags,
     );
   }
   
   Widget _buildTag({
-    required String emoji,
+    required BuildContext context,
+    required IconData iconData,
     required String label,
     required Color color,
     required Color backgroundColor,
@@ -130,14 +139,14 @@ class AdventureTagsRow extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            emoji,
-            style: const TextStyle(fontSize: 14.0),
-          ),
+          Icon(iconData, size: 14.0, color: color),
           const SizedBox(width: 6.0),
           Text(
             label,
-            style: WaypointTypography.chipLabel.copyWith(
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: color,
+              fontSize: 12.0,
+            ) ?? WaypointTypography.chipLabel.copyWith(
               color: color,
               fontSize: 12.0,
             ),
@@ -145,25 +154,6 @@ class AdventureTagsRow extends StatelessWidget {
         ],
       ),
     );
-  }
-  
-  String _getActivityEmoji(ActivityCategory category) {
-    switch (category) {
-      case ActivityCategory.hiking:
-        return '🥾';
-      case ActivityCategory.cycling:
-        return '🚴';
-      case ActivityCategory.skis:
-        return '⛷️';
-      case ActivityCategory.climbing:
-        return '🧗';
-      case ActivityCategory.cityTrips:
-        return '🏙️';
-      case ActivityCategory.tours:
-        return '🌏';
-      case ActivityCategory.roadTripping:
-        return '🚗';
-    }
   }
   
   String _getActivityLabel(ActivityCategory category) {

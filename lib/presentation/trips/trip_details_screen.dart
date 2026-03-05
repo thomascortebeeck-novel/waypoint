@@ -1722,6 +1722,12 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                     const SizedBox(height: 8),
                     ...categoryItems.map((item) {
                       final isChecked = packing.items[item.id] ?? false;
+                      final hasNote = item.note != null && item.note!.isNotEmpty;
+                      final hasLink = item.link != null && item.link!.isNotEmpty;
+                      final hasPrice = item.price != null && item.price!.isNotEmpty;
+                      final subtitle = <String>[];
+                      if (hasPrice) subtitle.add(item.price!);
+                      if (hasNote) subtitle.add(item.note!);
                       return CheckboxListTile(
                         value: isChecked,
                         onChanged: isCurrentUser
@@ -1734,6 +1740,34 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
                             color: isChecked ? Colors.grey.shade600 : null,
                           ),
                         ),
+                        subtitle: (hasPrice || hasNote || hasLink)
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (subtitle.isNotEmpty)
+                                    Text(
+                                      subtitle.join(' · '),
+                                      style: context.textStyles.bodySmall?.copyWith(
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  if (hasLink)
+                                    InkWell(
+                                      onTap: () => launchUrl(Uri.parse(item.link!), mode: LaunchMode.externalApplication),
+                                      child: Text(
+                                        'Open link',
+                                        style: context.textStyles.bodySmall?.copyWith(
+                                          color: Theme.of(context).colorScheme.primary,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              )
+                            : null,
                         contentPadding: EdgeInsets.zero,
                         controlAffinity: ListTileControlAffinity.leading,
                         dense: true,
@@ -1781,7 +1815,19 @@ class _TripDetailsScreenState extends State<TripDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("FAQ's", style: context.textStyles.headlineSmall),
+          Row(
+            children: [
+              Icon(Icons.help_outline, size: 20, color: context.colors.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Common Questions',
+                style: context.textStyles.headlineSmall?.copyWith(
+                  color: context.colors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           ...allFAQs.map((faq) => _FAQItem(faq: faq)),
         ],

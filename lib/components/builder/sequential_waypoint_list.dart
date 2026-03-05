@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/services/waypoint_grouping_service.dart';
+import 'package:waypoint/components/waypoint/waypoint_timeline_config.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 import 'package:waypoint/services/travel_calculator_service.dart';
 import 'package:waypoint/integrations/google_directions_service.dart';
 import 'package:uuid/uuid.dart';
@@ -234,24 +236,10 @@ class _WaypointListItem extends StatelessWidget {
                   size: 20,
                 ),
                 const SizedBox(width: 8),
-                // Order number
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: context.colors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${waypoint.order}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
+                // Order number (plectrum pin)
+                WaypointPinBadge(
+                  orderIndex: waypoint.order,
+                  color: getCategoryConfig(waypoint.type).color,
                 ),
                 const SizedBox(width: 12),
                 // Waypoint icon

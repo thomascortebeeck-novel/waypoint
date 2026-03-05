@@ -44,28 +44,66 @@ class PackingCategoryFormState extends ChangeNotifier {
 class PackingItemFormState {
   final String id;
   final TextEditingController nameCtrl;
-  final TextEditingController? descriptionCtrl;
+  /// Lazy-backed so description can be added inline without a dialog.
+  TextEditingController? _descriptionCtrl;
+  TextEditingController get descriptionCtrl => _descriptionCtrl ??= TextEditingController(
+    text: '', // fromModel sets _descriptionCtrl when item.description != null
+  );
+  /// Lazy-backed so existing in-memory instances (e.g. before hot reload) without this field still work.
+  TextEditingController? _quantityCtrl;
+  TextEditingController get quantityCtrl => _quantityCtrl ??= TextEditingController();
+  TextEditingController? _noteCtrl;
+  TextEditingController get noteCtrl => _noteCtrl ??= TextEditingController();
+  TextEditingController? _linkCtrl;
+  TextEditingController get linkCtrl => _linkCtrl ??= TextEditingController();
+  TextEditingController? _priceCtrl;
+  TextEditingController get priceCtrl => _priceCtrl ??= TextEditingController();
+
   bool isEssential;
-  
+
   PackingItemFormState({
     required this.id,
     required this.nameCtrl,
-    this.descriptionCtrl,
+    TextEditingController? descriptionCtrl,
+    TextEditingController? quantityCtrl,
+    TextEditingController? noteCtrl,
+    TextEditingController? linkCtrl,
+    TextEditingController? priceCtrl,
     this.isEssential = false,
-  });
-  
+  })  : _descriptionCtrl = descriptionCtrl,
+        _quantityCtrl = quantityCtrl,
+        _noteCtrl = noteCtrl,
+        _linkCtrl = linkCtrl,
+        _priceCtrl = priceCtrl;
+
   factory PackingItemFormState.fromModel(PackingItem item) => PackingItemFormState(
     id: item.id,
     nameCtrl: TextEditingController(text: item.name),
-    descriptionCtrl: item.description != null
+    descriptionCtrl: item.description != null && item.description!.isNotEmpty
         ? TextEditingController(text: item.description!)
+        : null,
+    quantityCtrl: TextEditingController(
+      text: item.quantity != null ? item.quantity.toString() : '',
+    ),
+    noteCtrl: item.note != null && item.note!.isNotEmpty
+        ? TextEditingController(text: item.note!)
+        : null,
+    linkCtrl: item.link != null && item.link!.isNotEmpty
+        ? TextEditingController(text: item.link!)
+        : null,
+    priceCtrl: item.price != null && item.price!.isNotEmpty
+        ? TextEditingController(text: item.price!)
         : null,
     isEssential: false, // Not in model, default to false
   );
-  
+
   void dispose() {
     nameCtrl.dispose();
-    descriptionCtrl?.dispose();
+    _descriptionCtrl?.dispose();
+    _quantityCtrl?.dispose();
+    _noteCtrl?.dispose();
+    _linkCtrl?.dispose();
+    _priceCtrl?.dispose();
   }
 }
 

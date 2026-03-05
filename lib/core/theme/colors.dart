@@ -2,8 +2,35 @@ import 'package:flutter/material.dart';
 
 // ============================================================
 // WAYPOINT BRAND PALETTE
-// Source: Waypoint Brand Guidelines
+// Source: Waypoint Brand Guidelines + BRANDING_GUIDELINES.md
 // ============================================================
+/// Canonical light theme tokens from BRANDING_GUIDELINES.md (Designer screenshots).
+class BrandingLightTokens {
+  static const Color primary        = Color(0xFF228B22); // Forest green - CTAs, selected tab, Add Waypoint
+  static const Color onPrimary      = Color(0xFFFFFFFF);
+  static const Color secondary      = Color(0xFF5D3A1A); // Dark brown - secondary text, waypoint circle
+  static const Color onSecondary    = Color(0xFFFFFFFF);
+  static const Color background     = Color(0xFFFDFBF7); // Light beige page background
+  static const Color surface        = Color(0xFFF2E8CF); // Light cream cards
+  static const Color onSurface      = Color(0xFF212529); // Primary text
+  static const Color error          = Color(0xFFD62828);
+  static const Color onError        = Color(0xFFFFFFFF);
+  static const Color accent         = Color(0xFFE67E22); // Orange - activity waypoint circle
+  static const Color divider        = Color(0xFFD2B48C);
+  static const Color hint           = Color(0xFFA8A29E);
+  static const Color primaryText    = Color(0xFF212529);
+  static const Color secondaryText  = Color(0xFF5D3A1A);
+  static const Color success        = Color(0xFF386641);
+  /// Form / waypoint edit: input and pill background (cream)
+  static const Color formFieldBackground = Color(0xFFF0E8D2);
+  /// Form / waypoint edit: input and pill border
+  static const Color formFieldBorder = Color(0xFFD4C5A0);
+  /// App bar, Save button, selected chip (forest green)
+  static const Color appBarGreen = Color(0xFF2E7D32);
+  /// Form labels and section titles
+  static const Color formLabel = Color(0xFF1A1D21);
+}
+
 class BrandColors {
   // --- Primary (Hunter Green) ---
   static const Color primary            = Color(0xFF1B4332); // Hunter Green
@@ -85,46 +112,50 @@ class SemanticColors {
 
 // ============================================================
 // LIGHT MODE TOKEN MAP
+// Aligned with BRANDING_GUIDELINES.md (Designer theme)
 // ============================================================
 class LightModeColors {
-  // Brand
-  static const Color primary              = BrandColors.primary;        // #1B4332
-  static const Color primaryLight         = BrandColors.primaryLight;   // #2D6A4F
-  static const Color onPrimary            = NeutralColors.white;
-  static const Color primaryContainer     = BrandColors.primaryContainerLight;
-  static const Color onPrimaryContainer   = BrandColors.primaryDark;
+  // Brand — use canonical branding tokens
+  static const Color primary              = BrandingLightTokens.primary;     // #228B22
+  static const Color primaryLight         = Color(0xFF2E9D2E);               // Lighter green
+  static const Color onPrimary            = BrandingLightTokens.onPrimary;
+  static const Color primaryContainer     = Color(0xFFD8F3DC);
+  static const Color onPrimaryContainer   = BrandingLightTokens.primaryText;
 
-  // Secondary
-  static const Color secondary            = BrandColors.secondary;      // #FCBF49
-  static const Color onSecondary          = NeutralColors.textPrimary;  // dark for contrast
-  static const Color secondaryContainer   = BrandColors.secondaryContainer;
+  // Secondary — dark brown from branding
+  static const Color secondary            = BrandingLightTokens.secondary;   // #5D3A1A
+  static const Color onSecondary          = BrandingLightTokens.onSecondary;
+  static const Color secondaryContainer   = Color(0xFFE8DCC8);
 
-  // Tertiary
-  static const Color tertiary             = BrandColors.primaryLight;   // #2D6A4F
+  // Tertiary (orange — FAQ icon, accents)
+  static const Color tertiary             = BrandingLightTokens.accent;     // #E67E22
   static const Color onTertiary           = NeutralColors.white;
+  /// Light lilac for "Add" section buttons (Add Transport, Add FAQ) per goal design
+  static const Color tertiaryContainer   = Color(0xFFEDE7F6);
+  static const Color onTertiaryContainer  = BrandingLightTokens.primary;   // Green icon/text on lilac
 
   // Error
-  static const Color error                = SemanticColors.error;
-  static const Color onError              = NeutralColors.white;
+  static const Color error                = BrandingLightTokens.error;
+  static const Color onError              = BrandingLightTokens.onError;
   static const Color errorContainer       = SemanticColors.errorLight;
 
-  // Surface & Background
-  static const Color surface              = NeutralColors.white;        // #FFFFFF
-  static const Color surfaceContainer     = NeutralColors.white;
-  static const Color onSurface           = NeutralColors.textPrimary;  // #212529
-  static const Color onSurfaceSecondary   = NeutralColors.textSecondary; // #495057
-  static const Color onSurfaceMuted       = NeutralColors.neutral600;   // #6C757D
-  static const Color surfaceVariant       = NeutralColors.backgroundSecondary; // #E9ECEF
-  static const Color background           = NeutralColors.backgroundPrimary;   // #F8F9FA
+  // Surface & Background — warm beige/cream from branding
+  static const Color surface              = BrandingLightTokens.surface;    // #F2E8CF
+  static const Color surfaceContainer     = BrandingLightTokens.surface;
+  static const Color onSurface            = BrandingLightTokens.onSurface;   // #212529
+  static const Color onSurfaceSecondary   = BrandingLightTokens.secondaryText;
+  static const Color onSurfaceMuted       = BrandingLightTokens.hint;
+  static const Color surfaceVariant       = Color(0xFFE8DCC8);
+  static const Color background           = BrandingLightTokens.background;  // #FDFBF7
 
   // Borders & Shadows
-  static const Color outline              = NeutralColors.backgroundSecondary; // #E9ECEF
+  static const Color outline              = BrandingLightTokens.divider;
   static const Color outlineVariant       = NeutralColors.neutral300;
   static const Color shadow               = NeutralColors.textPrimary;
 
   // Semantic aliases
-  static const Color success              = SemanticColors.success;
-  static const Color warning              = SemanticColors.warning;
+  static const Color success              = BrandingLightTokens.success;
+  static const Color warning              = BrandColors.secondary;
   static const Color info                 = SemanticColors.info;
 
   // Legacy alias

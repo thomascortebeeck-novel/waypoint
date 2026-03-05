@@ -1,7 +1,151 @@
 import 'package:flutter/material.dart';
-import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/models/route_waypoint.dart' show RouteWaypoint;
 import 'package:waypoint/components/waypoint/waypoint_timeline_card.dart';
+import 'package:waypoint/components/waypoint/waypoint_itinerary_card.dart';
 import 'package:waypoint/components/waypoint/waypoint_timeline_config.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
+
+/// Single timeline row: order circle + connector + [WaypointTimelineCard].
+/// Used by [WaypointTimelineList] and by itinerary waypoint list in adventure detail.
+const double kTimelineColumnWidth = 44.0;
+const double kTimelineConnectorLineWidth = 2.0;
+/// Left offset for the 2px connector line so it is centered in the timeline column.
+const double kTimelineConnectorLeft = kTimelineColumnWidth / 2 - kTimelineConnectorLineWidth / 2;
+
+class WaypointTimelineItem extends StatelessWidget {
+  final RouteWaypoint waypoint;
+  final int order;
+  final bool showConnectingLine;
+  final bool isBuilder;
+  final VoidCallback? onTap;
+  final VoidCallback? onGetDirections;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  /// Use Stippl-style itinerary card (time row, Show more). When true, [canEditTime] and [onTimeChanged] apply.
+  final bool useItineraryCard;
+  final bool canEditTime;
+  final void Function(String?)? onTimeChanged;
+  final String? timeOverride;
+  /// Opens add-alternative flow (builder, primaries). Passed to [WaypointItineraryCard].
+  final VoidCallback? onAddAlternative;
+  /// Removes alternative relationship (builder, alternatives). Passed to [WaypointItineraryCard].
+  final VoidCallback? onRemoveAlternative;
+  /// Trip owner pickOne: this option is selected.
+  final bool isSelectedInPickOne;
+  /// Trip owner pickOne: tap to select this option.
+  final VoidCallback? onSelectInPickOne;
+  /// Trip owner addOn: this alternative is disabled.
+  final bool isAddOnDisabled;
+  /// Trip owner addOn: toggle disabled.
+  final VoidCallback? onToggleAddOn;
+  /// Trip owner: promote this alternative to standalone.
+  final VoidCallback? onPromoteToStandalone;
+  /// Trip owner: this waypoint is promoted (show transport hint).
+  final bool isPromoted;
+
+  const WaypointTimelineItem({
+    super.key,
+    required this.waypoint,
+    required this.order,
+    this.showConnectingLine = false,
+    this.isBuilder = false,
+    this.onTap,
+    this.onGetDirections,
+    this.onMoveUp,
+    this.onMoveDown,
+    this.onEdit,
+    this.onDelete,
+    this.useItineraryCard = false,
+    this.canEditTime = false,
+    this.onTimeChanged,
+    this.timeOverride,
+    this.onAddAlternative,
+    this.onRemoveAlternative,
+    this.isSelectedInPickOne = false,
+    this.onSelectInPickOne,
+    this.isAddOnDisabled = false,
+    this.onToggleAddOn,
+    this.onPromoteToStandalone,
+    this.isPromoted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final config = getCategoryConfig(waypoint.type);
+    final circleColor = config.color;
+    final theme = Theme.of(context);
+    final connectorColor = const Color(0xFFD2B48C);
+
+    return IntrinsicHeight(
+      key: ValueKey(waypoint.id),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: kTimelineColumnWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                WaypointPinBadge(
+                  orderIndex: order,
+                  color: circleColor,
+                ),
+                if (showConnectingLine)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: CustomPaint(
+                        painter: DashedLinePainter(color: connectorColor),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: useItineraryCard
+                ? WaypointItineraryCard(
+                    waypoint: waypoint,
+                    order: order,
+                    isBuilder: isBuilder,
+                    canEditTime: canEditTime,
+                    timeOverride: timeOverride,
+                    onTap: onTap,
+                    onGetDirections: onGetDirections,
+                    onTimeChanged: onTimeChanged,
+                    onMoveUp: onMoveUp,
+                    onMoveDown: onMoveDown,
+                    onEdit: onEdit,
+                    onDelete: onDelete,
+                    onAddAlternative: onAddAlternative,
+                    onRemoveAlternative: onRemoveAlternative,
+                    isSelectedInPickOne: isSelectedInPickOne,
+                    onSelectInPickOne: onSelectInPickOne,
+                    isAddOnDisabled: isAddOnDisabled,
+                    onToggleAddOn: onToggleAddOn,
+                    onPromoteToStandalone: onPromoteToStandalone,
+                    isPromoted: isPromoted,
+                  )
+                : WaypointTimelineCard(
+                    waypoint: waypoint,
+                    order: order,
+                    isBuilder: isBuilder,
+                    onTap: onTap,
+                    onGetDirections: onGetDirections,
+                    onMoveUp: onMoveUp,
+                    onMoveDown: onMoveDown,
+                    onEdit: onEdit,
+                    onDelete: onDelete,
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Timeline-style waypoint list component
 /// Displays waypoints in a connected timeline with numbered circles
@@ -43,6 +187,9 @@ class WaypointTimelineList extends StatefulWidget {
 class _WaypointTimelineListState extends State<WaypointTimelineList> {
   bool _showAll = false;
 
+  /// Left padding so the 2px continuation line is centered under the circle.
+  static const double _kLineContinuationLeft = kTimelineColumnWidth / 2 - 1;
+
   @override
   Widget build(BuildContext context) {
     if (widget.waypoints.isEmpty) {
@@ -70,19 +217,21 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Timeline with waypoint cards
-        ...visibleWaypoints.asMap().entries.map((entry) {
+        // Timeline with waypoint cards (8px gap between items per plan)
+        ...visibleWaypoints.asMap().entries.expand((entry) {
           final index = entry.key;
           final waypoint = entry.value;
           final isLast = index == visibleWaypoints.length - 1 && hiddenCount == 0;
-          
-          return _buildTimelineItem(
-            waypoint: waypoint,
-            order: waypoint.order,
-            isLast: isLast,
-            showConnectingLine: !isLast || (shouldCollapse && !_showAll && hiddenCount > 0),
-          );
-        }).toList(),
+          return [
+            if (index > 0) const SizedBox(height: 8),
+            _buildTimelineItem(
+              waypoint: waypoint,
+              order: waypoint.order,
+              isLast: isLast,
+              showConnectingLine: !isLast || (shouldCollapse && !_showAll && hiddenCount > 0),
+            ),
+          ];
+        }),
 
         // Collapsed line continuation hint
         if (shouldCollapse && !_showAll && hiddenCount > 0)
@@ -101,122 +250,43 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
     required bool isLast,
     required bool showConnectingLine,
   }) {
-    final config = _getCategoryConfig(waypoint.type);
-    
-    // IntrinsicHeight wraps the Row so both children measure naturally
-    // This gives the Row a finite height from its tallest child (WaypointTimelineCard),
-    // allowing Expanded in the Column to work properly inside SingleChildScrollView
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Timeline column (circle + connecting line)
-          SizedBox(
-            width: 44,
-            child: Column(
-              children: [
-                // Numbered circle
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: config.color,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: config.color.withValues(alpha: 0.27),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      '$order',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        fontFamily: 'DM Sans',
-                      ),
-                    ),
-                  ),
-                ),
-                
-                // Connecting line — fills remaining height via Expanded inside IntrinsicHeight Row
-                if (showConnectingLine)
-                  Expanded(
-                    child: Center(
-                      child: Container(
-                        width: 2,
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        child: CustomPaint(
-                          painter: DashedLinePainter(
-                            color: const Color(0xFFD1D5DB),
-                            dashHeight: 5,
-                            dashSpace: 5,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          
-          const SizedBox(width: 12),
-          
-          // Waypoint card — drives the row height
-          Expanded(
-            child: WaypointTimelineCard(
-              waypoint: waypoint,
-              order: order,
-              isBuilder: widget.isBuilder,
-              onTap: widget.onWaypointTap != null
-                  ? () => widget.onWaypointTap!(waypoint)
-                  : null,
-              onGetDirections: widget.onGetDirections != null
-                  ? () => widget.onGetDirections!(waypoint)
-                  : null,
-              onMoveUp: widget.onMoveUp != null
-                  ? () => widget.onMoveUp!(waypoint)
-                  : null,
-              onMoveDown: widget.onMoveDown != null
-                  ? () => widget.onMoveDown!(waypoint)
-                  : null,
-              onEdit: widget.onEdit != null
-                  ? () => widget.onEdit!(waypoint)
-                  : null,
-              onDelete: widget.onDelete != null
-                  ? () => widget.onDelete!(waypoint)
-                  : null,
-            ),
-          ),
-        ],
-      ),
+    return WaypointTimelineItem(
+      key: ValueKey(waypoint.id),
+      waypoint: waypoint,
+      order: order,
+      showConnectingLine: showConnectingLine,
+      isBuilder: widget.isBuilder,
+      onTap: widget.onWaypointTap != null ? () => widget.onWaypointTap!(waypoint) : null,
+      onGetDirections: widget.onGetDirections != null ? () => widget.onGetDirections!(waypoint) : null,
+      onMoveUp: widget.onMoveUp != null ? () => widget.onMoveUp!(waypoint) : null,
+      onMoveDown: widget.onMoveDown != null ? () => widget.onMoveDown!(waypoint) : null,
+      onEdit: widget.onEdit != null ? () => widget.onEdit!(waypoint) : null,
+      onDelete: widget.onDelete != null ? () => widget.onDelete!(waypoint) : null,
     );
   }
 
   Widget _buildLineContinuation() {
+    const connectorColor = Color(0xFFD2B48C);
     return Padding(
-      padding: const EdgeInsets.only(left: 22, bottom: 4),
+      padding: const EdgeInsets.only(left: _kLineContinuationLeft, bottom: 4),
       child: SizedBox(
         width: 2,
         height: 20,
-        child: CustomPaint(
-          painter: DashedLinePainter(
-            color: const Color(0xFFD1D5DB),
-            dashHeight: 5,
-            dashSpace: 5,
+        child: Container(
+          decoration: BoxDecoration(
+            color: connectorColor,
+            borderRadius: BorderRadius.circular(1),
           ),
         ),
       ),
     );
   }
 
+  /// Called only when [hiddenCount] > 0 (guarded at callsite).
   Widget _buildCollapseButton(int hiddenCount) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(left: 56, top: 4),
+      padding: const EdgeInsets.only(left: kTimelineColumnWidth + 12, top: 4),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -229,9 +299,9 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE0E0E0)),
+              border: Border.all(color: theme.colorScheme.outline),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -239,10 +309,10 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
                 AnimatedRotation(
                   turns: _showAll ? 0.5 : 0,
                   duration: const Duration(milliseconds: 200),
-                  child: const Icon(
+                  child: Icon(
                     Icons.keyboard_arrow_down,
                     size: 16,
-                    color: Color(0xFF555555),
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -250,11 +320,9 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
                   _showAll
                       ? 'Show less'
                       : 'See $hiddenCount more stop${hiddenCount > 1 ? 's' : ''}',
-                  style: const TextStyle(
-                    fontSize: 13,
+                  style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF555555),
-                    fontFamily: 'DM Sans',
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -266,6 +334,7 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
   }
 
   Widget _buildEmptyState() {
+    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -275,24 +344,19 @@ class _WaypointTimelineListState extends State<WaypointTimelineList> {
             Icon(
               Icons.not_listed_location,
               size: 64,
-              color: Colors.grey.shade400,
+              color: theme.colorScheme.outline,
             ),
             const SizedBox(height: 16),
             Text(
               'No waypoints',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  CategoryConfig _getCategoryConfig(WaypointType type) {
-    return getCategoryConfig(type);
   }
 }
 
@@ -327,5 +391,8 @@ class DashedLinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant DashedLinePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.dashHeight != dashHeight ||
+      oldDelegate.dashSpace != dashSpace;
 }

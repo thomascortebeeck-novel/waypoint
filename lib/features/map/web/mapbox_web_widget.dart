@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
 import 'dart:js' as js;
@@ -11,6 +12,7 @@ import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/utils/coordinate_extensions.dart';
+import 'package:waypoint/services/map_marker_service.dart';
 
 /// Mapbox GL JS widget for web platform
 /// Uses the same custom Mapbox style as mobile for visual consistency
@@ -23,6 +25,8 @@ class MapboxWebWidget extends StatefulWidget {
   final Function(LatLng)? onTap; // Added: map tap callback
   final List<MapAnnotation> annotations;
   final List<MapPolyline> polylines;
+  /// Map container width in logical pixels (from LayoutBuilder). Used with zoom to scale waypoint markers.
+  final double? mapWidth;
 
   const MapboxWebWidget({
     super.key,
@@ -34,6 +38,7 @@ class MapboxWebWidget extends StatefulWidget {
     this.onTap, // Added: map tap callback
     this.annotations = const [],
     this.polylines = const [],
+    this.mapWidth,
   });
 
   @override
@@ -53,9 +58,34 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   final Map<String, html.Element> _markerElements = {}; // Track HTML elements for proper cleanup
   final Map<String, StreamSubscription<html.MouseEvent>> _markerClickSubscriptions = {}; // Track event listeners
   
+  /// Current map zoom (from move/moveend). Used with mapWidth to scale waypoint pin markers.
+  double? _currentZoom;
+  
   /// CRITICAL: Track when interactions are disabled to block ALL events including clicks
   /// This prevents map clicks from triggering popups when dialogs are open
   bool _interactionsDisabled = false;
+  
+  /// Scale factor for plectrum pin markers (46×58 base). Depends on zoom and map width; guard against zoom 0.
+  /// Markers kept small: max ~18px (0.39×46). Higher zoom = larger; lower zoom = smaller. Reference 700px width.
+  double _markerScale() {
+    final zoom = _currentZoom ?? widget.initialZoom;
+    final safeZoom = zoom.clamp(1.0, 22.0);
+    final width = widget.mapWidth ?? 400.0;
+    return ((width / 700.0) * (safeZoom / 14.0)).clamp(0.125, 0.39);
+  }
+  
+  /// Resize all plectrum pin marker elements to the current scale (keeps connector line continuous).
+  void _resizePlectrumMarkers() {
+    final scale = _markerScale();
+    final w = (46 * scale).round();
+    final h = (58 * scale).round();
+    for (final el in _markerElements.values) {
+      if (el is html.ImageElement) {
+        el.width = w;
+        el.height = h;
+      }
+    }
+  }
   
   /// Map IconData codePoints to Material Icons names for CDN usage
   String _getMaterialIconName(IconData icon) {
@@ -98,6 +128,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   @override
   void initState() {
     super.initState();
+    MapMarkerService.clearCache(); // Avoid serving stale full-size rasters after scale formula changes
     _viewId = 'mapbox-map-${DateTime.now().millisecondsSinceEpoch}';
     _initializeMap();
   }
@@ -506,19 +537,26 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
       final lng = center?['lng'];
       if (lat == null || lng == null || zoom == null) return;
       
+      final zoomValue = (zoom as num).toDouble();
+      _currentZoom = zoomValue;
       _controller?.onCameraChanged(
         (lat as num).toDouble(),
         (lng as num).toDouble(),
-        (zoom as num).toDouble(),
+        zoomValue,
         (bearing as num?)?.toDouble() ?? 0.0,
         (pitch as num?)?.toDouble() ?? 0.0,
       );
+      _resizePlectrumMarkers();
     } catch (e) {
       // Ignore camera update errors - these can happen during rapid updates
     }
   }
 
   void _onMapLoaded(js.JsObject map) {
+    try {
+      final loadedZoom = map.callMethod('getZoom', []);
+      if (loadedZoom != null) _currentZoom = (loadedZoom as num).toDouble();
+    } catch (_) {}
     setState(() => _isMapReady = true);
 
     // DEBUG: Log final zoom level after map loads
@@ -1061,7 +1099,7 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
   }
   
   /// Update annotations on the map (called when annotations change)
-  void _updateAnnotations(js.JsObject map) {
+  Future<void> _updateAnnotations(js.JsObject map) async {
     if (!_isMapReady || map == null) {
       debugPrint('⚠️ [MapboxWeb] Cannot update annotations: map not ready or null');
       return;
@@ -1081,59 +1119,83 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     int added = 0;
     int updated = 0;
     int skipped = 0;
+    final isStartEnd = (MapAnnotation a) =>
+        a.label != null && a.label!.length == 1 && (a.label == 'A' || a.label == 'B');
+    final markerSize = (MapAnnotation a) => a.markerSize ?? 22.0;
+    
     for (final annotation in widget.annotations) {
-      // Validate annotation has valid position using extension
       if (!annotation.position.isValid) {
         debugPrint('⚠️ [MapboxWeb] Skipping annotation ${annotation.id} with invalid coordinates: lat=${annotation.position.latitude}, lng=${annotation.position.longitude}');
         skipped++;
         continue;
       }
       
-      // Convert icon to a simple colored circle for now
-      // TODO: Support custom icons via icon images
       final colorHex = '#${(annotation.color.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
       
-      // Check if marker already exists - UPDATE IN PLACE to prevent visual glitches
       if (_markers.containsKey(annotation.id)) {
-        // Check if position actually changed before updating (avoid unnecessary updates)
         final existingMarker = _markers[annotation.id];
         if (existingMarker != null) {
           try {
-            // Get current marker position from Mapbox
             final currentLngLat = existingMarker.callMethod('getLngLat', []);
             final currentLng = (currentLngLat['lng'] as num?)?.toDouble();
             final currentLat = (currentLngLat['lat'] as num?)?.toDouble();
-            
-            // Only update if position changed significantly (> 1 meter)
-            // This prevents markers from jumping around on zoom changes
             if (currentLat != null && currentLng != null) {
               final distance = _calculateDistance(
                 LatLng(currentLat, currentLng),
                 annotation.position,
               );
-              if (distance > 0.001) { // 1 meter threshold
-                // Position changed - update it
+              if (distance > 0.001) {
                 _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
                 updated++;
               } else {
-                // Position hasn't changed, skip update (marker stays at fixed lat/lng)
                 skipped++;
               }
             } else {
-              // Can't get current position, update anyway (shouldn't happen normally)
               _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
               updated++;
             }
           } catch (e) {
-            // If we can't get current position, update anyway (fallback)
             _updateMarkerPosition(annotation.id, annotation.position.latitude, annotation.position.longitude);
             updated++;
           }
         }
       } else {
-        // Create new marker
-        _addAnnotationMarker(map, annotation, colorHex);
-        added++;
+        // Waypoint pins (markerSize 28): use raster from MapMarkerService at devicePixelRatio, display 46×58
+        if (markerSize(annotation) == 28.0 && !isStartEnd(annotation)) {
+          final typeString = annotation.waypointType != null
+              ? annotation.waypointType.toString().split('.').last.toLowerCase()
+              : 'waypoint';
+          final dpr = (html.window.devicePixelRatio).toDouble();
+          try {
+            final bytes = await MapMarkerService.getMarkerImageBytes(
+              typeString,
+              devicePixelRatio: dpr > 0 ? dpr : 2.0,
+              isSelected: false,
+            );
+            final dataUrl = 'data:image/png;base64,${base64Encode(bytes)}';
+            _addAnnotationMarkerWithImage(map, annotation, dataUrl);
+            added++;
+          } catch (e) {
+            // Retry once with dpr=2 before giving up
+            try {
+              final bytes = await MapMarkerService.getMarkerImageBytes(
+                typeString,
+                devicePixelRatio: 2.0,
+                isSelected: false,
+              );
+              final dataUrl = 'data:image/png;base64,${base64Encode(bytes)}';
+              _addAnnotationMarkerWithImage(map, annotation, dataUrl);
+              added++;
+            } catch (e2) {
+              debugPrint('⚠️ [MapboxWeb] Raster marker failed twice for ${annotation.id}: $e2');
+              _addPlectrumFallbackMarker(map, annotation, colorHex);
+              added++;
+            }
+          }
+        } else {
+          _addAnnotationMarker(map, annotation, colorHex);
+          added++;
+        }
       }
     }
     
@@ -1154,7 +1216,130 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     return earthRadius * c;
   }
   
-  /// Add an annotation as a marker on the map
+  /// Add a waypoint marker using raster image (plectrum pin). Display size scales with zoom and map width.
+  void _addAnnotationMarkerWithImage(js.JsObject map, MapAnnotation annotation, String dataUrl) {
+    try {
+      final mapboxgl = js.context['mapboxgl'];
+      if (mapboxgl == null) return;
+      final scale = _markerScale();
+      final displayW = (46 * scale).round();
+      final displayH = (58 * scale).round();
+      final el = html.ImageElement()
+        ..src = dataUrl
+        ..width = displayW
+        ..height = displayH
+        ..style.cursor = 'pointer'
+        ..style.pointerEvents = 'auto';
+      if (!annotation.position.isValid) return;
+      final marker = js.JsObject(mapboxgl['Marker'], [js.JsObject.jsify({
+        'element': el,
+        'anchor': 'bottom',
+      })])
+        ..callMethod('setLngLat', [js.JsObject.jsify(annotation.position.toLngLat())])
+        ..callMethod('addTo', [map]);
+      _markerElements[annotation.id] = el;
+      final subscription = el.onClick.listen((e) {
+        e.stopPropagation();
+        final isDisabled = js.context['_interactionsDisabled_$_viewId'] as bool? ?? _interactionsDisabled;
+        if (!isDisabled) annotation.onTap?.call();
+      });
+      _markerClickSubscriptions[annotation.id] = subscription;
+      _markers[annotation.id] = marker;
+    } catch (e) {
+      debugPrint('❌ [MapboxWeb] _addAnnotationMarkerWithImage failed: $e');
+    }
+  }
+
+  /// Fallback when raster fails twice: inline SVG approximating plectrum pin (no circle style for waypoints).
+  void _addPlectrumFallbackMarker(js.JsObject map, MapAnnotation annotation, String colorHex) {
+    try {
+      final mapboxgl = js.context['mapboxgl'];
+      if (mapboxgl == null) return;
+      if (!annotation.position.isValid) return;
+
+      // Match WaypointPinGeometry buildPlectrumPath (tangent-based corner rounding, h=58)
+      const w = 46.0;
+      const h = 58.0;
+      const cx = w / 2;
+      const r = w * 0.31;
+      const cy = h * 0.319;
+      final cornerY = h * 0.142;
+      final bowCPy = -cornerY;
+      final tipY = h * 0.995;
+      final cr = w * 0.07;
+
+      final inLen = math.sqrt((w - cx) * (w - cx) + (cornerY - bowCPy) * (cornerY - bowCPy));
+      final inDx = (w - cx) / inLen;
+      final inDy = (cornerY - bowCPy) / inLen;
+
+      final outLen = math.sqrt((w * 0.05) * (w * 0.05) + (h * 0.50 - cornerY) * (h * 0.50 - cornerY));
+      final outDx = -w * 0.05 / outLen;
+      final outDy = (h * 0.50 - cornerY) / outLen;
+
+      final tipLen = math.sqrt((cx - w * 0.95) * (cx - w * 0.95) + (tipY - h * 0.50) * (tipY - h * 0.50));
+      final tipDx = (cx - w * 0.95) / tipLen;
+      final tipDy = (tipY - h * 0.50) / tipLen;
+
+      final rPreDx = w - cr * inDx;
+      final rPreDy = cornerY - cr * inDy;
+      final rPostDx = w + cr * outDx;
+      final rPostDy = cornerY + cr * outDy;
+      final lPreDx = w - rPostDx;
+      final lPreDy = rPostDy;
+      final lPostDx = w - rPreDx;
+      final lPostDy = rPreDy;
+      final tPreDx = cx - cr * tipDx;
+      final tPreDy = tipY - cr * tipDy;
+      final tPostDx = cx + cr * tipDx;
+      final tPostDy = tipY - cr * tipDy;
+
+      final pathD =
+          'M $lPostDx $lPostDy '
+          'Q $cx $bowCPy $rPreDx $rPreDy '
+          'Q $w $cornerY $rPostDx $rPostDy '
+          'Q ${w * 0.95} ${h * 0.50} $tPreDx $tPreDy '
+          'Q $cx $tipY $tPostDx $tPostDy '
+          'Q ${w * 0.05} ${h * 0.50} $lPreDx $lPreDy '
+          'Q 0 $cornerY $lPostDx $lPostDy Z';
+
+      final svg = '''
+<svg xmlns="http://www.w3.org/2000/svg" width="${w.toInt()}" height="${h.toInt()}" viewBox="0 0 $w $h">
+  <path d="$pathD" fill="$colorHex"/>
+  <circle cx="$cx" cy="$cy" r="$r" fill="white"/>
+</svg>''';
+
+      final dataUrl = 'data:image/svg+xml;charset=utf-8,${Uri.encodeComponent(svg)}';
+      final scale = _markerScale();
+      final displayW = (46 * scale).round();
+      final displayH = (58 * scale).round();
+      final img = html.ImageElement()
+        ..src = dataUrl
+        ..width = displayW
+        ..height = displayH
+        ..style.cursor = 'pointer'
+        ..style.pointerEvents = 'auto';
+
+      final marker = js.JsObject(mapboxgl['Marker'], [js.JsObject.jsify({
+        'element': img,
+        'anchor': 'bottom',
+      })])
+        ..callMethod('setLngLat', [js.JsObject.jsify(annotation.position.toLngLat())])
+        ..callMethod('addTo', [map]);
+
+      _markerElements[annotation.id] = img;
+      final subscription = img.onClick.listen((e) {
+        e.stopPropagation();
+        final isDisabled = js.context['_interactionsDisabled_$_viewId'] as bool? ?? _interactionsDisabled;
+        if (!isDisabled) annotation.onTap?.call();
+      });
+      _markerClickSubscriptions[annotation.id] = subscription;
+      _markers[annotation.id] = marker;
+    } catch (e) {
+      debugPrint('❌ [MapboxWeb] _addPlectrumFallbackMarker failed: $e');
+    }
+  }
+
+  /// Add an annotation as a marker on the map (circle style for start/end and POIs)
   void _addAnnotationMarker(js.JsObject map, MapAnnotation annotation, String colorHex) {
     try {
       final mapboxgl = js.context['mapboxgl'];
@@ -1388,6 +1573,11 @@ class _MapboxWebWidgetState extends State<MapboxWebWidget> {
     if (polylinesChanged && _isMapReady && _mapInstance != null) {
       debugPrint('🔄 [MapboxWeb] Polylines changed: ${oldWidget.polylines.length} → ${widget.polylines.length}');
       _updatePolylines(_mapInstance!);
+    }
+    
+    // Resize waypoint pin markers when map width changes (e.g. panel resized)
+    if (widget.mapWidth != oldWidget.mapWidth && _markerElements.isNotEmpty) {
+      _resizePlectrumMarkers();
     }
   }
 

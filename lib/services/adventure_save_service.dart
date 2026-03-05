@@ -88,6 +88,7 @@ class AdventureSaveService {
             ? state.editingPlan!.versions[i].id
             : versionState.tempId;
         
+        // Prepare: no longer persisted (climate removed from app; model kept for backward compat when reading old docs).
         versions.add(PlanVersion(
           id: versionId,
           name: versionState.nameCtrl.text.trim().isEmpty
@@ -101,6 +102,9 @@ class AdventureSaveService {
           packingCategories: _composePackingCategories(versionState),
           transportationOptions: _composeTransportationOptions(versionState),
           faqItems: const [], // FAQ is stored at plan level
+          prepare: null,
+          localTips: versionState.generatedLocalTips,
+          checklistMigratedFromPrepare: versionState.checklistMigratedFromPrepare,
         ));
       }
       
@@ -171,13 +175,9 @@ class AdventureSaveService {
     LocalTips localTips,
   ) async {
     try {
-      // Check if there's actual data (not just empty objects)
-      final hasPrepareData = prepare.travelInsurance != null ||
-          prepare.visa != null ||
-          prepare.passport != null ||
-          prepare.permits.isNotEmpty ||
-          prepare.vaccines != null ||
-          prepare.climate != null;
+      // Prepare: no longer persisted (climate removed from app).
+      final hasPrepareData = false;
+      final prepareToWrite = null;
       
       final hasLocalTipsData = localTips.emergency != null ||
           localTips.messagingApp != null ||
@@ -199,7 +199,7 @@ class AdventureSaveService {
           .doc(versionId);
       
       await versionRef.update({
-        if (hasPrepareData) 'prepare': prepare.toJson(),
+        if (hasPrepareData && prepareToWrite != null) 'prepare': prepareToWrite.toJson(),
         if (hasLocalTipsData) 'local_tips': localTips.toJson(),
         'ai_generated_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
@@ -371,11 +371,20 @@ class AdventureSaveService {
   List<PackingCategory> _composePackingCategories(VersionFormState version) {
     return version.packingCategories.map((cat) => PackingCategory(
       name: cat.nameCtrl.text.trim(),
-      items: cat.items.map((item) => PackingItem(
-        id: item.id,
-        name: item.nameCtrl.text.trim(),
-        description: item.descriptionCtrl?.text.trim(),
-      )).toList(),
+      items: cat.items.map((item) {
+        final note = item.noteCtrl.text.trim();
+        final link = item.linkCtrl.text.trim();
+        final price = item.priceCtrl.text.trim();
+        return PackingItem(
+          id: item.id,
+          name: item.nameCtrl.text.trim(),
+          description: item.descriptionCtrl.text.trim().isEmpty ? null : item.descriptionCtrl.text.trim(),
+          quantity: int.tryParse(item.quantityCtrl.text.trim()),
+          note: note.isEmpty ? null : note,
+          link: link.isEmpty ? null : link,
+          price: price.isEmpty ? null : price,
+        );
+      }).toList(),
       description: cat.descriptionCtrl?.text.trim(),
     )).toList();
   }

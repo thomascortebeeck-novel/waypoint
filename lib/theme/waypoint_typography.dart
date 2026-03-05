@@ -20,8 +20,10 @@ class WaypointTypography {
   static TextStyle get headlineMedium => core.WaypointTypography.headline;
   static TextStyle get headlineSmall  => core.WaypointTypography.titleSmall;
   static TextStyle get titleMedium    => core.WaypointTypography.title;
+  static TextStyle get titleSmall     => core.WaypointTypography.titleSmall;
   static TextStyle get bodySmall      => core.WaypointTypography.bodySmall;
-  
+  static TextStyle get labelMedium    => core.WaypointTypography.small;
+
   // Stat styles (from old waypoint_typography.dart)
   static TextStyle get statValue => TextStyle(
     fontFamily: 'DMSans',

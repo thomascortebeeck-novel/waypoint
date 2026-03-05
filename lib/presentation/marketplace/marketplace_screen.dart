@@ -6,13 +6,19 @@ import 'package:go_router/go_router.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/core/constants/breakpoints.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
+import 'package:waypoint/presentation/mytrips/widgets/horizontal_trip_card.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/services/follow_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/utils/plan_display_utils.dart';
+import 'package:waypoint/theme/waypoint_colors.dart';
+import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
 import 'package:waypoint/presentation/marketplace/marketplace_components.dart'
-    show ActivityCircle, ActivityItem, PromoCard, PromoVariant, TestimonialsSection;
+    show ActivityCard, ActivityItem, PromoCard, PromoVariant, TestimonialsSection;
 
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
@@ -23,6 +29,7 @@ class MarketplaceScreen extends StatefulWidget {
 
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
   final _planService = PlanService();
+  final _tripService = TripService();
   final _userService = UserService();
   final _followService = FollowService();
   final _auth = FirebaseAuthManager();
@@ -34,7 +41,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   List<Plan> _searchResults = [];
   bool _isSearching = false;
   final PageController _carouselController = PageController();
-  int _currentCarouselPage = 0;
+  final ValueNotifier<int> _carouselPageNotifier = ValueNotifier<int>(0);
   List<String> _locationSuggestions = [];
   bool _showSuggestions = false;
 
@@ -48,8 +55,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   void _startCarouselAutoRotation() {
     _carouselTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (!_carouselController.hasClients) return;
-      
-      final nextPage = _currentCarouselPage < 3 ? _currentCarouselPage + 1 : 0;
+      final current = _carouselPageNotifier.value;
+      final nextPage = current < 3 ? current + 1 : 0;
       _carouselController.animateToPage(
         nextPage,
         duration: const Duration(milliseconds: 400),
@@ -65,6 +72,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     _searchFocusNode.dispose();
     _searchDebounce?.cancel();
     _carouselTimer?.cancel();
+    _carouselPageNotifier.dispose();
     _carouselController.dispose();
     super.dispose();
   }
@@ -152,6 +160,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           SliverToBoxAdapter(
             child: _buildSearchBar(context, isDesktop),
           ),
+          // Stats row (shared component)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: 20),
+              child: WaypointStatsRow(
+                items: [
+                  ('12.4k', 'Routes'),
+                  ('850+', 'Adventures'),
+                  ('4.9/5', 'Rating'),
+                ],
+              ),
+            ),
+          ),
           // Regular Content (search results handled by separate page)
           if (false) // Don't show inline search results anymore
             _buildSearchResults(context, isDesktop)
@@ -166,6 +187,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                       subtitle: 'Hand-picked by experts',
                       stream: _planService.streamFeaturedPlans(),
                       isDesktop: isDesktop,
+                      onSeeAll: () => context.go('/explore'),
                     ),
                   ),
                   SizedBox(height: isDesktop ? 48 : 32),
@@ -199,44 +221,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   _CenteredSection(
                     child: _YourPlansLane(
                       auth: _auth,
-                      userService: _userService,
+                      tripService: _tripService,
                       planService: _planService,
                       isDesktop: isDesktop,
                     ),
                   ),
                   SizedBox(height: isDesktop ? 48 : 32),
                   TestimonialsSection(isDesktop: isDesktop),
-                  SizedBox(height: isDesktop ? 48 : 32),
-                  if (isDesktop)
-                    _CenteredSection(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: PromoCard(
-                              variant: PromoVariant.gift,
-                              removeMargin: true,
-                            ),
-                          ),
-                          const SizedBox(width: 24),
-                          Expanded(
-                            child: _buildStatsBar(context, isDesktop),
-                          ),
-                        ],
-                      ),
-                    )
-                  else ...[
-                    _CenteredSection(
-                      child: PromoCard(
-                        variant: PromoVariant.gift,
-                        removeMargin: true,
-                      ),
-                    ),
-                    SizedBox(height: isDesktop ? 48 : 32),
-                    _CenteredSection(
-                      child: _buildStatsBar(context, isDesktop),
-                    ),
-                  ],
                 ]),
               ),
             ),
@@ -264,9 +255,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           PageView.builder(
             controller: _carouselController,
             onPageChanged: (index) {
-              setState(() {
-                _currentCarouselPage = index;
-              });
+              _carouselPageNotifier.value = index;
             },
             itemCount: carouselImages.length,
             itemBuilder: (context, index) {
@@ -336,7 +325,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Expert-guided treks, detailed itineraries,\nand offline maps for your journey',
+                    'Expert-curated routes for the wild at heart.',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.95),
                       fontSize: isDesktop ? 18 : 14,
@@ -351,33 +340,63 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      FilledButton(
+                        onPressed: () => context.go('/explore'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: BrandingLightTokens.appBarGreen,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Explore Now'),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: () => context.go('/mytrips'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: BorderSide(color: Colors.white.withValues(alpha: 0.8), width: 1.5),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Your trips'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
           
-          // Carousel Indicators
+          // Carousel Indicators (ValueListenableBuilder so only dots rebuild, not whole screen)
           Positioned(
             bottom: 20,
             left: 0,
             right: 0,
-            child: _buildCarouselIndicators(carouselImages.length),
+            child: ValueListenableBuilder<int>(
+              valueListenable: _carouselPageNotifier,
+              builder: (context, currentPage, _) =>
+                  _buildCarouselIndicators(carouselImages.length, currentPage),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCarouselIndicators(int count) {
+  Widget _buildCarouselIndicators(int count, int currentPage) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(count, (index) {
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 4),
-          width: _currentCarouselPage == index ? 24 : 8,
+          width: currentPage == index ? 24 : 8,
           height: 8,
           decoration: BoxDecoration(
-            color: _currentCarouselPage == index
+            color: currentPage == index
                 ? Colors.white
                 : Colors.white.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(4),
@@ -477,63 +496,55 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
 
   Widget _buildExploreByActivitySection(BuildContext context, bool isDesktop) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section Header - Centered
-        _CenteredSection(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Explore by Activity',
-                style: context.textStyles.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Popular activities from our community',
-                style: context.textStyles.bodyMedium?.copyWith(
-                  color: context.colors.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Activity Circles - Extend to edges
-        SizedBox(
-          height: isDesktop ? 240 : 120,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.only(
-              left: isDesktop ? 48 : 24,
-              right: isDesktop ? 48 : 24,
+    return _CenteredSection(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Explore by Activity',
+            style: context.textStyles.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            itemCount: 6, // Hiking, Cycling, Skiing, Climbing, City Trips, Tours
-            separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 24 : 16),
-            itemBuilder: (context, index) {
-              final activities = [
-                ActivityItem(ActivityCategory.hiking, 'Hiking', 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=200'),
-                ActivityItem(ActivityCategory.cycling, 'Cycling', 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=200'),
-                ActivityItem(ActivityCategory.skis, 'Skiing', 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=200'),
-                ActivityItem(ActivityCategory.climbing, 'Climbing', 'https://images.unsplash.com/photo-1522163182402-834f871fd851?w=200'),
-                ActivityItem(ActivityCategory.cityTrips, 'City Trips', 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=200'),
-                ActivityItem(ActivityCategory.tours, 'Tours', 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200'),
-              ];
-              return ActivityCircle(
-                activity: activities[index],
-                circleSize: isDesktop ? 180.0 : 80.0,
-                containerWidth: isDesktop ? 180.0 : 90.0,
-                onTap: () {
-                  // TODO: Filter by activity category
-                },
-              );
-            },
           ),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            'Popular activities from our community',
+            style: context.textStyles.bodyMedium?.copyWith(
+              color: context.colors.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: isDesktop ? 180 : 155,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.zero,
+              itemCount: 6,
+              separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 20 : 16),
+              itemBuilder: (context, index) {
+                final activities = [
+                  ActivityItem(ActivityCategory.hiking, 'Hiking', 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=200'),
+                  ActivityItem(ActivityCategory.cycling, 'Cycling', 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=200'),
+                  ActivityItem(ActivityCategory.skis, 'Skiing', 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=200'),
+                  ActivityItem(ActivityCategory.climbing, 'Climbing', 'https://images.unsplash.com/photo-1522163182402-834f871fd851?w=200'),
+                  ActivityItem(ActivityCategory.cityTrips, 'City Trips', 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=200'),
+                  ActivityItem(ActivityCategory.tours, 'Tours', 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200'),
+                ];
+                final cardWidth = isDesktop ? 120.0 : 100.0;
+                final cardHeight = isDesktop ? 170.0 : 145.0;
+                return ActivityCard(
+                  activity: activities[index],
+                  cardWidth: cardWidth,
+                  cardHeight: cardHeight,
+                  onTap: () {
+                    context.go('/explore?activity=${activities[index].category.name}');
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -548,64 +559,23 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           padding: EdgeInsets.symmetric(horizontal: isDesktop ? 48 : 24),
           child: Column(
             children: [
-              // Search Input Field
-              Container(
-                decoration: BoxDecoration(
-                  color: context.colors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty) {
-                      _searchLocation(value.trim());
-                    }
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Search by city, park, or trail name',
-                    hintStyle: TextStyle(
-                      color: context.colors.onSurface.withValues(alpha: 0.6),
-                      fontSize: 16,
-                    ),
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      color: context.colors.onSurface.withValues(alpha: 0.6),
-                      size: 24,
-                    ),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(
-                              Icons.clear,
-                              color: context.colors.onSurface.withValues(alpha: 0.6),
-                            ),
-                            onPressed: () {
-                              _searchController.clear();
-                              _searchFocusNode.unfocus();
-                              setState(() {
-                                _showSuggestions = false;
-                                _locationSuggestions = [];
-                              });
-                            },
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                  ),
-                  style: context.textStyles.bodyLarge,
-                ),
+              WaypointSearchBar(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                placeholder: 'Where to next …',
+                margin: EdgeInsets.zero,
+                onSubmitted: (value) {
+                  if (value.trim().isNotEmpty) _searchLocation(value.trim());
+                },
+                onClear: () {
+                  _searchController.clear();
+                  _searchFocusNode.unfocus();
+                  setState(() {
+                    _showSuggestions = false;
+                    _locationSuggestions = [];
+                  });
+                },
               ),
-              
               // Autocomplete Dropdown
               if (_showSuggestions && _locationSuggestions.isNotEmpty)
                 Container(
@@ -799,22 +769,24 @@ class _SwimmingLane extends StatelessWidget {
     this.subtitle,
     required this.stream,
     required this.isDesktop,
+    this.onSeeAll,
   });
 
   final String title;
   final String? subtitle;
   final Stream<List<Plan>> stream;
   final bool isDesktop;
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(title: title, subtitle: subtitle),
+        SectionHeader(title: title, subtitle: subtitle, onSeeAll: onSeeAll),
         const SizedBox(height: 16),
         SizedBox(
-          height: isDesktop ? 380 : 350,
+          height: isDesktop ? 400 : 380,
           child: StreamBuilder<List<Plan>>(
             stream: stream,
             builder: (context, snapshot) {
@@ -838,23 +810,41 @@ class _SwimmingLane extends StatelessWidget {
     final cardWidth = isDesktop ? 300.0 : 280.0;
 
     return ListView.separated(
-      padding: EdgeInsets.zero, // Padding handled by parent _CenteredSection
+      padding: EdgeInsets.zero,
       scrollDirection: Axis.horizontal,
       clipBehavior: Clip.none,
       itemCount: plans.length,
       separatorBuilder: (_, __) => const SizedBox(width: 24),
-      itemBuilder: (context, index) => SizedBox(
-        width: cardWidth,
-        child: AdventureCard(
-          plan: plans[index],
-          variant: AdventureCardVariant.standard,
-          showFavoriteButton: !plans[index].isFeatured,
-          onTap: () {
-            debugPrint('[Marketplace] Navigating to plan: id="${plans[index].id}", name="${plans[index].name}"');
-            context.push('/details/${plans[index].id}');
-          },
-        ),
-      ),
+      itemBuilder: (context, index) {
+        final plan = plans[index];
+        final initials = plan.creatorName.isNotEmpty
+            ? plan.creatorName.trim().split(' ').take(2).map((s) => s.isNotEmpty ? s[0].toUpperCase() : '?').toList()
+            : <String>['?'];
+        final tagLabels = activityTagLabelsForPlan(plan);
+        return SizedBox(
+          width: cardWidth,
+          child: WaypointFeaturedPlanCard(
+            title: plan.name,
+            creatorName: plan.creatorName,
+            rating: 4.5,
+            reviewCount: 2,
+            price: plan.minPrice > 0 ? plan.minPrice : null,
+            location: plan.location.isNotEmpty ? plan.location : null,
+            isFree: plan.minPrice == 0,
+            imageWidget: plan.heroImageUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: plan.heroImageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => Container(color: context.colors.surfaceContainerHighest),
+                    errorWidget: (_, __, ___) => Container(color: context.colors.surfaceContainerHighest, child: Icon(Icons.landscape_outlined, color: context.colors.onSurface.withValues(alpha: 0.5))),
+                  )
+                : null,
+            initials: initials,
+            tagLabels: tagLabels,
+            onTap: () => context.push('/details/${plan.id}'),
+          ),
+        );
+      },
     );
   }
 
@@ -906,71 +896,74 @@ class _SwimmingLane extends StatelessWidget {
 }
 
 class _YourPlansLane extends StatelessWidget {
-  const _YourPlansLane({
+  _YourPlansLane({
     required this.auth,
-    required this.userService,
+    required this.tripService,
     required this.planService,
     required this.isDesktop,
   });
 
   final FirebaseAuthManager auth;
-  final UserService userService;
+  final TripService tripService;
   final PlanService planService;
   final bool isDesktop;
 
   @override
   Widget build(BuildContext context) {
     final userId = auth.currentUserId;
-    final cardWidth = isDesktop ? 300.0 : 280.0;
+    final cardWidth = isDesktop ? 320.0 : 300.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader(
-          title: 'Your Plans',
-          subtitle: 'Quick access to your adventures',
+          title: 'Your Recent Plans',
+          subtitle: 'Quick access to your itineraries',
         ),
         const SizedBox(height: 16),
         if (userId == null)
           _buildSignedOutState(context)
         else
           SizedBox(
-            height: isDesktop ? 380 : 350,
-            child: StreamBuilder(
-              stream: userService.streamUser(userId),
+            height: isDesktop ? 160 : 150,
+            child: StreamBuilder<List<Trip>>(
+              stream: tripService.streamTripsForUser(userId),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
                   return _buildSkeletonLoader(context, cardWidth);
                 }
-                final user = snapshot.data;
-                final ids = <String>{
-                  ...?user?.purchasedPlanIds,
-                  ...?user?.invitedPlanIds,
-                }.toList();
-                if (ids.isEmpty) {
+                final trips = snapshot.data ?? [];
+                if (trips.isEmpty) {
                   return _buildEmptyState(context);
                 }
+                final planIds = trips.map((t) => t.planId).toSet().toList();
                 return FutureBuilder<List<Plan>>(
-                  future: planService.getPlansByIds(ids),
+                  future: planService.getPlansByIds(planIds),
                   builder: (context, plansSnap) {
-                    if (!plansSnap.hasData) {
+                    if (plansSnap.connectionState != ConnectionState.done || !plansSnap.hasData) {
                       return _buildSkeletonLoader(context, cardWidth);
                     }
                     final plans = plansSnap.data ?? [];
+                    final planMap = {for (final p in plans) p.id: p};
                     return ListView.separated(
-                      padding: EdgeInsets.zero, // Padding handled by parent _CenteredSection
+                      padding: EdgeInsets.zero,
                       scrollDirection: Axis.horizontal,
                       clipBehavior: Clip.none,
-                      itemCount: plans.length,
+                      itemCount: trips.length,
                       separatorBuilder: (_, __) => const SizedBox(width: 16),
-                      itemBuilder: (context, index) => SizedBox(
-                        width: cardWidth,
-                        child: AdventureCard(
-                          plan: plans[index],
-                          variant: AdventureCardVariant.standard,
-                          onTap: () => context.go('/details/${plans[index].id}'),
-                        ),
-                      ),
+                      itemBuilder: (context, index) {
+                        final trip = trips[index];
+                        final plan = planMap[trip.planId];
+                        if (plan == null) return const SizedBox.shrink();
+                        return SizedBox(
+                          width: cardWidth,
+                          child: HorizontalTripCard(
+                            trip: trip,
+                            plan: plan,
+                            userId: userId,
+                          ),
+                        );
+                      },
                     );
                   },
                 );
@@ -1046,20 +1039,20 @@ class _YourPlansLane extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.add_circle_outline,
+            Icons.backpack_outlined,
             size: 40,
             color: context.colors.onSurface.withValues(alpha: 0.3),
           ),
           const SizedBox(height: 12),
           Text(
-            'No adventures in your collection',
+            'No itineraries yet',
             style: context.textStyles.titleMedium?.copyWith(
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            'Explore the marketplace to find your next journey',
+            'Create your first trip from My Trips',
             style: context.textStyles.bodyMedium?.copyWith(
               color: context.colors.onSurface.withValues(alpha: 0.6),
             ),
@@ -1118,8 +1111,8 @@ class _FollowingLane extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SectionHeader(
-                    title: 'From Creators You Follow',
-                    subtitle: 'Latest adventures from your favorite creators',
+                    title: 'Your favorite creators',
+                    subtitle: 'Latest adventures from creators you follow',
                   ),
                   const SizedBox(height: 16),
                   SizedBox(

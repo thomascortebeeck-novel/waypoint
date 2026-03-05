@@ -177,4 +177,21 @@ class OrderService {
       return [];
     }
   }
+
+  /// Get orders where the given user is the seller (creator). For builder dashboard.
+  Future<List<OrderModel>> getOrdersBySeller(String sellerId) async {
+    try {
+      final snapshot = await _firestore
+          .collection(_ordersCollection)
+          .where('seller_id', isEqualTo: sellerId)
+          .orderBy('created_at', descending: true)
+          .get();
+      return snapshot.docs
+          .map((doc) => OrderModel.fromJson(doc.data()))
+          .toList();
+    } catch (e) {
+      debugPrint('Error getting orders by seller: $e');
+      return [];
+    }
+  }
 }

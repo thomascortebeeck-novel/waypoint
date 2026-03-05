@@ -1,0 +1,24 @@
+---
+alwaysApply: true
+---
+# Verify and fix after edits
+
+**This applies to any code change.** At the end of every set of edits (before replying "done" or finishing the task), you must verify that the code compiles and runs. Do not leave the user to discover errors from logs or hot reload.
+
+## 1. Run the analyzer
+
+- Run **ReadLints** on all modified files, or run `dart analyze` / `flutter analyze` from the project root on those files or the whole project.
+- Fix any reported issues: parse errors (missing `)`, `]`, `}`), undefined getters/methods, type mismatches (e.g. `List<dynamic>` vs `List<Widget>`).
+
+## 2. Run the app and check error logs
+
+- **Always** at the end of your edits, run the app (e.g. `flutter run` or `flutter run -d chrome` from the project root) so it builds and starts. Watch the terminal output for compile errors, runtime errors, or assertion failures (e.g. `isn't defined for the type`, `type 'Null' is not a subtype of`, layout or render errors).
+- If the app is already running in another terminal, run **hot reload** or **hot restart** (e.g. press `r` / `R` in the `flutter run` session, or run the appropriate command) and check that terminal for errors.
+- Fix any errors reported in the logs before considering the task done. If you cannot run the app in this environment, tell the user to run or hot reload and share any terminal/console errors so you can fix them.
+
+## 3. Do not consider the task done until verification passes
+
+- Do not leave the user to paste analyzer or run logs back. Fix issues in the same pass so the app runs or hot reloads successfully.
+- Apply this especially when: extracting or renaming methods/widgets (search for remaining references), changing widget trees (bracket/paren balance), or editing multiple files (run analyzer on all touched files).
+
+**Tip:** In Cursor, allowlist `dart` (and `Set-Location` if prompted) when asked to run `dart analyze` or `flutter analyze`, so future verification runs don't require manual approval.

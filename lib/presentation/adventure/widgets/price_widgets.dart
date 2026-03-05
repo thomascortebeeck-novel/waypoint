@@ -182,7 +182,7 @@ class AdventureQuickStats extends StatelessWidget {
   }
 }
 
-/// Helper widget for quick stat items
+/// Helper widget for quick stat items (chip style: light green bg, green border, green icon per goal).
 class _QuickStatItem extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -191,20 +191,29 @@ class _QuickStatItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 20, color: const Color(0xFF6C757D)),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'DMSans',
-            fontSize: 14,
-            color: Color(0xFF495057),
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colors.primaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.primary.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: colors.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: colors.onSurface,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

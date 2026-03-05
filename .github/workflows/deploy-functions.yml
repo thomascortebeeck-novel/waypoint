@@ -72,6 +72,24 @@ jobs:
           gcloud services list --enabled --project=${{ secrets.FIREBASE_PROJECT_ID }} --filter="name:cloudfunctions.googleapis.com OR name:cloudbuild.googleapis.com OR name:artifactregistry.googleapis.com" --format="table(name)" || echo "⚠️ Could not list services, but continuing..."
           echo "✅ API verification complete (APIs should already be enabled)"
 
+      # 6.7. Set Stripe secrets in Google Cloud Secret Manager (for Stripe Cloud Functions)
+      - name: Set Stripe secrets for deployment
+        run: |
+          if [ -n "${{ secrets.STRIPE_SECRET_KEY_TEST }}" ]; then
+            echo "Setting Stripe secrets (test keys)..."
+            echo -n "${{ secrets.STRIPE_SECRET_KEY_TEST }}" | firebase functions:secrets:set STRIPE_SECRET_KEY --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
+          fi
+          if [ -n "${{ secrets.STRIPE_WEBHOOK_SECRET_TEST }}" ]; then
+            echo -n "${{ secrets.STRIPE_WEBHOOK_SECRET_TEST }}" | firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
+          fi
+          if [ -z "${{ secrets.STRIPE_SECRET_KEY_TEST }}" ] && [ -z "${{ secrets.STRIPE_WEBHOOK_SECRET_TEST }}" ]; then
+            echo "⚠️ STRIPE_SECRET_KEY_TEST / STRIPE_WEBHOOK_SECRET_TEST not set; Stripe functions may fail at runtime until secrets are set."
+          else
+            echo "✅ Stripe secrets set"
+          fi
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: $HOME/gcloud-service-key.json
+
       # 7. Create .env file (NOT .env.yaml!) - Firebase expects KEY=value format
       - name: Create Environment Variables File
         working-directory: ./functions

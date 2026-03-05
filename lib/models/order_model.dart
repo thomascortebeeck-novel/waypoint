@@ -12,6 +12,8 @@ class OrderModel {
   final double amount;
   final OrderStatus status;
   final String? transactionId;
+  final String? idempotencyKey;
+  final String? stripePaymentIntentId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -23,6 +25,8 @@ class OrderModel {
     required this.amount,
     required this.status,
     this.transactionId,
+    this.idempotencyKey,
+    this.stripePaymentIntentId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -39,6 +43,8 @@ class OrderModel {
         orElse: () => OrderStatus.pending,
       ),
       transactionId: json['transaction_id'] as String?,
+      idempotencyKey: json['idempotency_key'] as String?,
+      stripePaymentIntentId: json['stripe_payment_intent_id'] as String?,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
     );
@@ -53,6 +59,8 @@ class OrderModel {
       'amount': amount,
       'status': status.name,
       'transaction_id': transactionId,
+      if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
+      if (stripePaymentIntentId != null) 'stripe_payment_intent_id': stripePaymentIntentId,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
     };
@@ -66,6 +74,8 @@ class OrderModel {
     double? amount,
     OrderStatus? status,
     String? transactionId,
+    String? idempotencyKey,
+    String? stripePaymentIntentId,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -77,6 +87,8 @@ class OrderModel {
       amount: amount ?? this.amount,
       status: status ?? this.status,
       transactionId: transactionId ?? this.transactionId,
+      idempotencyKey: idempotencyKey ?? this.idempotencyKey,
+      stripePaymentIntentId: stripePaymentIntentId ?? this.stripePaymentIntentId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

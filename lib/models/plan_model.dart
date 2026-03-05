@@ -537,18 +537,36 @@ class PackingItem {
   final String id;
   final String name;
   final String? description; // Optional markdown description with links
+  /// Optional quantity (e.g. 2 for "2x")
+  final int? quantity;
+  /// Optional note (free-text)
+  final String? note;
+  /// Optional link (URL)
+  final String? link;
+  /// Optional price (free-text, e.g. "€50" or "~$30")
+  final String? price;
 
   PackingItem({
     required this.id,
     required this.name,
     this.description,
+    this.quantity,
+    this.note,
+    this.link,
+    this.price,
   });
 
   factory PackingItem.fromJson(Map<String, dynamic> json) {
+    final q = json['quantity'];
+    final int? quantity = q == null ? null : (q is int ? q : int.tryParse(q.toString()));
     return PackingItem(
       id: json['id'] as String,
       name: json['name'] as String,
       description: json['description'] as String?,
+      quantity: quantity,
+      note: json['note'] as String?,
+      link: json['link'] as String?,
+      price: json['price'] as String?,
     );
   }
 
@@ -556,6 +574,10 @@ class PackingItem {
     'id': id,
     'name': name,
     if (description != null) 'description': description,
+    if (quantity != null) 'quantity': quantity,
+    if (note != null) 'note': note,
+    if (link != null) 'link': link,
+    if (price != null) 'price': price,
   };
 }
 
@@ -583,6 +605,7 @@ class PackingCategory {
             return PackingItem(
               id: 'legacy_${entry.key}',
               name: entry.value as String,
+              quantity: null,
             );
           }).toList();
         } else {
@@ -627,6 +650,8 @@ class PlanVersion {
   final Prepare? prepare;
   /// AI-generated local tips and cultural information (per-version)
   final LocalTips? localTips;
+  /// If true, document/vaccine data was migrated from Prepare into packing_categories (one-time).
+  final bool? checklistMigratedFromPrepare;
   /// Timestamp when AI info was last generated
   final DateTime? aiGeneratedAt;
 
@@ -644,6 +669,7 @@ class PlanVersion {
     this.experienceLevel,
     this.prepare,
     this.localTips,
+    this.checklistMigratedFromPrepare,
     this.aiGeneratedAt,
   });
 
@@ -665,6 +691,7 @@ class PlanVersion {
             items: oldList.asMap().entries.map((entry) => PackingItem(
               id: 'legacy_${entry.key}',
               name: entry.value,
+              quantity: null,
             )).toList(),
           )
         ];
@@ -706,6 +733,7 @@ class PlanVersion {
       localTips: json['local_tips'] != null
           ? LocalTips.fromJson(json['local_tips'] as Map<String, dynamic>)
           : null,
+      checklistMigratedFromPrepare: json['checklist_migrated_from_prepare'] as bool?,
       aiGeneratedAt: json['ai_generated_at'] != null
           ? (json['ai_generated_at'] as Timestamp).toDate()
           : null,
@@ -727,6 +755,7 @@ class PlanVersion {
       'experience_level': experienceLevel?.name,
       if (prepare != null) 'prepare': prepare!.toJson(),
       if (localTips != null) 'local_tips': localTips!.toJson(),
+      if (checklistMigratedFromPrepare != null) 'checklist_migrated_from_prepare': checklistMigratedFromPrepare,
       if (aiGeneratedAt != null) 'ai_generated_at': Timestamp.fromDate(aiGeneratedAt!),
     };
   }

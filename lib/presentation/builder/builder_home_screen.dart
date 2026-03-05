@@ -1,11 +1,15 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/user_service.dart';
+import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
 import 'package:waypoint/theme.dart';
 
 class BuilderHomeScreen extends StatefulWidget {
@@ -47,29 +51,74 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           }
           
           final uid = authSnapshot.data?.uid;
-          
-          return CustomScrollView(
-            slivers: [
-              _buildHeader(context, isDesktop),
-              SliverPadding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isDesktop ? 32 : 16,
-                  vertical: 8,
+          if (uid == null) {
+            return CustomScrollView(
+              slivers: [
+                _buildHeader(context, isDesktop),
+                SliverPadding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 32 : 16,
+                    vertical: 8,
+                  ),
+                  sliver: const SliverToBoxAdapter(child: _SignedOutState()),
                 ),
-                sliver: uid == null
-                    ? SliverToBoxAdapter(child: _SignedOutState())
-                    : _buildPlansContent(context, uid, isDesktop),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
-            ],
+                const SliverToBoxAdapter(child: SizedBox(height: 100)),
+              ],
+            );
+          }
+          return StreamBuilder(
+            stream: _users.streamUser(uid),
+            builder: (context, userSnapshot) {
+              if (userSnapshot.connectionState == ConnectionState.waiting) {
+                return CustomScrollView(
+                  slivers: [
+                    _buildHeader(context, isDesktop),
+                    SliverPadding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isDesktop ? 32 : 16,
+                        vertical: 8,
+                      ),
+                      sliver: SliverToBoxAdapter(child: _LoadingState()),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                  ],
+                );
+              }
+              final user = userSnapshot.data;
+              final canAccessBuilder = (user?.isInfluencer ?? false) || (user?.isAdmin ?? false);
+              final isAdmin = user?.isAdmin ?? false;
+              return CustomScrollView(
+                slivers: [
+                  _buildHeader(context, isDesktop),
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isDesktop ? 32 : 16,
+                      vertical: 8,
+                    ),
+                    sliver: canAccessBuilder
+                        ? _buildPlansContent(context, uid!, user, isDesktop, isAdmin)
+                        : const SliverToBoxAdapter(child: _RestrictedInfluencerState()),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 100)),
+                ],
+              );
+            },
           );
         },
       ),
       floatingActionButton: StreamBuilder(
         stream: _auth.authStateChanges,
-        builder: (context, snapshot) {
-          final uid = snapshot.data?.uid;
-          return _buildFAB(context, uid);
+        builder: (context, authSnapshot) {
+          final uid = authSnapshot.data?.uid;
+          if (uid == null) return _buildFAB(context, null);
+          return StreamBuilder(
+            stream: _users.streamUser(uid),
+            builder: (context, userSnapshot) {
+              final user = userSnapshot.data;
+              final canAccessBuilder = (user?.isInfluencer ?? false) || (user?.isAdmin ?? false);
+              return canAccessBuilder ? _buildFAB(context, uid) : const SizedBox.shrink();
+            },
+          );
         },
       ),
     );
@@ -85,14 +134,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                context.colors.primary.withValues(alpha: 0.08),
-                context.colors.surface,
-              ],
-            ),
+            color: context.colors.surface,
           ),
           child: SafeArea(
             bottom: false,
@@ -146,24 +188,16 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
   }
 
   Widget _buildFAB(BuildContext context, String? uid) {
-    return FloatingActionButton.extended(
-      heroTag: 'builder_home_fab',
+    return WaypointFAB(
+      icon: Icons.add,
+      label: 'New Adventure',
       onPressed: uid == null ? () => context.go('/profile') : () => _createNewDraft(context),
-      elevation: 4,
-      label: Text(
-        'New Adventure',
-        style: context.textStyles.titleSmall?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
-      ),
-      icon: const Icon(Icons.add, size: 22, color: Colors.white),
     );
   }
 
-  Widget _buildPlansContent(BuildContext context, String uid, bool isDesktop) {
+  Widget _buildPlansContent(BuildContext context, String uid, UserModel? user, bool isDesktop, bool isAdmin) {
     return StreamBuilder<List<Plan>>(
-      stream: _plans.streamPlansByCreator(uid),
+      stream: isAdmin ? _plans.streamAllPlansForAdmin() : _plans.streamPlansByCreator(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return SliverToBoxAdapter(
@@ -171,16 +205,84 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           );
         }
         final plans = snapshot.data ?? [];
-        // Optimistically filter out the plan being deleted
         final filteredPlans = _deletingPlanId != null
             ? plans.where((plan) => plan.id != _deletingPlanId).toList()
             : plans;
         if (filteredPlans.isEmpty) {
           return SliverToBoxAdapter(child: _EmptyBuilderState());
         }
-        return _buildPlansGrid(context, filteredPlans, isDesktop);
+        return SliverMainAxisGroup(
+          slivers: [
+            SliverToBoxAdapter(
+              child: _buildStatsAndPayoutCTA(
+                plansBuilt: filteredPlans.length,
+                plansSold: filteredPlans.fold<int>(0, (sum, p) => sum + p.salesCount),
+                user: user,
+              ),
+            ),
+            SliverToBoxAdapter(child: const SizedBox(height: 16)),
+            _buildPlansGrid(context, filteredPlans, isDesktop),
+          ],
+        );
       },
     );
+  }
+
+  Widget _buildStatsAndPayoutCTA({
+    required int plansBuilt,
+    required int plansSold,
+    required UserModel? user,
+  }) {
+    final isInfluencer = user?.isInfluencer ?? false;
+    final chargesEnabled = user?.chargesEnabled == true;
+    final showPayoutCTA = isInfluencer && !chargesEnabled;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _StatChip(
+              label: 'Plans built',
+              value: plansBuilt.toString(),
+            ),
+            const SizedBox(width: 16),
+            _StatChip(
+              label: 'Plans sold',
+              value: plansSold.toString(),
+            ),
+          ],
+        ),
+        if (showPayoutCTA) ...[
+          const SizedBox(height: 16),
+          _PayoutCTA(onTap: _openConnectOnboarding),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _openConnectOnboarding() async {
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+      final result = await functions.httpsCallable('createConnectAccountLink').call<Map<Object?, Object?>>({});
+      final url = result.data?['url'] as String?;
+      if (url != null && url.isNotEmpty && mounted) {
+        final uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      }
+    } catch (e) {
+      debugPrint('Connect onboarding error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildPlansGrid(BuildContext context, List<Plan> plans, bool isDesktop) {
@@ -479,6 +581,60 @@ class _SignedOutState extends StatelessWidget {
   }
 }
 
+class _RestrictedInfluencerState extends StatelessWidget {
+  const _RestrictedInfluencerState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.4),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.person_outline,
+                size: 48,
+                color: context.colors.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Builder access',
+              style: context.textStyles.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please apply to become a builder via here.',
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.6),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => context.go('/profile'),
+                child: const Text('Apply to become a builder'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _EmptyBuilderState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -568,6 +724,94 @@ class _FeatureChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StatChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: context.colors.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: context.colors.outline.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: context.textStyles.bodySmall?.copyWith(
+              color: context.colors.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: context.textStyles.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PayoutCTA extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _PayoutCTA({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.amber.shade50,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.payment, color: Colors.amber.shade800, size: 28),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Add payment details to receive earnings',
+                      style: context.textStyles.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.amber.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Complete Stripe Connect onboarding to get paid when your plans are sold.',
+                      style: context.textStyles.bodySmall?.copyWith(
+                        color: Colors.amber.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.amber.shade800),
+            ],
+          ),
+        ),
       ),
     );
   }

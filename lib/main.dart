@@ -8,9 +8,11 @@ import 'nav.dart';
 import 'package:waypoint/integrations/offline_manager.dart';
 import 'package:flutter/foundation.dart';
 import 'package:waypoint/utils/logger.dart';
+import 'package:waypoint/services/map_marker_service.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/providers/theme_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 
 /// Configure global image cache for better performance
 void _configureImageCache() {
@@ -43,6 +45,9 @@ Future<void> main() async {
     
     // Configure global image cache for better performance
     _configureImageCache();
+
+    // Clear waypoint marker bitmap cache so geometry changes take effect
+    MapMarkerService.clearCache();
 
     // Global Flutter error hook (safe to reassign on hot restart)
     FlutterError.onError = (FlutterErrorDetails details) {
@@ -124,6 +129,15 @@ Future<void> main() async {
         return;
       }
 
+      // Filter image decode errors (invalid/corrupt URL, wrong content-type) — UI shows errorWidget
+      final isImageDecodeError = (errorString.contains('EncodingError') ||
+          errorString.contains('source image cannot be decoded') ||
+          errorString.contains('Invalid image data'));
+
+      if (isImageDecodeError) {
+        return;
+      }
+
       // Filter minor RenderFlex overflows (e.g. 4px) — non-fatal layout tweaks
       final isMinorOverflow = (errorString.contains('RenderFlex overflowed') ||
               summaryString.contains('overflowed')) &&
@@ -175,6 +189,13 @@ Future<void> main() async {
       } else {
         rethrow;
       }
+    }
+
+    // Stripe: publishable key from --dart-define=STRIPE_PK=... (test/live per environment)
+    const stripePk = String.fromEnvironment('STRIPE_PK', defaultValue: '');
+    if (stripePk.isNotEmpty) {
+      Stripe.publishableKey = stripePk;
+      Log.i('bootstrap', 'Stripe initialized');
     }
 
     // Initialize offline tiles cache (no-op on web)

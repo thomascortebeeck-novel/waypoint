@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/travel_calculator_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 
 /// Timeline itinerary widget displaying waypoints in a vertical timeline
 /// Matches the design with numbered circles, cards, and travel segments
@@ -232,29 +233,15 @@ class _TimelineIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      height: 42,
       child: Center(
-        child: Text(
-          '$order',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+        child: WaypointPinBadge(
+          orderIndex: order,
+          color: color,
+          width: 32,
+          height: 42,
         ),
       ),
     );
@@ -588,7 +575,7 @@ class _TravelSegment extends StatelessWidget {
     final duration = _formatDuration(travelTime);
 
     return Padding(
-      padding: const EdgeInsets.only(left: 20, top: 8, bottom: 8),
+      padding: const EdgeInsets.only(left: 20, top: 14, bottom: 14),
       child: Row(
         children: [
           Icon(icon, size: 20, color: color),

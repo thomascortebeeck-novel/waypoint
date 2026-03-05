@@ -43,6 +43,9 @@ import 'package:waypoint/utils/activity_utils.dart';
 import 'package:waypoint/integrations/google_directions_service.dart';
 import 'package:waypoint/models/waypoint_edit_result.dart';
 import 'package:waypoint/components/builder/sidebar_waypoint_tile.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_geometry.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_painter.dart';
+import 'package:waypoint/components/waypoint/waypoint_timeline_config.dart';
 
 /// Unified item type for sidebar reorderable list
 /// Can be either a category group or an individual service/viewing point
@@ -1235,40 +1238,30 @@ Widget _buildLegacyFlutterMap(ll.LatLng center) {
       if (_poiWaypoints.isNotEmpty)
         fm.MarkerLayer(
           markers: _poiWaypoints
-              .map((wp) => fm.Marker(
-                    point: wp.position,
-                    width: 28,
-                    height: 28,
-                    child: GestureDetector(
-                      onTap: () => _editWaypoint(wp),
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: getWaypointColor(wp.type), // FILL with brand color
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2.5), // WHITE border
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Material( // FIX: Prevents "box" icons on Web
-                            type: MaterialType.transparency,
-                            child: Icon(
-                              getWaypointIcon(wp.type),
-                              color: Colors.white, // WHITE icon for visibility
-                              size: 16,
-                            ),
-                          ),
-                        ),
+              .map((wp) {
+                final config = getCategoryConfig(wp.type);
+                const w = WaypointPinGeometry.mapPinWidth;
+                const h = WaypointPinGeometry.mapPinHeight;
+                return fm.Marker(
+                  point: wp.position,
+                  width: w,
+                  height: h,
+                  alignment: const Alignment(0.5, 1.0), // bottom tip at point
+                  child: GestureDetector(
+                    onTap: () => _editWaypoint(wp),
+                    child: CustomPaint(
+                      size: const Size(w, h),
+                      painter: WaypointPinPainter(
+                        bodyColor: config.color,
+                        showSelectedRing: false,
+                        icon: config.icon,
+                        width: w,
+                        height: h,
                       ),
                     ),
-                  ))
+                  ),
+                );
+              })
               .toList(),
         ),
     ],

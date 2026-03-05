@@ -166,7 +166,7 @@ class _BuyPlanCardState extends State<BuyPlanCard> {
               onPressed: widget.onBuyTap,
               style: FilledButton.styleFrom(
                 backgroundColor: WaypointColors.primary,
-                foregroundColor: Colors.white,
+                foregroundColor: WaypointColors.surface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

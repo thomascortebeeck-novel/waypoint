@@ -327,19 +327,24 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
   /// Build Google Maps (works on both mobile and web)
   Widget _buildGoogleMap(MapConfiguration config) {
     try {
-      return GoogleMapWidget(
-        key: const ValueKey('google_map'),
-        initialCenter: widget.initialCenter,
-        configuration: config,
-        annotations: widget.annotations,
-        polylines: widget.polylines,
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        onCameraChanged: widget.onCameraChanged,
-        overlays: widget.overlays,
-        onMapCreated: (controller) {
-          widget.onMapCreated?.call(controller);
-          Log.i('map', '✅ Google Maps created successfully');
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return GoogleMapWidget(
+            key: const ValueKey('google_map'),
+            initialCenter: widget.initialCenter,
+            configuration: config,
+            annotations: widget.annotations,
+            polylines: widget.polylines,
+            mapWidth: constraints.maxWidth.isFinite ? constraints.maxWidth : null,
+            onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
+            onCameraChanged: widget.onCameraChanged,
+            overlays: widget.overlays,
+            onMapCreated: (controller) {
+              widget.onMapCreated?.call(controller);
+              Log.i('map', '✅ Google Maps created successfully');
+            },
+          );
         },
       );
     } catch (e) {
@@ -362,18 +367,23 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
   /// Uses the SAME custom style as mobile!
   Widget _buildWebMap(MapConfiguration config) {
     try {
-      return MapboxWebWidget(
-        key: const ValueKey('mapbox_web_map'),
-        initialCenter: widget.initialCenter,
-        initialZoom: config.initialZoom,
-        initialTilt: config.initialTilt,
-        initialBearing: config.initialBearing,
-        annotations: widget.annotations,
-        polylines: widget.polylines,
-        onTap: widget.onTap, // Forward map tap callback
-        onMapCreated: (controller) {
-          widget.onMapCreated?.call(controller);
-          Log.i('map', '✅ Mapbox GL JS map created successfully');
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return MapboxWebWidget(
+            key: const ValueKey('mapbox_web_map'),
+            initialCenter: widget.initialCenter,
+            initialZoom: config.initialZoom,
+            initialTilt: config.initialTilt,
+            initialBearing: config.initialBearing,
+            annotations: widget.annotations,
+            polylines: widget.polylines,
+            mapWidth: constraints.maxWidth.isFinite ? constraints.maxWidth : null,
+            onTap: widget.onTap, // Forward map tap callback
+            onMapCreated: (controller) {
+              widget.onMapCreated?.call(controller);
+              Log.i('map', '✅ Mapbox GL JS map created successfully');
+            },
+          );
         },
       );
     } catch (e) {

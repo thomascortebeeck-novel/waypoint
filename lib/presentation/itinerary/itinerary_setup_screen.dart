@@ -409,6 +409,20 @@ class _QuickActionsGrid extends StatelessWidget {
               ),
           ],
         ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _QuickActionCard(
+                icon: Icons.checklist_rounded,
+                label: 'Checklist',
+                description: 'Packing lists by category',
+                color: Colors.brown,
+                onTap: () => context.push('/trip/${trip.id}/checklist'),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
