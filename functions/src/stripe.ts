@@ -14,7 +14,7 @@ const USERS = "users";
 const STRIPE_ACCOUNTS = "stripeAccounts";
 
 function getStripe(secret: string): Stripe {
-  return new Stripe(secret, {apiVersion: "2025-04-30.basil"});
+  return new Stripe(secret, {apiVersion: "2025-02-24.acacia"});
 }
 
 function generateOrderId(): string {
@@ -322,6 +322,7 @@ export const createConnectAccountLink = onCall(
     const refreshUrl = "https://waypoint.app/builder";
     const link = await stripe.accountLinks.create({
       account: stripeAccountId,
+      type: "account_onboarding",
       refresh_url: refreshUrl,
       return_url: returnUrl,
     });
