@@ -1,5 +1,6 @@
 // Initialize Firebase Admin SDK before any usage of Firestore/Storage
 // This fixes: "FirebaseAppError: The default Firebase app does not exist."
+// (Triggers deploy on push to main)
 import {initializeApp} from "firebase-admin/app";
 initializeApp();
 

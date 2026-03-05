@@ -77,13 +77,20 @@ echo -n "whsec_..." | gcloud secrets create STRIPE_WEBHOOK_SECRET --data-file=-
 
 In your repo: **Settings → Secrets and variables → Actions**.
 
-Add these **repository secrets** (use test values for now):
+**Required for deploy:** The workflow creates **two** secrets in Google Cloud from GitHub. You must have **both** of these set, or deploy will fail with "have no value for the secret: STRIPE_WEBHOOK_SECRET":
 
 | Secret name | Value | Used for |
 |-------------|--------|----------|
-| `STRIPE_SECRET_KEY_TEST` | Your **Geheime sleutel** `sk_test_...` | Backend (set into Secret Manager or used by deploy) |
-| `STRIPE_WEBHOOK_SECRET_TEST` | Webhook signing secret `whsec_...` (from step 4) | Backend webhook |
-| `STRIPE_PUBLISHABLE_KEY_TEST` | Your **Openbare sleutel** `pk_test_...` | Flutter build with `--dart-define=STRIPE_PK=...` |
+| `STRIPE_SECRET_KEY_TEST` | Your **Geheime sleutel** `sk_test_...` | → `STRIPE_SECRET_KEY` in Secret Manager |
+| `STRIPE_WEBHOOK_SECRET_TEST` | Webhook signing secret `whsec_...` (from Stripe, see step 4) | → `STRIPE_WEBHOOK_SECRET` in Secret Manager |
+
+Optional for Flutter build:
+
+| Secret name | Value |
+|-------------|--------|
+| `STRIPE_PUBLISHABLE_KEY_TEST` | Your **Openbare sleutel** `pk_test_...` |
+
+If you see **"Secret STRIPE_WEBHOOK_SECRET not found"** in deploy: add **STRIPE_WEBHOOK_SECRET_TEST** in GitHub. The value is the **Signing secret** (starts with `whsec_...`) from Stripe Dashboard → Developers → Webhooks → your endpoint → Reveal signing secret. You can create a placeholder endpoint in Stripe just to get a `whsec_` value, then point it at your real URL after deploy.
 
 Later, for production, add:
 
