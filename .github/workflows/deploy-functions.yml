@@ -97,7 +97,8 @@ jobs:
         run: |
           echo "GOOGLE_PLACES_KEY=${{ secrets.GOOGLE_PLACES_API_KEY }}" > .env
           echo "MAPBOX_SECRET_TOKEN=${{ secrets.MAPBOX_SECRET_TOKEN }}" >> .env
-          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> .env
+          # Do NOT add OPENROUTER_API_KEY here: generateAdventureContext gets it from Secret Manager.
+          # Putting it in .env would cause "Secret env var overlaps non-secret" on deploy.
           echo "✅ Created .env file"
           echo "📄 Verification:"
           ls -la .env
