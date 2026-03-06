@@ -43,12 +43,45 @@ If you have a service account with **Owner** or **Editor** role, it will have th
 
 After granting the role, wait 1-2 minutes for permissions to propagate, then trigger the GitHub Actions workflow again. The deployment should succeed.
 
+## Cloud Scheduler (scheduled functions like cleanupPendingOrders)
+
+If deployment fails with:
+```
+403 PERMISSION_DENIED ... lacks IAM permission "cloudscheduler.jobs.get" ...
+lacks IAM permission "cloudscheduler.jobs.update" ... firebase-schedule-cleanupPendingOrders-us-central1
+```
+
+the service account used by GitHub Actions (`FIREBASE_SERVICE_ACCOUNT`) cannot create or update Cloud Scheduler jobs. Grant it one of the following.
+
+### Option 1: Cloud Scheduler Admin (simplest)
+
+**Console:** IAM → your service account → **ADD ANOTHER ROLE** → **Cloud Scheduler Admin** (`roles/cloudscheduler.admin`).
+
+**gcloud:**
+```bash
+PROJECT_ID="your-project-id"
+SERVICE_ACCOUNT_EMAIL="your-service-account@your-project.iam.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
+  --role="roles/cloudscheduler.admin"
+```
+
+### Option 2: Custom role
+
+Deployment needs `cloudscheduler.jobs.get`, `cloudscheduler.jobs.update`, and `cloudscheduler.jobs.create`. **Cloud Scheduler Admin** grants these; there is no smaller built-in role that suffices for deploy. Use Option 1 unless you create a custom role with only those permissions.
+
+After granting, wait 1–2 minutes and re-run the deploy workflow.
+
+---
+
 ## Additional Required Roles
 
 Your service account should also have:
 - **Cloud Functions Developer** (`roles/cloudfunctions.developer`) - to deploy functions
 - **Service Account User** (`roles/iam.serviceAccountUser`) - to use service accounts
 - **Storage Admin** (`roles/storage.admin`) - if using Cloud Storage
+- **Cloud Scheduler Admin** (`roles/cloudscheduler.admin`) - if you deploy scheduled functions (e.g. `cleanupPendingOrders`)
 
-These are typically included when you create a Firebase service account.
+These are typically included when you create a Firebase service account (except Cloud Scheduler Admin, which must be added for scheduled functions).
 
