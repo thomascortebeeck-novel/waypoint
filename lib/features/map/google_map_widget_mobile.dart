@@ -145,12 +145,6 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
     MapMarkerService.clearCache(); // fires on every hot reload
   }
 
-  @override
-  void dispose() {
-    _mapController?.dispose();
-    super.dispose();
-  }
-
   Future<void> _updateMarkers() async {
     if (!mounted) return;
     
@@ -238,8 +232,8 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
       if (polyline.isDashed) {
         final dashPattern = polyline.dashPattern ?? [10, 8];
         patterns = [
-          gmaps_mobile.PatternItem.dash(dashPattern[0]),
-          gmaps_mobile.PatternItem.gap(dashPattern.length > 1 ? dashPattern[1] : 8),
+          gmaps_mobile.PatternItem.dash(dashPattern[0].toDouble()),
+          gmaps_mobile.PatternItem.gap((dashPattern.length > 1 ? dashPattern[1] : 8).toDouble()),
         ];
       } else if (polyline.borderColor != null) {
         // Legacy: borderColor used to indicate dashed

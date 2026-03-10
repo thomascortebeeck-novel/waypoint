@@ -10,6 +10,10 @@ class MapboxWebWidget extends StatelessWidget {
   final double initialTilt;
   final double initialBearing;
   final void Function(WaypointMapController)? onMapCreated;
+  final Function(LatLng)? onTap;
+  final List<dynamic> annotations;
+  final List<dynamic> polylines;
+  final double? mapWidth;
 
   const MapboxWebWidget({
     super.key,
@@ -18,6 +22,10 @@ class MapboxWebWidget extends StatelessWidget {
     this.initialTilt = 0.0,
     this.initialBearing = 0.0,
     this.onMapCreated,
+    this.onTap,
+    this.annotations = const [],
+    this.polylines = const [],
+    this.mapWidth,
   });
 
   @override
