@@ -6,6 +6,7 @@ import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/presentation/mytrips/widgets/image_upload_dialog.dart';
+import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 
 class ItineraryOverviewCard extends StatefulWidget {
@@ -297,6 +298,9 @@ class _ItineraryOverviewCardState extends State<ItineraryOverviewCard> {
             case 'view_details':
               if (mounted) context.go('/itinerary/${widget.plan.id}/setup/${widget.trip.id}');
               break;
+            case 'delete':
+              await _confirmDelete(context);
+              break;
             default:
           }
         },
@@ -308,6 +312,43 @@ class _ItineraryOverviewCardState extends State<ItineraryOverviewCard> {
           const PopupMenuItem(value: 'delete', child: Text('Delete itinerary')),
         ],
       );
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete itinerary?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await TripService().deleteTrip(widget.trip.id);
+      if (mounted) {
+        context.go('/mytrips');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Itinerary deleted')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete: $e')),
+        );
+      }
+    }
+  }
 }
 
 enum _TripStatus { upcoming, inProgress, completed }

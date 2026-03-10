@@ -446,19 +446,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   }
 
   Widget _buildLogoRow(BuildContext context) {
-    return Row(
-      children: [
-        Icon(Icons.terrain, color: context.colors.primary, size: 28),
-        const SizedBox(width: 8),
-        Text(
-          'WAYPOINT',
-          style: context.textStyles.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.5,
-            color: context.colors.primary,
-          ),
-        ),
-      ],
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Image.asset(
+        'assets/images/logo-waypoint.png',
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Icon(Icons.terrain, color: context.colors.primary, size: 28),
+      ),
     );
   }
 

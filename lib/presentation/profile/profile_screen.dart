@@ -1216,14 +1216,6 @@ class _WaypointLogoAndTagline extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Text(
-          'Waypoint',
-          style: context.textStyles.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            color: context.colors.onSurface,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
           'Plan your next adventure.',
           style: context.textStyles.bodyMedium?.copyWith(
             color: context.colors.onSurface.withValues(alpha: 0.65),

@@ -6,7 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 /// Asset paths for Komoot and AllTrails logos (day tabs when link is present).
 const String _kKomootLogoAsset = 'assets/images/komoot_logo.png';
-const String _kAllTrailsLogoAsset = 'assets/images/alltrails_logo.png';
+const String _kAllTrailsLogoAsset = 'assets/images/alltrailslogo.png';
 
 /// External links row component
 /// 

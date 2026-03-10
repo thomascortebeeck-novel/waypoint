@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
+import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
 
@@ -329,18 +330,33 @@ class _MenuButton extends StatelessWidget {
   void _confirmDelete(BuildContext context) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Delete trip?'),
         content: const Text('This action cannot be undone.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO: call TripService.deleteTrip(trip.id)
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await TripService().deleteTrip(trip.id);
+                if (context.mounted) {
+                  context.go('/mytrips');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Trip deleted')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to delete trip: $e')),
+                  );
+                }
+              }
             },
             child: const Text('Delete'),
           ),

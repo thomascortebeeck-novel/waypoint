@@ -224,7 +224,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+          onPressed: () => context.go('/trip/${widget.tripId}'),
           tooltip: 'Back',
         ),
         title: Column(

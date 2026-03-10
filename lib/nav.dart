@@ -754,6 +754,8 @@ class _ScrollAwareDesktopShellState extends State<_ScrollAwareDesktopShell> {
         if (widget.navigationShell.currentIndex != 0) return false;
         if (notification is ScrollUpdateNotification || notification is ScrollEndNotification) {
           final pixels = notification.metrics.pixels;
+          // Ignore an initial high value (e.g. from another tab or restored state) so the bar stays transparent above the hero on first paint.
+          if (_scrollOffset == 0 && pixels > _kMarketplaceHeroScrollThreshold) return false;
           if (pixels != _scrollOffset) {
             setState(() => _scrollOffset = pixels);
           }
@@ -843,7 +845,7 @@ class DesktopTopNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isOverHero = (currentIndex == 0) && (scrolledPastHero != true);
-    return Container(
+    final bar = Container(
       height: kDesktopNavHeight,
       color: isOverHero ? Colors.transparent : context.colors.surface,
       padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -893,6 +895,11 @@ class DesktopTopNavBar extends StatelessWidget {
           ],
         ),
     );
+    // When over hero, use transparent Material so no theme/surface bleeds through.
+    if (isOverHero) {
+      return Material(type: MaterialType.transparency, child: bar);
+    }
+    return bar;
   }
 }
 
@@ -907,32 +914,18 @@ class _DesktopLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = lightStyle ? Colors.white : context.colors.primary;
-    final content = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 64,
-          height: 64,
-          child: Image.asset(
-            _logoAsset,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => Icon(
-              Icons.terrain,
-              color: color,
-              size: 56,
-            ),
-          ),
+    final content = SizedBox(
+      width: 64,
+      height: 64,
+      child: Image.asset(
+        _logoAsset,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Icon(
+          Icons.terrain,
+          color: color,
+          size: 56,
         ),
-        const SizedBox(width: 10),
-        Text(
-          'WAYPOINT',
-          style: context.textStyles.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.5,
-            color: color,
-          ),
-        ),
-      ],
+      ),
     );
     if (onTap == null) return content;
     return GestureDetector(
@@ -1137,19 +1130,14 @@ class DesktopSidebar extends StatelessWidget {
   Widget _buildLogo(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          Icon(Icons.terrain, color: context.colors.primary, size: 28),
-          const SizedBox(width: 10),
-          Text(
-            'WAYPOINT',
-            style: context.textStyles.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.5,
-              color: context.colors.primary,
-            ),
-          ),
-        ],
+      child: SizedBox(
+        width: 40,
+        height: 40,
+        child: Image.asset(
+          'assets/images/logo-waypoint.png',
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Icon(Icons.terrain, color: context.colors.primary, size: 28),
+        ),
       ),
     );
   }
