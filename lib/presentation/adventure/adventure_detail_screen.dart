@@ -150,7 +150,16 @@ class AdventureData {
         memberPacking = memberPacking;
   
   String get displayName => trip?.title ?? plan?.name ?? '';
-  String get displayImage => plan?.heroImageUrl ?? '';
+  /// Trip overview: use uploaded trip image when present; otherwise plan hero.
+  String get displayImage {
+    if (trip != null && !trip!.usePlanImage && trip!.customImages != null) {
+      final large = trip!.customImages!['large'] as String?;
+      final original = trip!.customImages!['original'] as String?;
+      if (large != null && large.isNotEmpty) return large;
+      if (original != null && original.isNotEmpty) return original;
+    }
+    return plan?.heroImageUrl ?? '';
+  }
   String get location => 
       (plan?.locations.isNotEmpty == true) 
           ? plan!.locations.first.shortName 
@@ -1110,9 +1119,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 onLike: () {
                   // TODO: Implement like functionality
                 },
-                onInvite: widget.mode == AdventureMode.trip
+                onInvite: widget.mode == AdventureMode.trip && widget.tripId != null
                     ? () {
-                        // TODO: Implement invite functionality
+                        Navigator.of(context).pop(); // Close drawer
+                        context.go('/trip/${widget.tripId}/members');
                       }
                     : null,
                 isLiked: false,
@@ -1209,6 +1219,13 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   onPressed: _loadAdventure,
                   child: const Text('Retry'),
                 ),
+                if (widget.mode == AdventureMode.trip) ...[
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: () => context.go('/mytrips'),
+                    child: const Text('Go to My Trips'),
+                  ),
+                ],
               ],
             ),
           );
@@ -1328,8 +1345,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     return null;
   }
 
-  /// Left position for the sticky price card on desktop so it is centered between
-  /// the right edge of the main content (max 1240px) and the right edge of the screen.
+  /// Left position for the sticky price card on desktop so it is centered in the
+  /// space between the right edge of the main content (max 1240px) and the right
+  /// edge of the screen (with [_minSideMargin] reserved on the right).
   static const double _contentMaxWidth = 1240.0;
   static const double _priceCardWidth = 320.0;
   static const double _minSideMargin = 24.0;
@@ -1339,7 +1357,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       return screenWidth - _priceCardWidth - _minSideMargin;
     }
     final contentRight = (screenWidth + _contentMaxWidth) / 2;
-    final sidebarWidth = screenWidth - contentRight;
+    final sidebarWidth = screenWidth - contentRight - _minSideMargin;
     return contentRight + (sidebarWidth - _priceCardWidth) / 2;
   }
 
@@ -3570,6 +3588,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             controller: option.titleCtrl,
             isEditable: true,
             hint: 'e.g., Flying from Brussels',
+            onChanged: _schedulePackingAutoSave,
           ),
           const SizedBox(height: 16),
           InlineEditableField(
@@ -3578,6 +3597,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             isEditable: true,
             maxLines: 5,
             hint: 'Describe this route option...',
+            onChanged: _schedulePackingAutoSave,
           ),
           const SizedBox(height: 16),
           Text(
@@ -3622,6 +3642,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                     }
                     option.notifyListeners();
                     version.notifyListeners();
+                    _schedulePackingAutoSave();
                   });
                 },
                 selectedColor: Theme.of(context).colorScheme.primary,
@@ -6947,9 +6968,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                           const SizedBox(height: WaypointSpacing.subsectionGap),
                         ],
                         
-                        // 5. About the Creator (single block; duplicate CreatorCard removed)
-                        _buildOwnerCard(context),
-                        const SizedBox(height: WaypointSpacing.subsectionGap),
+                        // 5. About the Creator (plan detail only; not shown on trip detail)
+                        if (widget.mode != AdventureMode.trip) ...[
+                          _buildOwnerCard(context),
+                          const SizedBox(height: WaypointSpacing.subsectionGap),
+                        ],
                         
                         // Review Score (viewer only)
                         if (_plan!.reviewStats != null && _plan!.reviewStats!.totalReviews > 0)
@@ -8631,11 +8654,16 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   }
 
   List<String> get _adventureImageUrls {
-    // For now, use heroImageUrl as single image
-    // TODO: Add imageUrls List<String> to Plan model
     if (widget.mode == AdventureMode.builder) {
       final url = _formState?.heroImageUrlCtrl.text ?? '';
       return url.isNotEmpty ? [url] : [];
+    }
+    // Trip mode: use trip cover when uploaded, else plan hero
+    if (widget.mode == AdventureMode.trip && _trip != null && !_trip!.usePlanImage && _trip!.customImages != null) {
+      final large = _trip!.customImages!['large'] as String?;
+      final original = _trip!.customImages!['original'] as String?;
+      final url = (large != null && large.isNotEmpty) ? large : (original ?? '');
+      if (url.isNotEmpty) return [url];
     }
     final url = _plan?.heroImageUrl ?? '';
     return url.isNotEmpty ? [url] : [];
@@ -8887,13 +8915,18 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             : 0);
     
     final languages = adventure.languages ?? [];
-    
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final isPlanOwner = currentUser != null && adventure.creatorId == currentUser.uid;
+    final hasBoughtPlan = _hasPurchased == true;
+
     return AdventurePriceCard(
       price: price,
       totalDays: totalDays,
       totalWaypoints: totalWaypoints,
       languages: languages,
       showBuyButton: widget.mode == AdventureMode.viewer,
+      hasBoughtPlan: hasBoughtPlan,
+      isPlanOwner: isPlanOwner,
       onBuyPlan: () {
         // TODO: Navigate to purchase flow
       },
