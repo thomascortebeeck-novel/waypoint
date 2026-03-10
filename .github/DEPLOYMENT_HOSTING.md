@@ -13,10 +13,12 @@ The **Deploy Firebase Hosting** workflow builds the Flutter web app and deploys 
 
 Uses the same secrets as the Cloud Functions workflow:
 
-| Secret | Description |
-|--------|-------------|
-| `FIREBASE_PROJECT_ID` | Your Firebase project ID (e.g. `lo72dwmjbzy4xz7nodczq859vs6xkf`) |
+
+| Secret                     | Description                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| `FIREBASE_PROJECT_ID`      | Your Firebase project ID (e.g. `lo72dwmjbzy4xz7nodczq859vs6xkf`)                        |
 | `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account with permission to deploy Hosting (same as for Functions) |
+
 
 No extra secrets are needed. The service account used for Functions deploy can deploy Hosting if it has the **Firebase Hosting Admin** (or **Editor**) role.
 
@@ -31,22 +33,32 @@ No extra secrets are needed. The service account used for Functions deploy can d
 
 After a successful run, the site is at:
 
-- **https://&lt;FIREBASE_PROJECT_ID&gt;.web.app**
-- **https://&lt;FIREBASE_PROJECT_ID&gt;.firebaseapp.com**
+- **https://****.web.app**
+- **https://****.firebaseapp.com**
 
-Add a custom domain (e.g. waypoint.tours and www.waypoint.tours) in [Firebase Console → Hosting → Add custom domain](https://console.firebase.google.com/).
+Add a custom domain (e.g. waypoint.tours and [www.waypoint.tours](http://www.waypoint.tours)) in [Firebase Console → Hosting → Add custom domain](https://console.firebase.google.com/).
 
-### Making both apex and www work (e.g. waypoint.tours and www.waypoint.tours)
+### Making both apex and www work (e.g. waypoint.tours and [www.waypoint.tours](http://www.waypoint.tours))
 
 If the site loads at `https://waypoint.tours` but not at `https://www.waypoint.tours` (or vice versa):
 
 1. **Firebase Console** → Hosting → **Custom domains**: Add **both** the apex (`waypoint.tours`) and the www subdomain (`www.waypoint.tours`) as separate custom domains. Complete the wizard for each.
 2. **DNS (at your registrar, e.g. Namecheap)**:
-   - **Apex**: Add the **A** records Firebase shows for the apex (usually two IPs).
-   - **www**: Add a **CNAME** record: host = `www`, value = the target Firebase gives (e.g. `&lt;project&gt;.web.app`).
+  - **Apex**: Add the **A** records Firebase shows for the apex (usually two IPs).
+  - **www**: Add a **CNAME** record: host = `www`, value = the target Firebase gives (e.g. `<project>.web.app`).
 3. Wait for DNS propagation (often 15–60 minutes; Firebase may say up to 24h). SSL is provisioned automatically for each domain.
+
+### waypoint.tours not loading (but .web.app works)
+
+All domains share the same release, so if the default URLs work, the custom domain should too. If **[https://waypoint.tours](https://waypoint.tours)** doesn’t load or shows old content:
+
+1. **Confirm which URL you use** — If you use **[https://www.waypoint.tours](https://www.waypoint.tours)**, add **[www.waypoint.tours](http://www.waypoint.tours)** as a separate custom domain in Firebase (apex and www are different).
+2. **Firebase Console** → Hosting → Custom domains: ensure **waypoint.tours** (and **[www.waypoint.tours](http://www.waypoint.tours)** if needed) show **Connected**. If not, complete the wizard and add the A/CNAME records Firebase shows.
+3. **DNS at your registrar**: Apex needs the **A** records from Firebase; **www** needs a **CNAME** to your `.web.app` host. Wait for propagation (up to 24h).
+4. **Cache**: Try a hard refresh (Ctrl+Shift+R) or an incognito window; CDN/browser cache can show old content.
 
 ## Local web development
 
 - **"Failed to exit Chromium" / dangling process**: On Windows, Flutter often cannot cleanly kill the Chrome process it started. The message is harmless. Close the browser tab/window yourself, or end any leftover `chrome.exe` in Task Manager if needed.
-- **To avoid Flutter launching/killing Chrome**: Run `flutter run -d web-server`, then open the printed URL (e.g. http://localhost:xxxxx) in your own browser. When you stop the app, only the server stops; no Chromium process is left for Flutter to kill.
+- **To avoid Flutter launching/killing Chrome**: Run `flutter run -d web-server`, then open the printed URL (e.g. [http://localhost:xxxxx](http://localhost:xxxxx)) in your own browser. When you stop the app, only the server stops; no Chromium process is left for Flutter to kill.
+

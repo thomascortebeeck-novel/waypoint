@@ -4,9 +4,7 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'functions/**'
-      - '.github/workflows/deploy-functions.yml'
+    # No path filter: run on every push so Cloud Functions stay in sync (like Hosting)
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
 jobs:
