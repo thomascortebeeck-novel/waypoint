@@ -1,0 +1,15 @@
+# Copy this file to key.properties and fill in your release keystore values.
+# key.properties is gitignored; never commit real credentials.
+#
+# storeFile=path/to/your/upload-keystore.jks
+# storePassword=your_keystore_password
+# keyAlias=upload
+# keyPassword=your_key_password
+#
+# For CI: use GitHub Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD and write this file (and the keystore) in the workflow.
+
+storeFile=
+storePassword=
+keyAlias=
+keyPassword=

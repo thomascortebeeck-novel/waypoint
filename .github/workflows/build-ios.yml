@@ -1,0 +1,62 @@
+name: Build iOS
+
+# Run manually to avoid macOS runner cost on every push. Optionally enable pull_request if needed.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS (no codesign)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.24.x'
+          cache: true
+
+      - name: Restore pub cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            build
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Create GoogleService-Info.plist from secret (optional)
+        env:
+          GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          if [ -n "$GOOGLE_SERVICE_INFO_PLIST" ]; then
+            echo "$GOOGLE_SERVICE_INFO_PLIST" > ios/Runner/GoogleService-Info.plist
+          fi
+
+      - name: Substitute Google Maps API key in AppDelegate (optional)
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: |
+          if [ -n "$GOOGLE_MAPS_API_KEY" ]; then
+            sed -i '' "s/YOUR_GOOGLE_MAPS_API_KEY/$GOOGLE_MAPS_API_KEY/g" ios/Runner/AppDelegate.swift
+          fi
+
+      - name: Install CocoaPods
+        run: |
+          cd ios && pod install && cd ..
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --no-codesign
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "iOS build completed successfully (no codesign)."
+          echo "To produce a signed IPA, configure signing and run 'flutter build ipa' locally or in a separate workflow with Apple cert/profile secrets."
