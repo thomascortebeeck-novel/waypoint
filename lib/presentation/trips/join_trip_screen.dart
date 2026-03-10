@@ -48,10 +48,24 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
   void initState() {
     super.initState();
     _validateInvite();
-    
+    _persistInviteCodeIfNeeded();
+
     // Auto-process invite if user just authenticated and plan already owned
     if (widget.fromAuthRedirect) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _autoProcessIfReady());
+    }
+  }
+
+  /// When user is not logged in, store invite code so post-login redirect (e.g. from profile) can return here.
+  Future<void> _persistInviteCodeIfNeeded() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('pending_invite_code', widget.inviteCode);
+      debugPrint('JoinTripScreen: Stored pending_invite_code for post-login redirect');
+    } catch (e) {
+      debugPrint('JoinTripScreen: Failed to store pending_invite_code: $e');
     }
   }
 

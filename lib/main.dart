@@ -3,6 +3,8 @@ import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:waypoint/firebase_options.dart';
+import 'package:waypoint/url_strategy_stub.dart'
+    if (dart.library.html) 'package:flutter_web_plugins/url_strategy.dart' as url_strategy;
 import 'theme.dart';
 import 'nav.dart';
 import 'package:waypoint/integrations/offline_manager.dart';
@@ -38,7 +40,10 @@ Future<void> main() async {
     // IMPORTANT: Keep bindings and runApp in the SAME zone to avoid web zone mismatch.
     WidgetsFlutterBinding.ensureInitialized();
     Log.i('bootstrap', 'Widgets binding initialized');
-    
+
+    // Use path-based URLs so /join/TREK-XXX works (no hash). No-op on non-web.
+    url_strategy.usePathUrlStrategy();
+
     // Configure global image cache for better performance
     _configureImageCache();
 

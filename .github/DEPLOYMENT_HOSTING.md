@@ -1,6 +1,8 @@
 # Firebase Hosting deployment (GitHub Actions)
 
-The **Deploy Firebase Hosting** workflow builds the Flutter web app and deploys it to Firebase Hosting on **every push to `main`**.
+**Push to `main` → latest code is built and deployed to Firebase Hosting automatically.** No extra step needed after `git push origin main`.
+
+The **Deploy Firebase Hosting** workflow (`.github/workflows/deploy-hosting.yml`) builds the Flutter web app and deploys it to Firebase Hosting on **every push to `main`**.
 
 ## When it runs
 
