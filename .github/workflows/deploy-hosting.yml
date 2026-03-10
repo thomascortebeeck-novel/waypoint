@@ -30,6 +30,11 @@ jobs:
       - name: Build web
         run: flutter build web
 
+      - name: Verify build output
+        run: |
+          ls -la build/web
+          test -f build/web/index.html || (echo "Missing build/web/index.html — build may have failed" && exit 1)
+
       - name: Install Firebase CLI
         run: npm install -g firebase-tools@latest
 
