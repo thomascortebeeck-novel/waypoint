@@ -1,7 +1,7 @@
 # Waypoint Map Implementation Guide
 
 ## Overview
-This guide explains how to integrate the Waypoint map system across all screens in your app. The system uses your custom Mapbox style and displays **two types of POIs with distinct visual styles** to create a clear hierarchy.
+This guide explains how to integrate the Waypoint map system across all screens. The app uses **Google Maps** for all map rendering. The system displays **two types of POIs with distinct visual styles** to create a clear hierarchy.
 
 ## 🎨 Visual Design System
 
@@ -221,10 +221,10 @@ FullscreenRouteMap(
 
 ---
 
-### C) Plan Details Page - Map Tab
+### C) Plan Details Page - Map Tab (viewer mode)
 
-**File**: `lib/presentation/details/plan_details_screen.dart`  
-**Section**: Around line 2385-2410
+**File**: `lib/presentation/adventure/adventure_detail_screen.dart` (AdventureDetailScreen in viewer mode)  
+**Section**: Day map tab content
 
 **What's Displayed**:
 - Route polyline
@@ -255,10 +255,10 @@ case DayViewTab.map:
 
 ---
 
-### D) Trip Details Page - Map Tab
+### D) Trip Details Page - Map Tab (trip mode)
 
-**File**: `lib/presentation/trips/trip_details_screen.dart`  
-**Method**: `_buildDayMap` (line ~2169)
+**File**: `lib/presentation/adventure/adventure_detail_screen.dart` (AdventureDetailScreen in trip mode)  
+**Method**: Day map building within adventure detail screen
 
 **What's Displayed**:
 - Route polyline

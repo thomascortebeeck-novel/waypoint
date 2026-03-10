@@ -90,6 +90,13 @@ jobs:
           if [ -n "$WEBHOOK_SECRET" ]; then
             echo -n "$WEBHOOK_SECRET" | firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
           fi
+          # Live pair for admin Stripe mode toggle (config/stripe.useLiveKeys). Use test values if live not set so deploy succeeds.
+          LIVE_SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY_LIVE }}"
+          LIVE_WEBHOOK_SECRET="${{ secrets.STRIPE_WEBHOOK_SECRET_LIVE }}"
+          if [ -z "$LIVE_SECRET_KEY" ]; then LIVE_SECRET_KEY="$SECRET_KEY"; fi
+          if [ -z "$LIVE_WEBHOOK_SECRET" ]; then LIVE_WEBHOOK_SECRET="$WEBHOOK_SECRET"; fi
+          echo -n "$LIVE_SECRET_KEY" | firebase functions:secrets:set STRIPE_SECRET_KEY_LIVE --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
+          echo -n "$LIVE_WEBHOOK_SECRET" | firebase functions:secrets:set STRIPE_WEBHOOK_SECRET_LIVE --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
 
       # 7. Create .env file (NOT .env.yaml!) - Firebase expects KEY=value format
       - name: Create Environment Variables File

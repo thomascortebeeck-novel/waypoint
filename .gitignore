@@ -47,5 +47,9 @@ app.*.map.json
 .prompt_attachments
 *.hologram.dart
 
-# API Keys
+# API Keys and secrets (use GitHub Secrets / Secret Manager; never commit)
+# Stripe: use GitHub Secrets STRIPE_SECRET_KEY_* / STRIPE_PUBLISHABLE_KEY_* only
 lib/config/api_keys.dart
+.env
+.env.local
+.env.*.local

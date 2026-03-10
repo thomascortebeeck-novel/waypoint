@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/utils/app_urls.dart';
 
 /// Customization status for trip waypoint selection
 enum TripCustomizationStatus {
@@ -72,18 +73,9 @@ class Trip {
     return 'TREK-$code';
   }
 
-  /// Get the full shareable invite link
-  /// Supports both production (waypoint.eu.com) and legacy (waypoint.app) domains
-  /// In test/development environments (Dreamflow), uses the test domain
-  String get shareLink {
-    // Detect test environment (Dreamflow share URLs)
-    if (kIsWeb && Uri.base.host.contains('dreamflow.app')) {
-      return '${Uri.base.origin}/#/join/$inviteCode';
-    }
-    
-    // Production domain (both domains work)
-    return 'https://waypoint.eu.com/join/$inviteCode';
-  }
+  /// Get the full shareable invite link.
+  /// Uses [AppUrls.getJoinTripUrl] so production = www.waypoint.tours, local web = current origin.
+  String get shareLink => AppUrls.getJoinTripUrl(inviteCode);
 
   /// Get the Firebase Dynamic Link for sharing (legacy)
   String get dynamicLink => 'https://waypoint.page.link/join?code=$inviteCode';

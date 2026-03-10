@@ -260,6 +260,12 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
     if (_looksLikeUrl(url)) _handleUrlInput(url);
   }
 
+  /// True when we have coordinates that are not the sentinel (0,0).
+  bool _isValidPosition(ll.LatLng? p) {
+    if (p == null) return false;
+    return p.latitude != 0 || p.longitude != 0;
+  }
+
   Future<void> _handleUrlInput(String url) async {
     setState(() => _isLoadingUrl = true);
     try {
@@ -273,6 +279,14 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
         if (result.imageUrl != null) {
           _googlePlacePhotoUrls = [result.imageUrl!];
           _currentPhotoUrls = [result.imageUrl!];
+        }
+        // If scrape did not return coordinates but we have an address, geocode via Google so the map pin is correct
+        final address = (result.address ?? '').trim();
+        if (address.isNotEmpty && !_isValidPosition(_latLng)) {
+          final coords = await _placesService.geocodeAddress(address);
+          if (coords != null && mounted) {
+            setState(() => _latLng = coords);
+          }
         }
         setState(() => _isStep2 = true);
       } else if (mounted) {
@@ -366,6 +380,24 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
       );
       return;
     }
+    final address = _addressController.text.trim();
+    // Resolve position: if we have an address but no valid coordinates (e.g. from URL scrape), geocode via Google API
+    ll.LatLng position = _latLng ?? _defaultPosition;
+    if (address.isNotEmpty && !_isValidPosition(_latLng)) {
+      try {
+        final coords = await _placesService.geocodeAddress(address);
+        if (coords != null) {
+          position = coords;
+          if (mounted) setState(() => _latLng = coords);
+        }
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not resolve address on map. Saving with entered address.')),
+          );
+        }
+      }
+    }
     final route = widget.initialRoute ?? const DayRoute(
       geometry: {},
       distance: 0,
@@ -377,7 +409,6 @@ class _WaypointEditPageState extends State<WaypointEditPage> {
         .map((e) => RouteWaypoint.fromJson(Map<String, dynamic>.from(e)))
         .toList();
     final maxOrder = waypoints.isEmpty ? 0 : waypoints.map((w) => w.order).reduce((a, b) => a > b ? a : b);
-    final position = _latLng ?? _defaultPosition;
     final id = _waypointId ?? _uuid.v4();
 
     double? minPrice;

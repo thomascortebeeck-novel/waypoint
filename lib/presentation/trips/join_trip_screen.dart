@@ -1,6 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +14,8 @@ import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/utils/app_urls.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Screen for joining a trip via invite code
 class JoinTripScreen extends StatefulWidget {
@@ -147,11 +149,25 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
     }
   }
 
-  void _navigateToPurchase() {
+  Future<void> _navigateToPurchase() async {
     final trip = _validationResult?.trip;
     if (trip == null) return;
-    
-    // Navigate to checkout with return info
+
+    // On app (iOS/Android) open web with invite context so user can buy then re-join
+    if (!kIsWeb) {
+      final url = AppUrls.getPlanDetailsWebUrlWithParams(
+        trip.planId!,
+        inviteCode: widget.inviteCode,
+        returnToJoin: true,
+      );
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      return;
+    }
+
+    // Navigate to checkout with return info (web only)
     context.push(
       '/checkout/${trip.planId}',
       extra: {

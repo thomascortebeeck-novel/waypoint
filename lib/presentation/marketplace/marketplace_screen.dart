@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -18,7 +19,7 @@ import 'package:waypoint/utils/plan_display_utils.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
 import 'package:waypoint/presentation/marketplace/marketplace_components.dart'
-    show ActivityCard, ActivityItem, PromoCard, PromoVariant, TestimonialsSection;
+    show ActivityCard, ActivityCircle, ActivityItem, PromoCard, PromoVariant, TestimonialsSection, UspStepsSection;
 
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
@@ -152,26 +153,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // Full-width Hero Carousel with Text Overlay
+          // Hero + search bar overlapping bottom edge (50% on hero, 50% below)
           SliverToBoxAdapter(
-            child: _buildHeroCarousel(context, isDesktop),
+            child: _buildHeroWithSearch(context, isDesktop, screenWidth),
           ),
-          // Search Bar
+          // 3-step USP section
           SliverToBoxAdapter(
-            child: _buildSearchBar(context, isDesktop),
-          ),
-          // Stats row (shared component)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.only(bottom: 20),
-              child: WaypointStatsRow(
-                items: [
-                  ('12.4k', 'Routes'),
-                  ('850+', 'Adventures'),
-                  ('4.9/5', 'Rating'),
-                ],
-              ),
-            ),
+            child: UspStepsSection(isDesktop: isDesktop),
           ),
           // Regular Content (search results handled by separate page)
           if (false) // Don't show inline search results anymore
@@ -236,8 +224,43 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     );
   }
 
-  Widget _buildHeroCarousel(BuildContext context, bool isDesktop) {
+  Widget _buildHeroWithSearch(BuildContext context, bool isDesktop, double screenWidth) {
     final heroHeight = isDesktop ? 500.0 : 400.0;
+    final searchBarHeight = isDesktop ? 64.0 : 56.0;
+    final overlap = searchBarHeight / 2;
+    return SizedBox(
+      height: heroHeight + overlap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: heroHeight,
+            child: _buildHeroCarousel(context, isDesktop, heroHeight),
+          ),
+          // Search bar: bottom aligned with Stack so 50% sits on hero, 50% below
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: searchBarHeight,
+            child: Center(
+              child: SizedBox(
+                width: math.min(isDesktop ? 760 : 700, screenWidth - (isDesktop ? 96 : 32)),
+                height: searchBarHeight,
+                child: _buildSearchBar(context, isDesktop, inline: true, searchBarHeight: searchBarHeight),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeroCarousel(BuildContext context, bool isDesktop, [double? heroHeight]) {
+    final height = heroHeight ?? (isDesktop ? 500.0 : 400.0);
     final carouselImages = [
       'https://images.unsplash.com/photo-1551632811-561732d1e306?w=1200',
       'https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?w=1200',
@@ -246,11 +269,27 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     ];
 
     return Container(
-      height: heroHeight,
+      height: height,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
         children: [
+          // Top gradient scrim for nav bar readability
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 100,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black.withValues(alpha: 0.45), Colors.transparent],
+                ),
+              ),
+            ),
+          ),
           // Image Carousel
           PageView.builder(
             controller: _carouselController,
@@ -496,88 +535,131 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
 
   Widget _buildExploreByActivitySection(BuildContext context, bool isDesktop) {
-    return _CenteredSection(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Explore by Activity',
-            style: context.textStyles.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
+    final horizontalPadding = isDesktop ? 48.0 : 24.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _CenteredSection(
+          child: SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Explore by Activity',
+                  style: context.textStyles.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Popular activities from our community',
+                  style: context.textStyles.bodyMedium?.copyWith(
+                    color: context.colors.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Popular activities from our community',
-            style: context.textStyles.bodyMedium?.copyWith(
-              color: context.colors.onSurface.withValues(alpha: 0.6),
-            ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: isDesktop ? 280 : 150,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.only(left: horizontalPadding),
+            itemCount: 6,
+            separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 20 : 14),
+            itemBuilder: (context, index) {
+              final activities = [
+                ActivityItem(ActivityCategory.hiking, 'Hiking', 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=200'),
+                ActivityItem(ActivityCategory.cycling, 'Cycling', 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=200'),
+                ActivityItem(ActivityCategory.skis, 'Skiing', 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=200'),
+                ActivityItem(ActivityCategory.climbing, 'Climbing', 'https://images.unsplash.com/photo-1522163182402-834f871fd851?w=200'),
+                ActivityItem(ActivityCategory.cityTrips, 'City Trips', 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=200'),
+                ActivityItem(ActivityCategory.tours, 'Tours', 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200'),
+              ];
+              final circleSize = isDesktop ? 200.0 : 92.0;
+              final containerWidth = isDesktop ? 240.0 : 105.0;
+              return ActivityCircle(
+                activity: activities[index],
+                circleSize: circleSize,
+                containerWidth: containerWidth,
+                onTap: () {
+                  context.go('/explore?activity=${activities[index].category.name}');
+                },
+              );
+            },
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: isDesktop ? 180 : 155,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
-              itemCount: 6,
-              separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 20 : 16),
-              itemBuilder: (context, index) {
-                final activities = [
-                  ActivityItem(ActivityCategory.hiking, 'Hiking', 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=200'),
-                  ActivityItem(ActivityCategory.cycling, 'Cycling', 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=200'),
-                  ActivityItem(ActivityCategory.skis, 'Skiing', 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=200'),
-                  ActivityItem(ActivityCategory.climbing, 'Climbing', 'https://images.unsplash.com/photo-1522163182402-834f871fd851?w=200'),
-                  ActivityItem(ActivityCategory.cityTrips, 'City Trips', 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=200'),
-                  ActivityItem(ActivityCategory.tours, 'Tours', 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200'),
-                ];
-                final cardWidth = isDesktop ? 120.0 : 100.0;
-                final cardHeight = isDesktop ? 170.0 : 145.0;
-                return ActivityCard(
-                  activity: activities[index],
-                  cardWidth: cardWidth,
-                  cardHeight: cardHeight,
-                  onTap: () {
-                    context.go('/explore?activity=${activities[index].category.name}');
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildSearchBar(BuildContext context, bool isDesktop) {
+  Widget _buildSearchBar(BuildContext context, bool isDesktop, {bool inline = false, double? searchBarHeight}) {
     return Container(
-      margin: EdgeInsets.symmetric(
-        vertical: isDesktop ? 24 : 20,
-      ),
+      margin: inline ? EdgeInsets.zero : EdgeInsets.symmetric(vertical: isDesktop ? 24 : 20),
       child: Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: WaypointBreakpoints.contentMaxWidth),
-          padding: EdgeInsets.symmetric(horizontal: isDesktop ? 48 : 24),
+          padding: EdgeInsets.symmetric(horizontal: inline ? 0 : (isDesktop ? 48 : 24)),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              WaypointSearchBar(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                placeholder: 'Where to next …',
-                margin: EdgeInsets.zero,
-                onSubmitted: (value) {
-                  if (value.trim().isNotEmpty) _searchLocation(value.trim());
-                },
-                onClear: () {
-                  _searchController.clear();
-                  _searchFocusNode.unfocus();
-                  setState(() {
-                    _showSuggestions = false;
-                    _locationSuggestions = [];
-                  });
-                },
-              ),
-              // Autocomplete Dropdown
-              if (_showSuggestions && _locationSuggestions.isNotEmpty)
+              if (inline)
+                Container(
+                  decoration: BoxDecoration(
+                    color: context.colors.background,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 24,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: WaypointSearchBar(
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    placeholder: 'Where to next …',
+                    margin: EdgeInsets.zero,
+                    height: searchBarHeight,
+                    transparentBackground: true,
+                    onSubmitted: (value) {
+                      if (value.trim().isNotEmpty) _searchLocation(value.trim());
+                    },
+                    onClear: () {
+                      _searchController.clear();
+                      _searchFocusNode.unfocus();
+                      setState(() {
+                        _showSuggestions = false;
+                        _locationSuggestions = [];
+                      });
+                    },
+                  ),
+                )
+              else
+                WaypointSearchBar(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  placeholder: 'Where to next …',
+                  margin: EdgeInsets.zero,
+                  onSubmitted: (value) {
+                    if (value.trim().isNotEmpty) _searchLocation(value.trim());
+                  },
+                  onClear: () {
+                    _searchController.clear();
+                    _searchFocusNode.unfocus();
+                    setState(() {
+                      _showSuggestions = false;
+                      _locationSuggestions = [];
+                    });
+                  },
+                ),
+              // Autocomplete Dropdown (hidden when inline to keep overlay height 52px)
+              if (!inline && _showSuggestions && _locationSuggestions.isNotEmpty)
                 Container(
                   margin: const EdgeInsets.only(top: 8),
                   decoration: BoxDecoration(

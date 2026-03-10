@@ -167,9 +167,9 @@ AdaptiveMapWidget(
 
 ### Map Pages & Implementation
 
-#### 1. Builder Page Preview Map
-**File**: `lib/presentation/builder/builder_screen.dart`
-**Method**: `_buildDayRouteMap()`
+#### 1. Builder Page Preview Map (builder mode)
+**File**: `lib/presentation/adventure/adventure_detail_screen.dart` (AdventureDetailScreen in builder mode)
+**Method**: Day route map building within the adventure detail screen
 **Configuration**: `MapConfiguration.mainMap()`
 **Engine**: Mapbox WebGL (web) / Mapbox Native (mobile)
 **Features**:
@@ -229,9 +229,9 @@ AdaptiveMapWidget(
 )
 ```
 
-#### 3. Plan Details Page Preview Map
-**File**: `lib/presentation/details/plan_details_screen.dart`
-**Widget**: `_DayMapWidget`
+#### 3. Plan Details Page Preview Map (viewer mode)
+**File**: `lib/presentation/adventure/adventure_detail_screen.dart` (AdventureDetailScreen in viewer mode)
+**Widget**: Day map widgets within the adventure detail screen
 **Configuration**: `MapConfiguration.preview()`
 **Engine**: Mapbox WebGL (web) / Mapbox Native (mobile)
 **Features**:
@@ -265,9 +265,9 @@ AdaptiveMapWidget(
 )
 ```
 
-#### 4. Trip Details Page Preview Map
-**File**: `lib/presentation/trips/trip_details_screen.dart`
-**Widget**: `_TripDayMapWidget`
+#### 4. Trip Details Page Preview Map (trip mode)
+**File**: `lib/presentation/adventure/adventure_detail_screen.dart` (AdventureDetailScreen in trip mode)
+**Widget**: Day map widgets within the adventure detail screen
 **Configuration**: `MapConfiguration.mainMap()`
 **Engine**: Mapbox WebGL (web) / Mapbox Native (mobile)
 **Features**:

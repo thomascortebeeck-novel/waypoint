@@ -6,15 +6,39 @@ import Stripe from "stripe";
 
 const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const stripeWebhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
+const stripeSecretLive = defineSecret("STRIPE_SECRET_KEY_LIVE");
+const stripeWebhookSecretLive = defineSecret("STRIPE_WEBHOOK_SECRET_LIVE");
 
 const db = getFirestore();
 const ORDERS = "orders";
 const PLANS = "plans";
 const USERS = "users";
 const STRIPE_ACCOUNTS = "stripeAccounts";
+const CONFIG_STRIPE = "config/stripe";
 
 function getStripe(secret: string): Stripe {
   return new Stripe(secret, {apiVersion: "2025-02-24.acacia"});
+}
+
+/** Read config/stripe.useLiveKeys from Firestore (default false). */
+async function getUseLiveKeys(): Promise<boolean> {
+  const snap = await db.doc(CONFIG_STRIPE).get();
+  return (snap.data()?.useLiveKeys as boolean) === true;
+}
+
+/** Get the Stripe secret for callables; throws clear error if useLive and live secret missing. */
+function getStripeSecretForCallable(useLive: boolean): string {
+  if (useLive) {
+    const live = stripeSecretLive.value();
+    if (!live || live.trim() === "") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Stripe live keys not configured. Set STRIPE_SECRET_KEY_LIVE in Secret Manager."
+      );
+    }
+    return live;
+  }
+  return stripeSecret.value();
 }
 
 function generateOrderId(): string {
@@ -25,11 +49,13 @@ function generateOrderId(): string {
 
 /** createPaymentIntent: guard first (charges_enabled), then idempotency check, then create order + PI */
 export const createPaymentIntent = onCall(
-  {region: "us-central1", timeoutSeconds: 30, secrets: [stripeSecret]},
+  {region: "us-central1", timeoutSeconds: 30, secrets: [stripeSecret, stripeSecretLive]},
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError("unauthenticated", "Must be signed in");
     }
+    const useLive = await getUseLiveKeys();
+    const stripeSecretValue = getStripeSecretForCallable(useLive);
     const uid = request.auth.uid;
     const data = request.data as Record<string, unknown> | null;
     const planId = typeof data?.planId === "string" ? data.planId : null;
@@ -114,7 +140,7 @@ export const createPaymentIntent = onCall(
       const existingOrderId = existingOrders.docs[0].id;
       const piId = existing.stripe_payment_intent_id as string | undefined;
       if (piId) {
-        const stripe = getStripe(stripeSecret.value());
+        const stripe = getStripe(stripeSecretValue);
         const pi = await stripe.paymentIntents.retrieve(piId);
         return {clientSecret: pi.client_secret, orderId: existingOrderId};
       }
@@ -124,7 +150,7 @@ export const createPaymentIntent = onCall(
     const amountCents = Math.round(basePrice * 100);
     const transferAmount = Math.floor(amountCents * 0.5);
 
-    const stripe = getStripe(stripeSecret.value());
+    const stripe = getStripe(stripeSecretValue);
     const pi = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
@@ -154,23 +180,50 @@ export const createPaymentIntent = onCall(
   }
 );
 
-/** Stripe webhook: payment_intent.succeeded (transaction), payment_intent.canceled, account.updated */
+/** Stripe webhook: payment_intent.succeeded (transaction), payment_intent.canceled, account.updated. Uses event.livemode to pick test vs live. */
 export const stripeWebhook = onRequest(
-  {region: "us-central1", timeoutSeconds: 60, secrets: [stripeWebhookSecret, stripeSecret]},
+  {region: "us-central1", timeoutSeconds: 60, secrets: [stripeWebhookSecret, stripeWebhookSecretLive, stripeSecret, stripeSecretLive]},
   async (req, res) => {
     const sig = req.headers["stripe-signature"] as string | undefined;
-    const webhookSecret = stripeWebhookSecret.value();
-    const stripe = getStripe(stripeSecret.value());
+    const rawBody = typeof req.rawBody !== "undefined" ? req.rawBody : (req as any).body;
+    const body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody ?? {});
+
+    const testWebhookSecret = stripeWebhookSecret.value();
+    const liveWebhookSecret = stripeWebhookSecretLive.value();
+
     let event: Stripe.Event;
+    let useLive = false;
     try {
-      const rawBody = typeof req.rawBody !== "undefined" ? req.rawBody : (req as any).body;
-      const body = typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody ?? {});
-      event = stripe.webhooks.constructEvent(body, sig ?? "", webhookSecret);
-    } catch (err: any) {
-      console.warn("Webhook signature verification failed:", err.message);
-      res.status(400).send(`Webhook Error: ${err.message}`);
+      event = getStripe(stripeSecret.value()).webhooks.constructEvent(body, sig ?? "", testWebhookSecret);
+    } catch {
+      if (!liveWebhookSecret || liveWebhookSecret.trim() === "") {
+        console.error("Webhook: livemode event but STRIPE_WEBHOOK_SECRET_LIVE not set. Set it in Secret Manager.");
+        res.status(500).send("Stripe live webhook secret not configured.");
+        return;
+      }
+      try {
+        event = getStripe(stripeSecretLive.value()).webhooks.constructEvent(body, sig ?? "", liveWebhookSecret);
+        useLive = true;
+      } catch (err: any) {
+        console.warn("Webhook signature verification failed:", err.message);
+        res.status(400).send(`Webhook Error: ${err.message}`);
+        return;
+      }
+    }
+    if (event.livemode && (!liveWebhookSecret || liveWebhookSecret.trim() === "")) {
+      console.error("Webhook: livemode event but STRIPE_WEBHOOK_SECRET_LIVE not set.");
+      res.status(500).send("Stripe live webhook secret not configured.");
       return;
     }
+    const stripeSecretValue = event.livemode
+      ? (stripeSecretLive.value() || "")
+      : stripeSecret.value();
+    if (event.livemode && (!stripeSecretValue || stripeSecretValue.trim() === "")) {
+      console.error("Webhook: livemode event but STRIPE_SECRET_KEY_LIVE not set.");
+      res.status(500).send("Stripe live secret not configured.");
+      return;
+    }
+    const stripe = getStripe(stripeSecretValue);
 
     switch (event.type) {
       case "payment_intent.succeeded": {
@@ -286,11 +339,13 @@ export const stripeWebhook = onRequest(
 
 /** createConnectAccountLink: create Connect account if needed, write reverse lookup, return Account Link url */
 export const createConnectAccountLink = onCall(
-  {region: "us-central1", timeoutSeconds: 30, secrets: [stripeSecret]},
+  {region: "us-central1", timeoutSeconds: 30, secrets: [stripeSecret, stripeSecretLive]},
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError("unauthenticated", "Must be signed in");
     }
+    const useLive = await getUseLiveKeys();
+    const stripeSecretValue = getStripeSecretForCallable(useLive);
     const uid = request.auth.uid;
     const userSnap = await db.collection(USERS).doc(uid).get();
     if (!userSnap.exists) {
@@ -301,7 +356,7 @@ export const createConnectAccountLink = onCall(
       throw new HttpsError("permission-denied", "Builder access required");
     }
 
-    const stripe = getStripe(stripeSecret.value());
+    const stripe = getStripe(stripeSecretValue);
     let stripeAccountId = user.stripe_account_id as string | undefined;
 
     if (!stripeAccountId) {
@@ -351,11 +406,13 @@ export const getConnectAccountStatus = onCall(
 
 /** cancelPaymentIntent: when user dismisses Payment Sheet, cancel the PI so webhook can mark order failed */
 export const cancelPaymentIntent = onCall(
-  {region: "us-central1", timeoutSeconds: 15, secrets: [stripeSecret]},
+  {region: "us-central1", timeoutSeconds: 15, secrets: [stripeSecret, stripeSecretLive]},
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError("unauthenticated", "Must be signed in");
     }
+    const useLive = await getUseLiveKeys();
+    const stripeSecretValue = getStripeSecretForCallable(useLive);
     const uid = request.auth.uid;
     const data = request.data as Record<string, unknown> | null;
     const orderId = typeof data?.orderId === "string" ? data.orderId : null;
@@ -377,7 +434,7 @@ export const cancelPaymentIntent = onCall(
     if (!piId) {
       return {ok: true};
     }
-    const stripe = getStripe(stripeSecret.value());
+    const stripe = getStripe(stripeSecretValue);
     try {
       await stripe.paymentIntents.cancel(piId);
     } catch (e: any) {
@@ -390,9 +447,9 @@ export const cancelPaymentIntent = onCall(
   }
 );
 
-/** TTL cleanup: mark pending orders older than 24h as failed */
+/** TTL cleanup: mark pending orders older than 24h as failed (uses config/stripe useLiveKeys to pick mode). */
 export const cleanupPendingOrders = onSchedule(
-  {schedule: "0 2 * * *", region: "us-central1", secrets: [stripeSecret]},
+  {schedule: "0 2 * * *", region: "us-central1", secrets: [stripeSecret, stripeSecretLive]},
   async () => {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const snap = await db.collection(ORDERS)

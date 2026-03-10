@@ -44,4 +44,3 @@ export 'waypoint/waypoint_timeline_config.dart';
 
 // Map components
 export 'map/waypoint_map_card.dart';
-export 'map/fullscreen_route_map.dart';

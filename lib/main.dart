@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'package:waypoint/firebase_options.dart';
 import 'theme.dart';
 import 'nav.dart';
 import 'package:waypoint/integrations/offline_manager.dart';
@@ -13,6 +13,7 @@ import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/providers/theme_provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:waypoint/services/stripe_config_service.dart';
 
 /// Configure global image cache for better performance
 void _configureImageCache() {
@@ -119,11 +120,11 @@ Future<void> main() async {
         return;
       }
 
-      // Filter optional image asset 404s (e.g. waypoint_logo_mark) — UI shows fallback
+      // Filter optional image asset 404s (e.g. logo-waypoint) — UI shows fallback
       final isOptionalAsset404 = (errorString.contains('failed to fetch') ||
               errorString.contains('HTTP status 404') ||
               summaryString.contains('load an asset')) &&
-          (errorString.contains('waypoint_logo') || errorString.contains('images/'));
+          (errorString.contains('waypoint_logo') || errorString.contains('logo-waypoint') || errorString.contains('images/'));
 
       if (isOptionalAsset404) {
         return;
@@ -186,13 +187,24 @@ Future<void> main() async {
     } catch (e) {
       if (e.toString().contains('duplicate-app')) {
         Log.i('bootstrap', 'Firebase already initialized (hot restart)');
+      } else if (e.toString().contains('firebase_options') &&
+          (e.toString().contains('Library not defined') || e.toString().contains('Failed to initialize'))) {
+        // Web: firebase_options module sometimes not loaded; try default init (relies on Firebase script in index.html)
+        try {
+          await Firebase.initializeApp();
+          Log.i('bootstrap', 'Firebase initialized (default, no options)');
+        } catch (e2) {
+          Log.e('bootstrap', 'Firebase init failed', e2);
+          rethrow;
+        }
       } else {
         rethrow;
       }
     }
 
-    // Stripe: publishable key from --dart-define=STRIPE_PK=... (test/live per environment)
-    const stripePk = String.fromEnvironment('STRIPE_PK', defaultValue: '');
+    // Stripe: key from config (config/stripe.useLiveKeys) with SharedPreferences cache; test/live via STRIPE_PK_TEST and STRIPE_PK_LIVE. Takes effect after app restart when admin toggles.
+    await StripeConfigService.instance.init();
+    final stripePk = StripeConfigService.instance.publishableKey;
     if (stripePk.isNotEmpty) {
       Stripe.publishableKey = stripePk;
       Log.i('bootstrap', 'Stripe initialized');

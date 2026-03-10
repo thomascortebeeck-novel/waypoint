@@ -26,11 +26,12 @@
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="dreamflow_counter">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="Waypoint">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <!-- Favicon (favicon_io package: .ico for broad support, PNG fallback) -->
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png"/>
 
   <title>Waypoint - Plan Your Next Adventure</title>
   <link rel="manifest" href="manifest.json">
@@ -99,7 +100,7 @@
     2. Restrict the key to your domain (e.g., localhost:*, yourdomain.com/*)
     3. Enable only the APIs you need (Maps JavaScript API, Places API, etc.)
   -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAbK1n5nk4DUKsWps05V8c4hv94b2vI-cA&libraries=places,geometry&loading=async" async defer></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAbK1n5nk4DUKsWps05V8c4hv94b2vI-cA&libraries=places,geometry,marker&loading=async" async defer></script>
   
   <!-- Suppress non-critical AssetManifest.json errors in console -->
   <script>

@@ -55,100 +55,84 @@ class AdventureTagsRow extends StatelessWidget {
     return _location;
   }
   
+  /// Single green outline style for all chips (activity, accommodation, season, location).
+  static const Color _kTagGreen = Color(0xFF2D6A4F);
+
   @override
   Widget build(BuildContext context) {
     final tags = <Widget>[];
-    
-    final colorScheme = Theme.of(context).colorScheme;
+
     // Activity type tag
     if (_activityCategory != null) {
       tags.add(_buildTag(
         context: context,
         iconData: getActivityIconData(_activityCategory!),
         label: _getActivityLabel(_activityCategory!),
-        color: colorScheme.primary,
-        backgroundColor: colorScheme.primaryContainer.withValues(alpha: 0.6),
-        borderColor: colorScheme.outlineVariant,
       ));
     }
-    
+
     // Accommodation type tag
     if (_accommodationType != null) {
       tags.add(_buildTag(
         context: context,
         iconData: getAccommodationIconData(_accommodationType!),
         label: _accommodationType == AccommodationType.comfort ? 'Comfort' : 'Adventure',
-        color: colorScheme.tertiary,
-        backgroundColor: colorScheme.tertiaryContainer.withValues(alpha: 0.6),
-        borderColor: colorScheme.outlineVariant,
       ));
     }
-    
-    // Best season tag (Icons.calendar_month; label carries range e.g. "Feb – Mar")
+
+    // Best season tag
     final seasonText = _getBestSeasonDisplay();
     if (seasonText.isNotEmpty) {
       tags.add(_buildTag(
         context: context,
         iconData: seasonChipIcon,
         label: seasonText,
-        color: colorScheme.secondary,
-        backgroundColor: colorScheme.secondaryContainer.withValues(alpha: 0.6),
-        borderColor: colorScheme.outlineVariant,
       ));
     }
-    
-    // Location tag(s) - shows multiple locations joined by " · " (omit when in header)
+
+    // Location tag(s)
     final locationText = showLocationChip ? _locationDisplay : '';
     if (locationText.isNotEmpty) {
       tags.add(_buildTag(
         context: context,
         iconData: locationChipIcon,
         label: locationText,
-        color: colorScheme.onSurfaceVariant,
-        backgroundColor: colorScheme.surfaceContainerHighest,
-        borderColor: colorScheme.outlineVariant,
       ));
     }
-    
-    if (tags.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    
+
+    if (tags.isEmpty) return const SizedBox.shrink();
+
     return Wrap(
       spacing: WaypointSpacing.gapSm,
       runSpacing: WaypointSpacing.gapSm,
       children: tags,
     );
   }
-  
+
   Widget _buildTag({
     required BuildContext context,
     required IconData iconData,
     required String label,
-    required Color color,
-    required Color backgroundColor,
-    required Color borderColor,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 5.0),
       decoration: BoxDecoration(
-        color: backgroundColor,
-        border: Border.all(color: borderColor, width: 1.0),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(20.0),
+        border: Border.all(color: _kTagGreen, width: 1.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(iconData, size: 14.0, color: color),
-          const SizedBox(width: 6.0),
+          Icon(iconData, size: 13.0, color: _kTagGreen),
+          const SizedBox(width: 5.0),
           Text(
             label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: color,
+            style: const TextStyle(
               fontSize: 12.0,
-            ) ?? WaypointTypography.chipLabel.copyWith(
-              color: color,
-              fontSize: 12.0,
+              fontWeight: FontWeight.w500,
+              color: _kTagGreen,
+              height: 1.0,
             ),
           ),
         ],

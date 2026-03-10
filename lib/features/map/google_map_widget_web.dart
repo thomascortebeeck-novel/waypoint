@@ -1,9 +1,10 @@
 // Web implementation of Google Maps
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'dart:ui' as ui;
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
+import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart' show AdvancedMarker;
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
@@ -13,6 +14,10 @@ import 'package:waypoint/utils/logger.dart';
 
 /// Google Maps widget for web platform
 class GoogleMapWidget extends StatefulWidget {
+  /// Map ID required for Advanced Markers (avoids deprecated legacy Marker API).
+  /// Use Google's demo ID for testing, or create your own at:
+  /// https://console.cloud.google.com/google/maps-apis/studio/maps
+  static const String _kGoogleMapId = 'DEMO_MAP_ID';
   final ll.LatLng initialCenter;
   final MapConfiguration? configuration;
   final void Function(WaypointMapController)? onMapCreated;
@@ -178,15 +183,7 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
         displayScale: _markerScale(),
       );
 
-      // TODO: Google Maps Marker deprecation warning
-      // Console shows: "google.maps.Marker is deprecated. Please use google.maps.marker.AdvancedMarkerElement instead."
-      // The google_maps_flutter package (v2.5.0) uses the deprecated Marker API.
-      // AdvancedMarkerElement requires:
-      //   - A Map ID configured in Google Cloud Console
-      //   - Direct JS interop or package update
-      // Monitor: https://github.com/flutter/packages for AdvancedMarker support
-      // Current workaround: Warning is harmless, markers still function correctly
-      return gmaps.Marker(
+      return AdvancedMarker(
         markerId: gmaps.MarkerId(annotation.id),
         position: gmaps.LatLng(
           annotation.position.latitude,
@@ -194,7 +191,7 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
         ),
         icon: icon,
         anchor: const Offset(0.5, 1.0), // pin tip touches coordinate
-        zIndex: isSelected ? 10.0 : i.toDouble(),
+        zIndex: isSelected ? 10 : i,
         infoWindow: annotation.showInfoWindow && annotation.label != null
             ? gmaps.InfoWindow(title: annotation.label!)
             : gmaps.InfoWindow.noText,
@@ -311,6 +308,8 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
     return Stack(
       children: [
         gmaps.GoogleMap(
+          mapId: GoogleMapWidget._kGoogleMapId,
+          markerType: gmaps.GoogleMapMarkerType.advancedMarker,
           initialCameraPosition: gmaps.CameraPosition(
             target: gmaps.LatLng(
               widget.initialCenter.latitude,
@@ -472,7 +471,7 @@ class _GoogleMapControllerWeb implements WaypointMapController {
     String? iconAsset,
     bool draggable = false,
   }) async {
-    _markers[id] = gmaps.Marker(
+    _markers[id] = AdvancedMarker(
       markerId: gmaps.MarkerId(id),
       position: gmaps.LatLng(position.latitude, position.longitude),
       draggable: draggable,
@@ -496,7 +495,7 @@ class _GoogleMapControllerWeb implements WaypointMapController {
   Future<void> setMarkerDraggable(String markerId, bool draggable) async {
     final marker = _markers[markerId];
     if (marker != null) {
-      _markers[markerId] = gmaps.Marker(
+      _markers[markerId] = AdvancedMarker(
         markerId: marker.markerId,
         position: marker.position,
         infoWindow: marker.infoWindow,
@@ -515,7 +514,7 @@ class _GoogleMapControllerWeb implements WaypointMapController {
   Future<void> updateMarkerPosition(String markerId, ll.LatLng position) async {
     final marker = _markers[markerId];
     if (marker != null) {
-      _markers[markerId] = gmaps.Marker(
+      _markers[markerId] = AdvancedMarker(
         markerId: marker.markerId,
         position: gmaps.LatLng(position.latitude, position.longitude),
         infoWindow: marker.infoWindow,

@@ -1,5 +1,9 @@
 # Stripe keys and setup guide
 
+**Security:** Never put secret keys (`sk_...`) or publishable keys in the repo, in issues, or in any committed file. Use **GitHub Secrets** and (for backend) **Google Cloud Secret Manager** only. Files like `.env` and `.env.local` are in `.gitignore` — do not commit them.
+
+---
+
 ## Which key goes where
 
 | Key | Use | Where |
@@ -92,13 +96,32 @@ Optional for Flutter build:
 
 If you see **"Secret STRIPE_WEBHOOK_SECRET not found"** in deploy: add **STRIPE_WEBHOOK_SECRET_TEST** in GitHub. The value is the **Signing secret** (starts with `whsec_...`) from Stripe Dashboard → Developers → Webhooks → your endpoint → Reveal signing secret. You can create a placeholder endpoint in Stripe just to get a `whsec_` value, then point it at your real URL after deploy.
 
-Later, for production, add:
+---
 
-- `STRIPE_SECRET_KEY_LIVE`
-- `STRIPE_WEBHOOK_SECRET_LIVE`
-- `STRIPE_PUBLISHABLE_KEY_LIVE`
+## 3.1 Adding your live keys (safe — never in the repo)
 
-The deploy workflow can use **test** vs **live** by branch (e.g. `main` → live, other branches → test). The workflow step below is set up to use test keys unless you change it.
+When you have your **live** keys from Stripe (Dashboard → switch to **Live** mode → API keys), add them **only** as GitHub Actions secrets so they are never committed or shown on GitHub.
+
+1. **GitHub** → your repo → **Settings** → **Secrets and variables** → **Actions**.
+2. Click **New repository secret** and add:
+
+| Secret name | Value | Notes |
+|-------------|--------|--------|
+| `STRIPE_SECRET_KEY_LIVE` | Your `sk_live_...` key | Backend only; deploy workflow pushes this to Google Cloud Secret Manager on deploy from `main`. |
+| `STRIPE_WEBHOOK_SECRET_LIVE` | Your live `whsec_...` | Create a **live** webhook endpoint in Stripe (Developers → Webhooks, in **Live** mode) with the same URL as test and the same events; copy its **Signing secret**. |
+| `STRIPE_PUBLISHABLE_KEY_LIVE` | Your `pk_live_...` key | Optional but recommended. Use for local runs and any CI build that needs live mode. |
+
+3. **Do not** paste these values into any file in the project, into issues, or into chat. They exist only in GitHub Secrets and (after deploy) in Secret Manager.
+
+**Deploy:** The workflow (`.github/workflows/deploy-functions.yml`) already uses live secrets when deploying from `main`. After you add the two secrets above, the next deploy from `main` will set `STRIPE_SECRET_KEY_LIVE` and `STRIPE_WEBHOOK_SECRET_LIVE` in Google Cloud.
+
+**Flutter app (live publishable key):** The app reads the live publishable key from `--dart-define=STRIPE_PK_LIVE=...`. For a **local** run with live mode available, use:
+
+```bash
+flutter run -d chrome --dart-define=STRIPE_PK_TEST=pk_test_... --dart-define=STRIPE_PK_LIVE=pk_live_...
+```
+
+Copy `pk_live_...` from Stripe Dashboard or from your stored GitHub Secret when needed; never commit the command with the key in it.
 
 ---
 
@@ -136,7 +159,20 @@ Do this **after** your Cloud Function `stripeWebhook` is deployed so you have a 
 
 ---
 
-## 5. Order of steps (summary)
+## 5. Stripe Connect return URL (optional improvement)
+
+The backend’s `createConnectAccountLink` uses fixed URLs for **return_url** and **refresh_url** (e.g. `https://waypoint.app/builder`). That works: after onboarding, the user is sent to your site and can open the app.
+
+For a better UX (e.g. “Return to app” opening the app instead of the browser):
+
+- **iOS**: Configure [Universal Links](https://developer.apple.com/ios/universal-links/) (e.g. `https://waypoint.app/builder` → open in app).
+- **Android**: Configure [App Links](https://developer.android.com/training/app-links) for the same path.
+
+Then change `createConnectAccountLink` in `functions/src/stripe.ts` to use a deep-link URL (e.g. `https://waypoint.app/builder` is fine if that domain is associated with the app; otherwise use a dedicated path and wire it in the app). Until then, the current web URL is sufficient.
+
+---
+
+## 6. Order of steps (summary)
 
 1. **Google Cloud**: Create `STRIPE_SECRET_KEY` with your `sk_test_...`. Create `STRIPE_WEBHOOK_SECRET` with `whsec_...` (after step 4).
 2. **GitHub**: Add `STRIPE_SECRET_KEY_TEST`, `STRIPE_PUBLISHABLE_KEY_TEST`; add `STRIPE_WEBHOOK_SECRET_TEST` after you have it from Stripe.
@@ -146,7 +182,7 @@ Do this **after** your Cloud Function `stripeWebhook` is deployed so you have a 
 
 ---
 
-## 6. Set Stripe secrets from GitHub Actions (already in workflow)
+## 7. Set Stripe secrets from GitHub Actions (already in workflow)
 
 The deploy workflow (`.github/workflows/deploy-functions.yml`) has a step **“Set Stripe secrets for deployment”** that runs before deploy. It reads:
 
@@ -159,7 +195,7 @@ For **production** (e.g. deploy from `main` with live keys), add GitHub secrets 
 
 ---
 
-## Quick reference – your keys (test)
+## 8. Quick reference – your keys (test)
 
 - **Publishable (Flutter):** `pk_test_51T7adIRwfVgSBVcchWhlrPjPpDyzRTIMQXfsGP3FVDZKYIJBZuzzdABt7s5GFCCseOWrwPb5YFzovV2HY9LouG3U00FWXZXebc`
 - **Secret (backend only):** `sk_test_51T7adIR...` → Google Cloud `STRIPE_SECRET_KEY` + GitHub `STRIPE_SECRET_KEY_TEST`

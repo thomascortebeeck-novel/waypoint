@@ -88,6 +88,7 @@ class WaypointPageHeader extends StatelessWidget {
 // =============================================================================
 
 /// Cream bg, green icon, placeholder; optional filter toggle, clear, focus, onSubmitted.
+/// When [transparentBackground] is true, uses transparent fill and no border (for use inside a styled wrapper).
 class WaypointSearchBar extends StatefulWidget {
   const WaypointSearchBar({
     super.key,
@@ -99,6 +100,8 @@ class WaypointSearchBar extends StatefulWidget {
     this.onSubmitted,
     this.onClear,
     this.margin,
+    this.height,
+    this.transparentBackground = false,
   });
 
   final String placeholder;
@@ -109,6 +112,10 @@ class WaypointSearchBar extends StatefulWidget {
   final void Function(String)? onSubmitted;
   final VoidCallback? onClear;
   final EdgeInsetsGeometry? margin;
+  /// When set, overrides the default height (52). Use for hero search bar (e.g. 56 or 64).
+  final double? height;
+  /// When true, background is transparent and border is none (wrapper provides pill/surface).
+  final bool transparentBackground;
 
   @override
   State<WaypointSearchBar> createState() => _WaypointSearchBarState();
@@ -141,16 +148,18 @@ class _WaypointSearchBarState extends State<WaypointSearchBar> {
   @override
   Widget build(BuildContext context) {
     final hasText = (widget.controller?.text.length ?? 0) > 0;
+    final height = widget.height ?? 52.0;
+    final decoration = BoxDecoration(
+      color: widget.transparentBackground ? Colors.transparent : context.colors.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(widget.transparentBackground ? 999 : 14),
+      border: widget.transparentBackground ? null : Border.all(color: context.colors.outline, width: 1.2),
+    );
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        height: 52,
+        height: height,
         margin: widget.margin ?? const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: context.colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: context.colors.outline, width: 1.2),
-        ),
+        decoration: decoration,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Row(
           children: [

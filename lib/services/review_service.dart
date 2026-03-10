@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:waypoint/models/review_model.dart';
+import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/storage_service.dart';
 
 enum ReviewSortOption {
@@ -15,13 +16,13 @@ class ReviewService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final StorageService _storageService = StorageService();
 
-  /// Create a new review
+  /// Create a new review. [text] may be empty for score-only reviews.
   Future<Review> createReview({
     required String planId,
     required String tripId,
     required String versionId,
     required int rating,
-    required String text,
+    String text = '',
     String? title,
     List<String>? tags,
     List<Uint8List>? photoBytes,
@@ -213,17 +214,55 @@ class ReviewService {
     }
   }
 
-  /// Check if user can review (must have completed trip)
-  Future<bool> canUserReview(String userId, String planId) async {
+  /// Whether today (local date) falls in the review window: last day of trip or up to [graceDays] after.
+  /// Uses date-only comparison for timezone safety.
+  static bool isInReviewWindow(Trip trip, {int graceDays = 7}) {
+    final end = trip.endDate;
+    if (end == null) return false;
+    final endDateOnly = DateTime(end.year, end.month, end.day);
+    final now = DateTime.now();
+    final todayOnly = DateTime(now.year, now.month, now.day);
+    final windowEnd = endDateOnly.add(Duration(days: graceDays));
+    return !todayOnly.isBefore(endDateOnly) && !todayOnly.isAfter(windowEnd);
+  }
+
+  /// Check if user can review: trip status is 'completed' OR today is in review window (last day + grace).
+  /// Pass [trip] when already loaded to avoid an extra query.
+  Future<bool> canUserReview(String userId, String planId, {Trip? trip}) async {
+    if (trip != null && trip.planId == planId && trip.isMember(userId)) {
+      return trip.status == 'completed' || isInReviewWindow(trip);
+    }
     final tripSnapshot = await _firestore
         .collection('trips')
         .where('plan_id', isEqualTo: planId)
         .where('member_ids', arrayContains: userId)
-        .where('status', isEqualTo: 'completed')
-        .limit(1)
         .get();
+    for (final doc in tripSnapshot.docs) {
+      final t = Trip.fromJson(doc.data());
+      if (t.status == 'completed' || isInReviewWindow(t)) return true;
+    }
+    return false;
+  }
 
-    return tripSnapshot.docs.isNotEmpty;
+  /// Mark that the review prompt was shown for this user + trip (set before showing dialog to avoid race).
+  Future<void> markReviewPromptShown(String userId, String tripId) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('review_prompts_shown')
+        .doc(tripId)
+        .set({'shown_at': FieldValue.serverTimestamp()});
+  }
+
+  /// Whether the review prompt has already been shown for this user + trip.
+  Future<bool> hasBeenShownReviewPrompt(String userId, String tripId) async {
+    final doc = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('review_prompts_shown')
+        .doc(tripId)
+        .get();
+    return doc.exists;
   }
 
   /// Check if user already reviewed this plan

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_geometry.dart';
 import 'package:waypoint/core/constants/breakpoints.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/theme.dart';
@@ -14,9 +16,9 @@ class ActivityCategoriesCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final circleSize = isDesktop ? 240.0 : 80.0;
-    final containerWidth = isDesktop ? 280.0 : 90.0;
-    final carouselHeight = isDesktop ? 320.0 : 120.0;
+    final circleSize = isDesktop ? 260.0 : 100.0;
+    final containerWidth = isDesktop ? 300.0 : 115.0;
+    final carouselHeight = isDesktop ? 360.0 : 155.0;
     
     final activities = [
       ActivityItem(ActivityCategory.hiking, 'Hiking', 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=200'),
@@ -100,6 +102,25 @@ class ActivityCircle extends StatefulWidget {
 class _ActivityCircleState extends State<ActivityCircle> {
   bool _isHovered = false;
 
+  static IconData _iconForCategory(ActivityCategory category) {
+    switch (category) {
+      case ActivityCategory.hiking:
+        return Icons.hiking;
+      case ActivityCategory.cycling:
+        return Icons.directions_bike;
+      case ActivityCategory.skis:
+        return Icons.downhill_skiing;
+      case ActivityCategory.climbing:
+        return Icons.terrain;
+      case ActivityCategory.cityTrips:
+        return Icons.location_city;
+      case ActivityCategory.tours:
+        return Icons.tour;
+      case ActivityCategory.roadTripping:
+        return Icons.directions_car;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
@@ -126,13 +147,7 @@ class _ActivityCircleState extends State<ActivityCircle> {
                       color: Colors.white,
                       width: 3,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: _isHovered ? 0.2 : 0.1),
-                        blurRadius: _isHovered ? 16 : 12,
-                        offset: Offset(0, _isHovered ? 6 : 4),
-                      ),
-                    ],
+                    boxShadow: const [],
                   ),
                   child: ClipOval(
                     child: CachedNetworkImage(
@@ -154,17 +169,29 @@ class _ActivityCircleState extends State<ActivityCircle> {
                 ),
               ),
               SizedBox(height: widget.circleSize > 90 ? 10 : 8),
-              Text(
-                widget.activity.label,
-                style: (widget.circleSize > 90 
-                    ? context.textStyles.labelLarge 
-                    : context.textStyles.labelMedium)?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: context.colors.onSurface,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              // Icon on top, text underneath
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _iconForCategory(widget.activity.category),
+                    size: widget.circleSize > 90 ? 22 : 18,
+                    color: context.colors.primary,
+                  ),
+                  SizedBox(height: widget.circleSize > 90 ? 6 : 4),
+                  Text(
+                    widget.activity.label,
+                    style: (widget.circleSize > 90
+                        ? context.textStyles.labelLarge
+                        : context.textStyles.labelMedium)?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: context.colors.onSurface,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ],
           ),
@@ -299,93 +326,158 @@ class PromoCard extends StatelessWidget {
     }
   }
 
+  static const String _kUpgradePromoImageUrl =
+      'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=800';
+
+  /// AllTrails-style "Upgrade your adventures": image above text on mobile, image beside text on desktop.
   Widget _buildUpgradePromo(BuildContext context, bool isDesktop) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2E6A2E),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+    const radius = 20.0;
+    final content = _buildUpgradePromoContent(context, isDesktop);
+
+    if (isDesktop) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(
+            color: context.colors.outline.withValues(alpha: 0.2),
+            width: 1,
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: EdgeInsets.all(isDesktop ? 32 : 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: context.colors.primary.withValues(alpha: 0.9),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check_rounded, color: Colors.white, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Waypoint Pro',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Unlock Offline Maps',
-                style: TextStyle(
-                  fontSize: isDesktop ? 26 : 22,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  height: 1.2,
+              Expanded(
+                child: Container(
+                  color: context.colors.surfaceContainerHighest.withValues(alpha: 0.5),
+                  padding: const EdgeInsets.all(32),
+                  child: content,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Navigate without signal and get exclusive terrain data.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withValues(alpha: 0.9),
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Center(
-                child: FilledButton(
-                  onPressed: () {},
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF6FB949),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+              SizedBox(
+                width: 320,
+                child: CachedNetworkImage(
+                  imageUrl: _kUpgradePromoImageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: context.colors.surfaceContainerHighest,
+                    child: Icon(Icons.image, size: 48, color: context.colors.outline),
                   ),
-                  child: const Text(
-                    'Upgrade Now',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
+                  errorWidget: (context, url, error) => Container(
+                    color: context.colors.surfaceContainerHighest,
+                    child: Icon(Icons.terrain, size: 48, color: context.colors.primary),
                   ),
                 ),
               ),
             ],
           ),
         ),
+      );
+    }
+
+    // Mobile: image above text (AllTrails-style)
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: context.colors.outline.withValues(alpha: 0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 10,
+            child: CachedNetworkImage(
+              imageUrl: _kUpgradePromoImageUrl,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => Container(
+                color: context.colors.surfaceContainerHighest,
+                child: Icon(Icons.image, size: 48, color: context.colors.outline),
+              ),
+              errorWidget: (context, url, error) => Container(
+                color: context.colors.surfaceContainerHighest,
+                child: Icon(Icons.terrain, size: 48, color: context.colors.primary),
+              ),
+            ),
+          ),
+          Container(
+            color: context.colors.surfaceContainerHighest.withValues(alpha: 0.5),
+            padding: const EdgeInsets.all(24),
+            child: content,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpgradePromoContent(BuildContext context, bool isDesktop) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.auto_awesome,
+          size: 24,
+          color: context.colors.primary,
+        ),
+        SizedBox(height: isDesktop ? 16 : 12),
+        Text(
+          'Upgrade your\nadventures',
+          style: context.textStyles.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: context.colors.onSurface,
+            height: 1.2,
+          ),
+        ),
+        SizedBox(height: isDesktop ? 12 : 10),
+        Text(
+          'Whether you want to explore offline or create your own route, choose the membership that helps you make the most of every minute outdoors.',
+          style: context.textStyles.bodyMedium?.copyWith(
+            color: context.colors.onSurface.withValues(alpha: 0.8),
+            height: 1.45,
+          ),
+        ),
+        SizedBox(height: isDesktop ? 24 : 20),
+        FilledButton(
+          onPressed: () {},
+          style: FilledButton.styleFrom(
+            backgroundColor: context.colors.primary.withValues(alpha: 0.2),
+            foregroundColor: context.colors.onSurface,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: const Text(
+            'Compare plans',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 15,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -395,10 +487,10 @@ class PromoCard extends StatelessWidget {
     return Container(
       margin: removeMargin ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1F2937) : const Color(0xFFF9FAFB),
+        color: isDark ? const Color(0xFF1F2937) : context.colors.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: context.colors.onSurface.withValues(alpha: 0.1),
+          color: context.colors.outline,
           width: 1,
         ),
       ),
@@ -459,13 +551,6 @@ class PromoCard extends StatelessWidget {
       height: 220,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
@@ -555,6 +640,462 @@ class PromoCard extends StatelessWidget {
   }
 }
 
+/// 3-step USP section: numbered icons, dotted connectors, staggered animation
+class UspStepsSection extends StatefulWidget {
+  const UspStepsSection({super.key, required this.isDesktop});
+
+  final bool isDesktop;
+
+  @override
+  State<UspStepsSection> createState() => _UspStepsSectionState();
+}
+
+class _UspStepsSectionState extends State<UspStepsSection>
+    with TickerProviderStateMixin {
+  static const _steps = [
+    (
+      title: 'Buy a plan from your favorite travel expert',
+      body: 'Browse tours created by real travel creators and filter by location, activity, or budget. Find the right expert for your next adventure.',
+    ),
+    (
+      title: 'Prepare together and personalise your trip',
+      body: 'Invite your crew and let everyone prep their own checklist. Book activities, restaurants and stays to your own taste.',
+    ),
+    (
+      title: 'Your guide in your pocket',
+      body: 'Follow your daily itinerary and navigate with local tips. Everything you need, right in one app. No guide needed.',
+    ),
+  ];
+
+  late final List<AnimationController> _controllers;
+  late final List<Animation<double>> _opacities;
+  late final List<Animation<Offset>> _offsets;
+
+  @override
+  void initState() {
+    super.initState();
+    const duration = Duration(milliseconds: 500);
+    const stagger = Duration(milliseconds: 150);
+    _controllers = List.generate(
+      3,
+      (i) => AnimationController(vsync: this, duration: duration),
+    );
+    _opacities = List.generate(
+      3,
+      (i) => Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(
+          parent: _controllers[i],
+          curve: Curves.easeOut,
+        ),
+      ),
+    );
+    _offsets = List.generate(
+      3,
+      (i) => Tween<Offset>(
+        begin: const Offset(0, 0.15),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(
+        parent: _controllers[i],
+        curve: Curves.easeOutCubic,
+      )),
+    );
+    for (int i = 0; i < 3; i++) {
+      Future.delayed(stagger * i, () {
+        if (mounted) _controllers[i].forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _controllers) c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.isDesktop) return _buildDesktopWithPath(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: WaypointBreakpoints.contentMaxWidth),
+          child: _buildMobileLayout(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopWithPath(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final sw = MediaQuery.sizeOf(context).width;
+      final maxW = WaypointBreakpoints.contentMaxWidth.toDouble();
+
+      final availW = constraints.maxWidth;
+      final contentW = availW.clamp(0.0, maxW);
+
+      final leftBleed = (sw - contentW) / 2.0; // use SCREEN width, not LayoutBuilder width
+
+      const hPad = 24.0;
+      const painterAbove = 55.0;
+      const painterH = 240.0;
+
+      // Pin badge circle center is at roughly half the badge width horizontally
+      final badgeCenterX = WaypointPinGeometry.badgeWidth / 2;
+      // Pin circle is ~28% down from badge top (teardrop shape)
+      final badgeCenterY = WaypointPinGeometry.badgeHeight * 0.28;
+
+      final innerW = contentW - hPad * 2;
+      final colW = innerW / 3.0;
+
+      final p1x = leftBleed + hPad + badgeCenterX;
+      final p2x = leftBleed + hPad + colW + badgeCenterX;
+      final p3x = leftBleed + hPad + colW * 2 + badgeCenterX;
+      final pinY = painterAbove + badgeCenterY;  // threads through the numbered circle
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: -leftBleed,
+              width: sw + leftBleed,   // left edge at screen-left, right edge at screen-right
+              top: -painterAbove,
+              height: painterH,
+              child: CustomPaint(
+                painter: _TrailPathPainter(
+                  color: const Color(0xFFFCBF49),
+                  p1x: p1x,
+                  p2x: p2x,
+                  p3x: p3x,
+                  pinY: pinY,
+                  totalWidth: sw,
+                  totalHeight: painterH,
+                ),
+              ),
+            ),
+            Center(
+              child: Container(
+                constraints: BoxConstraints(maxWidth: maxW),
+                padding: const EdgeInsets.symmetric(horizontal: hPad),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (int i = 0; i < _steps.length; i++)
+                      Expanded(
+                        child: AnimatedBuilder(
+                          animation: _controllers[i],
+                          builder: (context, child) => Opacity(
+                            opacity: _opacities[i].value,
+                            child: Transform.translate(
+                              offset: _offsets[i].value * 24,
+                              child: child,
+                            ),
+                          ),
+                          child: _UspStepCard(
+                            stepNumber: i + 1,
+                            title: _steps[i].title,
+                            body: _steps[i].body,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildMobileLayout(BuildContext context) {
+    const pinColWidth = 48.0;
+    const connectorH = 52.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (int i = 0; i < _steps.length; i++) ...[
+          AnimatedBuilder(
+            animation: _controllers[i],
+            builder: (context, child) => Opacity(
+              opacity: _opacities[i].value,
+              child: Transform.translate(
+                offset: _offsets[i].value * 24,
+                child: child,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: pinColWidth,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: WaypointPinBadge(
+                      orderIndex: i + 1,
+                      color: context.colors.primary,
+                      width: WaypointPinGeometry.badgeWidth,
+                      height: WaypointPinGeometry.badgeHeight,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _steps[i].title,
+                          style: context.textStyles.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: context.colors.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _steps[i].body,
+                          style: context.textStyles.bodyMedium?.copyWith(
+                            color: context.colors.onSurface.withValues(alpha: 0.7),
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (i < _steps.length - 1)
+            SizedBox(
+              height: connectorH,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: pinColWidth,
+                    child: Center(
+                      child: CustomPaint(
+                        size: const Size(6, connectorH),
+                        painter: const _VerticalDotLinePainter(
+                          color: Color(0xFFFCBF49),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Expanded(child: SizedBox()),
+                ],
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Full-screen-width trail path:
+/// Trail path that passes exactly through each waypoint pin.
+/// Pin 1→2: dramatic deep swoop into text area.
+/// Pin 2→3: energetic multi-wave path.
+/// Extends edge-to-edge across full screen width.
+class _TrailPathPainter extends CustomPainter {
+  const _TrailPathPainter({
+    required this.color,
+    required this.p1x,
+    required this.p2x,
+    required this.p3x,
+    required this.pinY,
+    required this.totalWidth,
+    required this.totalHeight,
+  });
+
+  final Color color;
+  final double p1x, p2x, p3x, pinY, totalWidth, totalHeight;
+
+  static const double _dotRadius = 2.8;
+  static const double _dotStep = 10.5;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.42)
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final py = pinY;
+    final path = Path();
+
+    // ── Enter from LEFT edge of screen, angled toward pin 1 ─────────────
+    path.moveTo(-10, py + 2); // start off-screen left
+
+    // Curve directly INTO pin 1 — no weird pre-loop
+    path.cubicTo(
+      p1x * 0.40, py + 20,   // drop then rise
+      p1x * 0.75, py - 10,
+      p1x,        py,         // ● land exactly on Pin 1
+    );
+
+    // ── Pin 1 → Pin 2: same energetic 3-wave style as Pin 2→3 ───────────────
+    final seg1W = p2x - p1x;
+    // Wave 1: dip down then bounce up
+    path.cubicTo(
+      p1x + seg1W * 0.10, py + 50,
+      p1x + seg1W * 0.22, py + 54,
+      p1x + seg1W * 0.32, py + 8,
+    );
+    // Wave 2: spike up then back down
+    path.cubicTo(
+      p1x + seg1W * 0.40, py - 45,
+      p1x + seg1W * 0.52, py - 48,
+      p1x + seg1W * 0.61, py + 6,
+    );
+    // Wave 3: gentle dip then rise to pin 2
+    path.cubicTo(
+      p1x + seg1W * 0.70, py + 30,
+      p1x + seg1W * 0.85, py + 18,
+      p2x,                py,         // ● land exactly on Pin 2
+    );
+
+    // ── Pin 2 → Pin 3: energetic 3-wave path ────────────────────────────
+    final seg2W = p3x - p2x;
+    // Wave 1: sharp spike up
+    path.cubicTo(
+      p2x + seg2W * 0.10, py - 48,
+      p2x + seg2W * 0.22, py - 44,
+      p2x + seg2W * 0.32, py + 8,
+    );
+    // Wave 2: dip below then bounce
+    path.cubicTo(
+      p2x + seg2W * 0.40, py + 52,
+      p2x + seg2W * 0.52, py + 56,
+      p2x + seg2W * 0.61, py + 10,
+    );
+    // Wave 3: rise to pin 3
+    path.cubicTo(
+      p2x + seg2W * 0.70, py - 28,
+      p2x + seg2W * 0.85, py - 22,
+      p3x,                py,         // ● land exactly on Pin 3
+    );
+
+    // ── Exit to RIGHT edge of screen ─────────────────────────────────────
+    final tailW = w - p3x;
+    path.cubicTo(
+      p3x + tailW * 0.20, py + 22,
+      p3x + tailW * 0.55, py - 16,
+      p3x + tailW * 0.78, py + 8,
+    );
+    path.cubicTo(
+      p3x + tailW * 0.88, py + 18,
+      w + 5,              py - 2,
+      w + 20,             py + 4,   // off RIGHT edge of screen
+    );
+
+    _dotPath(canvas, path, paint);
+  }
+
+  void _dotPath(Canvas canvas, Path path, Paint paint) {
+    final metrics = path.computeMetrics();
+    for (final metric in metrics) {
+      double d = 0;
+      while (d <= metric.length) {
+        final t = metric.getTangentForOffset(d);
+        if (t != null) canvas.drawCircle(t.position, _dotRadius, paint);
+        d += _dotStep;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrailPathPainter old) =>
+      old.color != color ||
+      old.p1x != p1x ||
+      old.p2x != p2x ||
+      old.p3x != p3x ||
+      old.pinY != pinY;
+}
+
+/// Vertical dotted line between steps (mobile stepper).
+class _VerticalDotLinePainter extends CustomPainter {
+  const _VerticalDotLinePainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.65)
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    const radius = 2.5;
+    const step = 8.0;
+    double y = radius;
+    while (y < size.height - radius) {
+      canvas.drawCircle(Offset(size.width / 2, y), radius, paint);
+      y += step;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _VerticalDotLinePainter old) =>
+      old.color != color;
+}
+
+class _UspStepCard extends StatelessWidget {
+  const _UspStepCard({
+    required this.stepNumber,
+    required this.title,
+    required this.body,
+  });
+
+  final int stepNumber;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Same waypoint pin as itinerary page: teardrop with number in white circle
+        SizedBox(
+          width: WaypointPinGeometry.badgeWidth + 8,
+          height: WaypointPinGeometry.badgeHeight + 4,
+          child: Center(
+            child: WaypointPinBadge(
+              orderIndex: stepNumber,
+              color: context.colors.primary,
+              width: WaypointPinGeometry.badgeWidth,
+              height: WaypointPinGeometry.badgeHeight,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          title,
+          style: context.textStyles.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: context.colors.onSurface,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          body,
+          style: context.textStyles.bodyMedium?.copyWith(
+            color: context.colors.onSurface.withValues(alpha: 0.7),
+            height: 1.5,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Testimonials Section
 class TestimonialsSection extends StatelessWidget {
   const TestimonialsSection({super.key, required this.isDesktop});
@@ -616,32 +1157,21 @@ class TestimonialsSection extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
-          if (isDesktop)
-            Wrap(
-              spacing: 24,
-              runSpacing: 24,
-              alignment: WrapAlignment.center,
-              children: testimonials
-                  .map((t) => SizedBox(
-                        width: (MediaQuery.of(context).size.width - 80) / 3,
-                        child: TestimonialCard(testimonial: t),
-                      ))
-                  .toList(),
-            )
-          else
-            SizedBox(
-              height: 280,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: EdgeInsets.zero, // Padding handled by parent container
-                itemCount: testimonials.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 16),
-                itemBuilder: (context, index) => SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.85,
-                  child: TestimonialCard(testimonial: testimonials[index]),
-                ),
+          SizedBox(
+            height: isDesktop ? 320 : 280,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.zero,
+              itemCount: testimonials.length,
+              separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 24 : 16),
+              itemBuilder: (context, index) => SizedBox(
+                width: isDesktop
+                    ? 360
+                    : MediaQuery.of(context).size.width * 0.85,
+                child: TestimonialCard(testimonial: testimonials[index]),
               ),
             ),
+          ),
           ],
         ),
         ),
@@ -679,16 +1209,9 @@ class TestimonialCard extends StatelessWidget {
         color: context.colors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: context.colors.onSurface.withValues(alpha: 0.08),
+          color: context.colors.outline,
           width: 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -698,10 +1221,10 @@ class TestimonialCard extends StatelessWidget {
           Row(
             children: List.generate(
               5,
-              (index) => const Icon(
+              (index) => Icon(
                 Icons.star,
                 size: 16,
-                color: Color(0xFFFCD34D),
+                color: context.colors.primary,
               ),
             ),
           ),

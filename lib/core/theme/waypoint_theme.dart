@@ -39,32 +39,35 @@ ThemeData get waypointLightTheme => ThemeData(
     onError: LightModeColors.onError,
     surface: LightModeColors.surface,
     onSurface: LightModeColors.onSurface,
+    surfaceContainerLowest: LightModeColors.background,
+    surfaceContainerLow: LightModeColors.surfaceContainerLow,
+    surfaceContainer: LightModeColors.surfaceContainer,
+    surfaceContainerHigh: LightModeColors.surfaceContainerHigh,
+    surfaceContainerHighest: LightModeColors.surfaceContainerHighest,
     outline: LightModeColors.outline,
     shadow: LightModeColors.shadow,
   ),
   scaffoldBackgroundColor: LightModeColors.background,
-  // AppBar — white/minimal, no Hunter Green banner
   appBarTheme: const AppBarTheme(
-    backgroundColor: LightModeColors.surface,              // white
-    foregroundColor: LightModeColors.onSurface,            // #212529
+    backgroundColor: LightModeColors.surface,
+    foregroundColor: LightModeColors.onSurface,
     elevation: 0,
-    scrolledUnderElevation: 1,
+    scrolledUnderElevation: 0,
     centerTitle: false,
     iconTheme: IconThemeData(color: LightModeColors.onSurfaceSecondary),
   ),
-  // Tab bar — Hunter Green indicator on white background
   tabBarTheme: TabBarThemeData(
-    indicatorColor:       LightModeColors.primary,         // #1B4332
+    indicatorColor:       LightModeColors.primary,
     indicatorSize:        TabBarIndicatorSize.label,
     labelColor:           LightModeColors.primary,
-    unselectedLabelColor: LightModeColors.onSurfaceMuted,  // #6C757D
+    unselectedLabelColor: LightModeColors.onSurfaceMuted,
     labelStyle:           WaypointTypography.tabActive,
     unselectedLabelStyle: WaypointTypography.tabLabel,
     dividerColor:         LightModeColors.outline,
   ),
-  // Cards — white with platinum border, no elevation
   cardTheme: CardThemeData(
-    elevation: 0,
+    elevation: kLightCardElevation,
+    shadowColor: kLightShadowColor,
     color: LightModeColors.surfaceContainer,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
@@ -72,17 +75,16 @@ ThemeData get waypointLightTheme => ThemeData(
     ),
     margin: EdgeInsets.zero,
   ),
-  // Input fields — Platinum fill, Hunter Green focus
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: NeutralColors.backgroundPrimary,            // #F8F9FA
+    fillColor: LightModeColors.surface,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: NeutralColors.backgroundSecondary),
+      borderSide: const BorderSide(color: LightModeColors.outline),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: NeutralColors.backgroundSecondary),
+      borderSide: const BorderSide(color: LightModeColors.outline),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
@@ -98,25 +100,23 @@ ThemeData get waypointLightTheme => ThemeData(
     labelStyle: WaypointTypography.label
                   .copyWith(color: NeutralColors.textSecondary),
   ),
-  // Elevated button — Hunter Green bg
   elevatedButtonTheme: ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
-      elevation: 0,
+      elevation: kLightCardElevation,
+      shadowColor: kLightShadowColor,
       backgroundColor: LightModeColors.primary,
       foregroundColor: LightModeColors.onPrimary,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       textStyle: WaypointTypography.label,
-      shadowColor: Colors.transparent,
     ),
   ),
-  // Outlined button — Hunter Green border
   outlinedButtonTheme: OutlinedButtonThemeData(
     style: OutlinedButton.styleFrom(
       foregroundColor: LightModeColors.primary,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      side: const BorderSide(color: LightModeColors.primary, width: 1.5),
+      side: const BorderSide(color: LightModeColors.outline, width: 1),
       textStyle: WaypointTypography.label,
     ),
   ),
@@ -127,20 +127,18 @@ ThemeData get waypointLightTheme => ThemeData(
       textStyle: WaypointTypography.label,
     ),
   ),
-  // FAB — Maize Yellow for high visibility
   floatingActionButtonTheme: FloatingActionButtonThemeData(
-    elevation: 6,
-    backgroundColor: BrandColors.secondary,                // #FCBF49
-    foregroundColor: NeutralColors.textPrimary,            // dark for contrast
+    elevation: kLightCardElevation,
+    backgroundColor: LightModeColors.primary,
+    foregroundColor: LightModeColors.onPrimary,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
   ),
-  // Chips — platinum bg, Hunter Green selected
   chipTheme: ChipThemeData(
-    backgroundColor:  NeutralColors.backgroundSecondary,   // #E9ECEF
-    selectedColor:    BrandColors.primary,                 // #1B4332
+    backgroundColor:  LightModeColors.surfaceContainer,
+    selectedColor:    LightModeColors.primary,
     labelStyle:       WaypointTypography.small
                         .copyWith(color: NeutralColors.textPrimary),
-    side:             const BorderSide(color: NeutralColors.neutral300),
+    side:             const BorderSide(color: LightModeColors.outline),
     padding:          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
     shape:            const StadiumBorder(),
   ),
@@ -178,7 +176,7 @@ ThemeData get waypointLightTheme => ThemeData(
     backgroundColor: LightModeColors.surface,
     elevation: 0,
     showDragHandle: true,
-    dragHandleColor: NeutralColors.neutral300,
+    dragHandleColor: LightModeColors.outline,
     dragHandleSize: Size(40, 4),
   ),
   snackBarTheme: SnackBarThemeData(
@@ -188,15 +186,14 @@ ThemeData get waypointLightTheme => ThemeData(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     behavior: SnackBarBehavior.floating,
   ),
-  // Dividers — Platinum
   dividerTheme: const DividerThemeData(
-    color: NeutralColors.backgroundSecondary,
+    color: LightModeColors.outline,
     thickness: 1,
     space: 1,
   ),
   progressIndicatorTheme: const ProgressIndicatorThemeData(
     color: LightModeColors.primary,
-    linearTrackColor: NeutralColors.backgroundSecondary,
+    linearTrackColor: LightModeColors.surfaceContainer,
   ),
   textTheme: WaypointTypography.buildTextTheme(),
 );

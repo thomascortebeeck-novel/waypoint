@@ -51,7 +51,7 @@ class EmptyStateWidget extends StatelessWidget {
                 onPressed: onAction,
                 style: FilledButton.styleFrom(
                   backgroundColor: WaypointColors.primary,
-                  foregroundColor: Colors.white,
+                  foregroundColor: WaypointColors.onPrimary,
                 ),
                 child: Text(actionLabel!),
               ),

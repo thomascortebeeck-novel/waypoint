@@ -10,6 +10,7 @@ import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
+import 'package:waypoint/nav.dart' show kDesktopNavHeight;
 import 'package:waypoint/theme.dart';
 
 class BuilderHomeScreen extends StatefulWidget {
@@ -38,6 +39,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           if (authSnapshot.connectionState == ConnectionState.waiting) {
             return CustomScrollView(
               slivers: [
+                if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
                 _buildHeader(context, isDesktop),
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
@@ -54,6 +56,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           if (uid == null) {
             return CustomScrollView(
               slivers: [
+                if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
                 _buildHeader(context, isDesktop),
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
@@ -72,6 +75,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
               if (userSnapshot.connectionState == ConnectionState.waiting) {
                 return CustomScrollView(
                   slivers: [
+                    if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
                     _buildHeader(context, isDesktop),
                     SliverPadding(
                       padding: EdgeInsets.symmetric(
@@ -89,6 +93,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
               final isAdmin = user?.isAdmin ?? false;
               return CustomScrollView(
                 slivers: [
+                  if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
                   _buildHeader(context, isDesktop),
                   SliverPadding(
                     padding: EdgeInsets.symmetric(
@@ -145,25 +150,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
                 isDesktop ? 32 : 20,
                 24,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    'Builder',
-                    style: context.textStyles.displaySmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Create & manage your adventures',
-                    style: context.textStyles.bodyLarge?.copyWith(
-                      color: context.colors.onSurface.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ],
-              ),
+              child: const SizedBox.shrink(),
             ),
           ),
         ),

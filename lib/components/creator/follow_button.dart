@@ -141,15 +141,15 @@ class _FollowButtonState extends State<FollowButton> {
             onPressed: _isLoading ? null : _toggleFollow,
             style: ElevatedButton.styleFrom(
               backgroundColor: WaypointColors.primary,
-              foregroundColor: Colors.white,
+              foregroundColor: WaypointColors.onPrimary,
             ),
             child: _isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(WaypointColors.onPrimary),
                     ),
                   )
                 : const Text('Follow'),

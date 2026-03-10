@@ -481,7 +481,6 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                 const SizedBox(height: 16),
               ],
             ),
-          ),
     );
   }
 }

@@ -12,8 +12,8 @@ Waypoint's adaptive map system provides **AllTrails/Komoot-quality vector tiles 
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │  Online Mode              Offline Mode              │
-│  ├─ Mapbox GL             ├─ flutter_map           │
-│  ├─ Vector tiles          ├─ Raster tiles          │
+│  ├─ Google Maps           ├─ flutter_map           │
+│  ├─ Native/Web            ├─ Raster tiles          │
 │  ├─ 3D terrain (1.5x)     ├─ Cached tiles          │
 │  ├─ Sky layer             ├─ 2D flat map           │
 │  └─ Smooth animations     └─ Basic animations      │
@@ -256,20 +256,9 @@ await manager.downloadRouteRegion(
 
 ## Configuration
 
-### Mapbox Style
+### Map engine
 
-The default style is configured in `lib/integrations/mapbox_config.dart`:
-
-```dart
-const mapboxStyleUri = 'mapbox://styles/thomascortebeeck93/cmkvm7ruf001101s7bn6aex9u';
-```
-
-This style includes:
-- Outdoor/hiking optimized basemap
-- 3D terrain source (`mapbox-dem`)
-- Hillshading layers
-- Trail/path emphasis
-- Topographic contours
+The app uses **Google Maps** for all map rendering (see `MapConfiguration` in `map_configuration.dart`; `engineType: MapEngineType.googleMaps`). Raster fallback tiles may still be sourced from `lib/integrations/mapbox_config.dart` for offline/flutter_map fallback.
 
 ### Connectivity Monitoring
 
@@ -298,7 +287,7 @@ service.connectivityStream.listen((isOnline) {
 | Android  | ✅ Yes       | ✅ Yes     | ✅ Yes       |
 | Web      | 🔄 Pending*  | 🔄 Pending | ✅ Yes       |
 
-*Web support requires MapLibre GL JS integration (pending implementation).
+*Web uses Google Maps via google_maps_flutter_web.
 
 ## Performance Optimization
 
@@ -320,9 +309,8 @@ service.connectivityStream.listen((isOnline) {
 ## Troubleshooting
 
 ### "Map not rendering"
-- Check Mapbox token in `mapbox_config.dart`
-- Verify style URI is correct
-- Ensure `mapbox_maps_flutter` package is properly installed
+- Ensure Google Maps API key is configured for your platform (see project setup).
+- For raster fallback, check tile URL configuration if used.
 
 ### "Offline mode not working"
 - Verify tiles were downloaded successfully
@@ -336,13 +324,7 @@ service.connectivityStream.listen((isOnline) {
 
 ## Examples
 
-See `lib/features/map/enhanced_map_screen.dart` for a complete example with:
-- Online/offline switching
-- 3D controls
-- Route visualization
-- Marker management
-- Camera info overlay
-- Tap-to-add markers
+See `lib/presentation/map/map_screen.dart` and `lib/presentation/builder/route_builder_screen.dart` for examples with online/offline switching, route visualization, marker management, and map controls.
 
 ## Migration Guide
 

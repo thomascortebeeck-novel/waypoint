@@ -464,13 +464,13 @@ class RouteWaypoint {
             sightCategory: sightCategory,
             serviceCategory: serviceCategory,
           );
+    final pos = json['position'];
+    final lat = (pos != null && pos['lat'] != null) ? (pos['lat'] as num).toDouble() : 0.0;
+    final lng = (pos != null && pos['lng'] != null) ? (pos['lng'] as num).toDouble() : 0.0;
     return RouteWaypoint(
         id: json['id'] as String,
         type: _parseWaypointType(json['type'] as String?),
-        position: ll.LatLng(
-          (json['position']['lat'] as num).toDouble(),
-          (json['position']['lng'] as num).toDouble(),
-        ),
+        position: ll.LatLng(lat, lng),
         name: json['name'] as String,
         description: json['description'] as String?,
         order: (json['order'] as num?)?.toInt() ?? 0,

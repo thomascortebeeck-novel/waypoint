@@ -1,14 +1,16 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:waypoint/utils/app_urls.dart';
 import 'package:go_router/go_router.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
 import 'package:waypoint/presentation/marketplace/marketplace_screen.dart';
 import 'package:waypoint/presentation/mytrips/my_trips_screen.dart';
 import 'package:waypoint/presentation/mytrips/create_itinerary_screen.dart';
-import 'package:waypoint/presentation/builder/builder_screen.dart' as builder;
 import 'package:waypoint/presentation/builder/builder_home_screen.dart';
-import 'package:waypoint/presentation/builder/edit_plan_screen.dart';
 import 'package:waypoint/presentation/builder/route_builder_screen.dart';
 import 'package:waypoint/presentation/builder/waypoint_edit_page.dart';
 import 'package:waypoint/presentation/adventure/adventure_detail_screen.dart';
@@ -16,16 +18,11 @@ import 'package:waypoint/presentation/adventure/waypoint_detail_page.dart';
 import 'package:waypoint/presentation/profile/profile_screen.dart';
 import 'package:waypoint/presentation/creator/creator_profile_screen.dart';
 import 'package:waypoint/presentation/explore/explore_screen.dart';
-// DEPRECATED: Use AdventureDetailScreen instead
-// import 'package:waypoint/presentation/details/plan_details_screen.dart';
 import 'package:waypoint/presentation/map/map_screen.dart';
 import 'package:waypoint/presentation/tracking/tracking_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_success_screen.dart';
 import 'package:waypoint/presentation/checkout/checkout_error_screen.dart';
-import 'package:waypoint/presentation/itinerary/itinerary_setup_screen.dart';
-// DEPRECATED: Use AdventureDetailScreen instead
-// import 'package:waypoint/presentation/trips/trip_details_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_pack_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_travel_screen.dart';
 import 'package:waypoint/presentation/itinerary/itinerary_define_screen.dart';
@@ -48,6 +45,8 @@ import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/trip_model.dart';
+import 'package:waypoint/services/user_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'theme.dart';
 import 'package:waypoint/utils/logger.dart';
 
@@ -84,6 +83,9 @@ class AppRoutes {
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'shell');
+
+/// Height of the transparent desktop top nav bar. Use for top padding on screens without a hero.
+const double kDesktopNavHeight = 64.0;
 
 class AppRouter {
   static final GoRouter router = GoRouter(
@@ -178,6 +180,19 @@ class AppRouter {
         path: '/checkout/:planId',
         builder: (context, state) {
           final planId = state.pathParameters['planId'] ?? '';
+          // On app (iOS/Android) open web checkout and leave this route immediately
+          if (!kIsWeb && planId.isNotEmpty) {
+            SchedulerBinding.instance.addPostFrameCallback((_) async {
+              final uri = Uri.parse(AppUrls.getCheckoutWebUrl(planId));
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+              if (context.mounted) context.go('/');
+            });
+            return const Scaffold(
+              body: Center(child: Text('Opening browser…')),
+            );
+          }
           final extra = state.extra as Map<String, dynamic>?;
           final plan = extra?['plan'];
           final buyerId = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -538,9 +553,12 @@ class AppRouter {
         path: '/details/:planId',
         builder: (context, state) {
           final planId = state.pathParameters['planId'] ?? '';
+          final q = state.uri.queryParameters;
           return AdventureDetailScreen(
             mode: AdventureMode.viewer,
             planId: planId,
+            inviteCode: q['inviteCode'],
+            returnToJoin: q['returnToJoin'] == '1',
           );
         },
         routes: [
@@ -628,23 +646,9 @@ class ResponsiveScaffold extends StatelessWidget {
     final auth = FirebaseAuthManager();
 
     if (isDesktop) {
-      return StreamBuilder(
-        stream: auth.authStateChanges,
-        builder: (context, snapshot) {
-          final isLoggedIn = snapshot.data != null;
-          return Scaffold(
-            body: Row(
-              children: [
-                DesktopSidebar(
-                  currentIndex: navigationShell.currentIndex,
-                  onDestinationSelected: _onDestinationSelected,
-                  isLoggedIn: isLoggedIn,
-                ),
-                Expanded(child: navigationShell),
-              ],
-            ),
-          );
-        },
+      return _ScrollAwareDesktopShell(
+        navigationShell: navigationShell,
+        onDestinationSelected: _onDestinationSelected,
       );
     }
 
@@ -711,6 +715,321 @@ class ResponsiveScaffold extends StatelessWidget {
   }
 }
 
+/// Wraps desktop scaffold in scroll listener so nav bar can switch to solid when marketplace hero is scrolled past.
+class _ScrollAwareDesktopShell extends StatefulWidget {
+  const _ScrollAwareDesktopShell({
+    required this.navigationShell,
+    required this.onDestinationSelected,
+  });
+
+  final StatefulNavigationShell navigationShell;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  State<_ScrollAwareDesktopShell> createState() => _ScrollAwareDesktopShellState();
+}
+
+class _ScrollAwareDesktopShellState extends State<_ScrollAwareDesktopShell> {
+  double _scrollOffset = 0;
+
+  bool get _scrolledPastHero => _scrollOffset > _kMarketplaceHeroScrollThreshold;
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification notification) {
+        if (notification is ScrollUpdateNotification || notification is ScrollEndNotification) {
+          final pixels = notification.metrics.pixels;
+          if (pixels != _scrollOffset) {
+            setState(() => _scrollOffset = pixels);
+          }
+        }
+        return false;
+      },
+      child: StreamBuilder(
+        stream: FirebaseAuthManager().authStateChanges,
+        builder: (context, authSnapshot) {
+          final firebaseUser = authSnapshot.data;
+          final isLoggedIn = firebaseUser != null;
+          if (!isLoggedIn) {
+            return Scaffold(
+              body: Stack(
+                children: [
+                  Positioned.fill(child: widget.navigationShell),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: DesktopTopNavBar(
+                      currentIndex: widget.navigationShell.currentIndex,
+                      onDestinationSelected: widget.onDestinationSelected,
+                      isLoggedIn: false,
+                      profileImageUrl: null,
+                      scrolledPastHero: _scrolledPastHero,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          return StreamBuilder(
+            stream: UserService().streamUser(firebaseUser!.uid),
+            builder: (context, userSnapshot) {
+              final user = userSnapshot.data;
+              final profileImageUrl = user?.photoUrl ?? firebaseUser.photoURL;
+              return Scaffold(
+                body: Stack(
+                  children: [
+                    Positioned.fill(child: widget.navigationShell),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: DesktopTopNavBar(
+                        currentIndex: widget.navigationShell.currentIndex,
+                        onDestinationSelected: widget.onDestinationSelected,
+                        isLoggedIn: true,
+                        profileImageUrl: profileImageUrl,
+                        scrolledPastHero: _scrolledPastHero,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// When true and on marketplace (index 0), nav bar uses solid background + dark text.
+/// When false/null on marketplace, uses transparent bar + white text over hero.
+const double _kMarketplaceHeroScrollThreshold = 450;
+
+class DesktopTopNavBar extends StatelessWidget {
+  const DesktopTopNavBar({
+    required this.currentIndex,
+    required this.onDestinationSelected,
+    required this.isLoggedIn,
+    this.profileImageUrl,
+    this.scrolledPastHero,
+    super.key,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final bool isLoggedIn;
+  /// Profile image URL (UserModel.photoUrl or Firebase User.photoURL). When set, shown in the top-right circle.
+  final String? profileImageUrl;
+  /// On marketplace (index 0): when true, show solid bar + dark text; when false, transparent + white.
+  final bool? scrolledPastHero;
+
+  @override
+  Widget build(BuildContext context) {
+    final isOverHero = (currentIndex == 0) && (scrolledPastHero != true);
+    return Container(
+      height: kDesktopNavHeight,
+      color: isOverHero ? Colors.transparent : context.colors.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Row(
+          children: [
+            _DesktopLogo(
+              lightStyle: isOverHero,
+              onTap: () => onDestinationSelected(0),
+            ),
+            const Spacer(),
+            _DesktopNavTab(
+              label: 'Home',
+              index: 0,
+              current: currentIndex,
+              onTap: onDestinationSelected,
+              lightStyle: isOverHero,
+            ),
+            _DesktopNavTab(
+              label: 'Explore',
+              index: 1,
+              current: currentIndex,
+              onTap: onDestinationSelected,
+              lightStyle: isOverHero,
+            ),
+            if (isLoggedIn) ...[
+              _DesktopNavTab(
+                label: 'Your trips',
+                index: 2,
+                current: currentIndex,
+                onTap: onDestinationSelected,
+                lightStyle: isOverHero,
+              ),
+              _DesktopNavTab(
+                label: 'Build',
+                index: 3,
+                current: currentIndex,
+                onTap: onDestinationSelected,
+                lightStyle: isOverHero,
+              ),
+            ],
+            _DesktopProfileIcon(
+              index: 4,
+              onTap: onDestinationSelected,
+              imageUrl: profileImageUrl,
+              lightStyle: isOverHero,
+            ),
+          ],
+        ),
+    );
+  }
+}
+
+class _DesktopLogo extends StatelessWidget {
+  const _DesktopLogo({this.lightStyle = true, this.onTap});
+
+  final bool lightStyle;
+  final VoidCallback? onTap;
+
+  static const _logoAsset = 'assets/images/logo-waypoint.png';
+
+  @override
+  Widget build(BuildContext context) {
+    final color = lightStyle ? Colors.white : context.colors.primary;
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 64,
+          height: 64,
+          child: Image.asset(
+            _logoAsset,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Icon(
+              Icons.terrain,
+              color: color,
+              size: 56,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'WAYPOINT',
+          style: context.textStyles.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.5,
+            color: color,
+          ),
+        ),
+      ],
+    );
+    if (onTap == null) return content;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: content,
+    );
+  }
+}
+
+class _DesktopNavTab extends StatelessWidget {
+  const _DesktopNavTab({
+    required this.label,
+    required this.index,
+    required this.current,
+    required this.onTap,
+    this.lightStyle = true,
+  });
+
+  final String label;
+  final int index;
+  final int current;
+  final ValueChanged<int> onTap;
+  final bool lightStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = index == current;
+    final color = lightStyle ? Colors.white : context.colors.onSurface;
+    final accentColor = lightStyle ? Colors.white : context.colors.primary;
+    return GestureDetector(
+      onTap: () => onTap(index),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? accentColor : color.withValues(alpha: 0.85),
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 14,
+              ),
+            ),
+            if (isSelected)
+              Container(
+                margin: const EdgeInsets.only(top: 2),
+                height: 2,
+                width: 16,
+                decoration: BoxDecoration(
+                  color: accentColor,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopProfileIcon extends StatelessWidget {
+  const _DesktopProfileIcon({
+    required this.index,
+    required this.onTap,
+    this.imageUrl,
+    this.lightStyle = true,
+  });
+
+  final int index;
+  final ValueChanged<int> onTap;
+  final String? imageUrl;
+  final bool lightStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imageUrl != null && imageUrl!.trim().isNotEmpty;
+    final borderColor = lightStyle ? Colors.white : context.colors.outline;
+    final iconColor = lightStyle ? Colors.white : context.colors.onSurface;
+    return GestureDetector(
+      onTap: () => onTap(index),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(left: 8),
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: hasImage
+            ? ClipOval(
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl!,
+                  fit: BoxFit.cover,
+                  width: 36,
+                  height: 36,
+                  placeholder: (_, __) => Icon(Icons.person, color: iconColor, size: 20),
+                  errorWidget: (_, __, ___) => Icon(Icons.person, color: iconColor, size: 20),
+                ),
+              )
+            : Icon(Icons.person, color: iconColor, size: 20),
+      ),
+    );
+  }
+}
+
 class DesktopSidebar extends StatelessWidget {
   const DesktopSidebar({
     required this.currentIndex,
@@ -729,13 +1048,6 @@ class DesktopSidebar extends StatelessWidget {
       width: 240,
       decoration: BoxDecoration(
         color: context.colors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(2, 0),
-          ),
-        ],
       ),
       child: SafeArea(
         child: Column(

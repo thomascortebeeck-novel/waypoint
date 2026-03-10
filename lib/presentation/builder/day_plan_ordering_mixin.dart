@@ -3,7 +3,7 @@ import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/models/orderable_item.dart';
 
 /// Mixin that adds day plan ordering functionality
-/// Use in both BuilderScreen and RouteBuilderScreen
+/// Use in RouteBuilderScreen (and optionally other screens that need day plan ordering)
 mixin DayPlanOrderingMixin<T extends StatefulWidget> on State<T> {
   // Store order manager for each day
   // Key = day number, Value = order manager

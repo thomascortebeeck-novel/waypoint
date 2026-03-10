@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/components/common/action_button.dart';
+import 'package:waypoint/utils/app_urls.dart';
 import 'package:share_plus/share_plus.dart';
 
 /// Action buttons row component
@@ -52,8 +53,8 @@ class _ActionButtonsRowState extends State<ActionButtonsRow> {
       return;
     }
     
-    // Default share behavior
-    final url = widget.shareUrl ?? 'https://waypoint.app/adventure/${widget.planId}';
+    // Default share behavior: canonical plan details URL (production or current origin on web)
+    final url = widget.shareUrl ?? AppUrls.getPlanDetailsWebUrl(widget.planId);
     await Share.share(url);
   }
   

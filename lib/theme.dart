@@ -92,6 +92,11 @@ ThemeData get lightTheme => ThemeData(
     onError: LightModeColors.onError,
     surface: LightModeColors.surface,
     onSurface: LightModeColors.onSurface,
+    surfaceContainerLowest: LightModeColors.background,
+    surfaceContainerLow: LightModeColors.surfaceContainerLow,
+    surfaceContainer: LightModeColors.surfaceContainer,
+    surfaceContainerHigh: LightModeColors.surfaceContainerHigh,
+    surfaceContainerHighest: LightModeColors.surfaceContainerHighest,
     outline: LightModeColors.outline,
     shadow: LightModeColors.shadow,
   ),
@@ -105,8 +110,8 @@ ThemeData get lightTheme => ThemeData(
     iconTheme: IconThemeData(color: LightModeColors.onSurface),
   ),
   cardTheme: CardThemeData(
-    elevation: 2,
-    shadowColor: LightModeColors.shadow.withValues(alpha: 0.08),
+    elevation: kLightCardElevation,
+    shadowColor: kLightShadowColor,
     color: LightModeColors.surface,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(WaypointRadius.md),
@@ -116,18 +121,18 @@ ThemeData get lightTheme => ThemeData(
   ),
   listTileTheme: ListTileThemeData(
     selectedColor: LightModeColors.primary,
-    selectedTileColor: LightModeColors.primary.withValues(alpha: 0.08),
+    selectedTileColor: LightModeColors.primaryContainer,
   ),
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: LightModeColors.background,
+    fillColor: LightModeColors.surface,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(WaypointRadius.md),
-      borderSide: const BorderSide(color: LightModeColors.backgroundSecondary),
+      borderSide: const BorderSide(color: LightModeColors.outline),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(WaypointRadius.md),
-      borderSide: const BorderSide(color: LightModeColors.backgroundSecondary),
+      borderSide: const BorderSide(color: LightModeColors.outline),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(WaypointRadius.md),
@@ -165,7 +170,7 @@ ThemeData get lightTheme => ThemeData(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
-      side: const BorderSide(color: LightModeColors.primary, width: 1),
+      side: const BorderSide(color: LightModeColors.outline, width: 1),
       textStyle: GoogleFonts.firaSans(
         fontWeight: FontWeight.w600,
         fontSize: 16,
@@ -183,15 +188,15 @@ ThemeData get lightTheme => ThemeData(
     ),
   ),
   floatingActionButtonTheme: const FloatingActionButtonThemeData(
-    elevation: 6,
-    backgroundColor: LightModeColors.secondary,
-    foregroundColor: NeutralColors.textPrimary,
+    elevation: kLightCardElevation,
+    backgroundColor: LightModeColors.primary,
+    foregroundColor: LightModeColors.onPrimary,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.all(Radius.circular(WaypointRadius.lg)),
     ),
   ),
   chipTheme: ChipThemeData(
-    backgroundColor: NeutralColors.backgroundSecondary,
+    backgroundColor: LightModeColors.surfaceContainer,
     selectedColor: LightModeColors.primary,
     labelStyle: const TextStyle(color: NeutralColors.textPrimary),
     secondaryLabelStyle: const TextStyle(color: Colors.white),
@@ -207,7 +212,7 @@ ThemeData get lightTheme => ThemeData(
     behavior: SnackBarBehavior.floating,
   ),
   dialogTheme: const DialogThemeData(
-    backgroundColor: Colors.white,
+    backgroundColor: LightModeColors.surface,
     titleTextStyle: TextStyle(
       fontSize: 20,
       fontWeight: FontWeight.bold,
@@ -223,8 +228,8 @@ ThemeData get lightTheme => ThemeData(
   ),
   progressIndicatorTheme: const ProgressIndicatorThemeData(
     color: LightModeColors.primary,
-    linearTrackColor: LightModeColors.backgroundSecondary,
-    circularTrackColor: LightModeColors.backgroundSecondary,
+    linearTrackColor: LightModeColors.surfaceContainer,
+    circularTrackColor: LightModeColors.surfaceContainer,
   ),
   switchTheme: SwitchThemeData(
     thumbColor: WidgetStateProperty.resolveWith((states) {
@@ -237,7 +242,7 @@ ThemeData get lightTheme => ThemeData(
       if (states.contains(WidgetState.selected)) {
         return LightModeColors.primary;
       }
-      return LightModeColors.backgroundSecondary;
+      return LightModeColors.surfaceContainer;
     }),
     trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
   ),

@@ -6,11 +6,11 @@ import 'package:waypoint/services/plan_service.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme/waypoint_typography.dart';
-import 'package:waypoint/layout/waypoint_breakpoints.dart';
 import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
 import 'package:waypoint/utils/plan_display_utils.dart';
 import 'package:waypoint/utils/activity_icons.dart';
+import 'package:waypoint/nav.dart' show kDesktopNavHeight;
 
 /// Pinterest-style explore screen with masonry grid
 class ExploreScreen extends StatefulWidget {
@@ -122,18 +122,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Widget build(BuildContext context) {
     // Depend on route so we rebuild when navigating with ?activity= (e.g. from Home).
     final _ = GoRouterState.of(context).uri;
-    final isDesktop = MediaQuery.of(context).size.width >= WaypointBreakpoints.desktop;
+    final isDesktop = MediaQuery.of(context).size.width >= 1024;
 
     return Scaffold(
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          WaypointPageHeader(
-            title: 'Explore',
-            subtitle: 'Discover your next waypoint adventure',
-          ),
-          const SizedBox(height: 4),
-          WaypointSearchBar(
+      body: Padding(
+        padding: EdgeInsets.only(top: isDesktop ? kDesktopNavHeight : 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            WaypointSearchBar(
             placeholder: 'Search destinations, trails, or activi…',
             showFilterIcon: true,
             controller: _searchController,
@@ -234,6 +231,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ),
           ),
         ],
+        ),
       ),
       floatingActionButton: WaypointFAB(
         icon: Icons.map_outlined,

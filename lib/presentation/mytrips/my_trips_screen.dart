@@ -10,6 +10,7 @@ import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
+import 'package:waypoint/nav.dart' show kDesktopNavHeight;
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
 
 class MyTripsScreen extends StatefulWidget {
@@ -76,12 +77,8 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
                   onPressed: () => context.go('/mytrips/create'),
                 ),
           body: CustomScrollView(slivers: [
-            SliverToBoxAdapter(
-              child: WaypointPageHeader(
-                title: 'My Trips',
-                subtitle: 'Your personalized trip plans',
-              ),
-            ),
+            if (isDesktop)
+              SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(

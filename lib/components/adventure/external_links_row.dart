@@ -4,11 +4,14 @@ import 'package:waypoint/theme/waypoint_spacing.dart';
 import 'package:waypoint/components/common/link_button.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+/// Asset paths for Komoot and AllTrails logos (day tabs when link is present).
+const String _kKomootLogoAsset = 'assets/images/komoot_logo.png';
+const String _kAllTrailsLogoAsset = 'assets/images/alltrails_logo.png';
+
 /// External links row component
 /// 
 /// Displays horizontal row of external links (Komoot, AllTrails, GPX download).
-/// Shown when respective links/data exist.
-
+/// Shown when respective links/data exist. Uses brand logos for Komoot and AllTrails when available.
 class ExternalLinksRow extends StatelessWidget {
   final String? komootLink;
   final String? allTrailsLink;
@@ -29,7 +32,7 @@ class ExternalLinksRow extends StatelessWidget {
     
     if (komootLink != null && komootLink!.isNotEmpty) {
       links.add(_buildLink(
-        emoji: '🔗',
+        imageAsset: _kKomootLogoAsset,
         label: 'Komoot',
         onTap: () => _launchUrl(komootLink!),
       ));
@@ -37,7 +40,7 @@ class ExternalLinksRow extends StatelessWidget {
     
     if (allTrailsLink != null && allTrailsLink!.isNotEmpty) {
       links.add(_buildLink(
-        emoji: '🥾',
+        imageAsset: _kAllTrailsLogoAsset,
         label: 'AllTrails',
         onTap: () => _launchUrl(allTrailsLink!),
       ));
@@ -63,12 +66,14 @@ class ExternalLinksRow extends StatelessWidget {
   }
   
   Widget _buildLink({
-    required String emoji,
+    String? emoji,
+    String? imageAsset,
     required String label,
     required VoidCallback onTap,
   }) {
     return LinkButton(
       emoji: emoji,
+      imageAsset: imageAsset,
       label: label,
       onTap: onTap,
     );

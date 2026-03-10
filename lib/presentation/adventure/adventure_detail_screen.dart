@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -17,6 +18,7 @@ import 'package:waypoint/integrations/google_directions_service.dart' show Trave
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/services/order_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:waypoint/components/unified/section_card.dart';
 import 'package:waypoint/components/unified/section_add_button.dart';
 import 'package:waypoint/components/unified/inline_editable_field.dart';
@@ -34,7 +36,7 @@ import 'package:waypoint/services/adventure_save_service.dart';
 import 'package:waypoint/services/storage_service.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:waypoint/components/builder/route_info_section.dart';
+import 'package:waypoint/components/builder/route_info_section.dart' show RouteInfoSection, isGpxSupportedActivity;
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
@@ -78,6 +80,7 @@ import 'package:waypoint/components/adventure/action_buttons_row.dart';
 import 'package:waypoint/components/waypoint/waypoint_timeline_list.dart' show WaypointTimelineList, WaypointTimelineItem, DashedLinePainter, kTimelineConnectorLeft;
 import 'package:waypoint/components/waypoint/waypoint_itinerary_card.dart';
 import 'package:waypoint/components/common/price_display_widget.dart';
+import 'package:waypoint/utils/app_urls.dart';
 import 'package:waypoint/data/checklist_suggestions.dart';
 import 'package:waypoint/components/common/empty_state_widget.dart';
 import 'package:waypoint/models/user_model.dart';
@@ -91,6 +94,7 @@ import 'package:waypoint/components/adventure/stippl_navigation_drawer.dart';
 import 'package:waypoint/components/builder/location_search_dialog.dart';
 import 'package:waypoint/presentation/adventure/widgets/image_gallery.dart';
 import 'package:waypoint/presentation/adventure/widgets/price_widgets.dart';
+import 'package:waypoint/presentation/reviews/trip_review_prompt.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'dart:io';
 
@@ -174,12 +178,17 @@ class AdventureDetailScreen extends StatefulWidget {
   final String? planId;
   final String? tripId;
   final AdventureMode mode;
-  
+  /// When opening from join flow (web URL query), pass so checkout success can redirect back to join
+  final String? inviteCode;
+  final bool returnToJoin;
+
   const AdventureDetailScreen({
     super.key,
     this.planId,
     this.tripId,
     required this.mode,
+    this.inviteCode,
+    this.returnToJoin = false,
   }) : assert(
     planId != null || tripId != null || mode == AdventureMode.builder,
     'Either planId or tripId must be provided, or mode must be builder for new plan creation',
@@ -249,6 +258,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   
   // Map controllers for each day (for auto-fit on tab switch)
   final Map<int, WaypointMapController> _dayMapControllers = {};
+  WaypointMapController? _overviewMapController;
   
   // Cache for user futures to avoid duplicate FutureBuilder calls
   final Map<String, Future<UserModel?>> _userFutureCache = {};
@@ -264,6 +274,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
 
   /// Inline "Show more" expansion: item.id when expanded, null when collapsed (row-based expand below row).
   String? _expandedPackingItemId;
+
+  bool _reviewPromptTriggered = false;
   
   // Auto-save lock to prevent concurrent saves
   bool _isAutoSaving = false;
@@ -277,6 +289,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   /// Debounced auto-save for packing list (and other checklist) edits
   Timer? _packingAutoSaveTimer;
   static const Duration _packingAutoSaveDelay = Duration(milliseconds: 1500);
+  Timer? _itineraryAutoSaveTimer;
+  static const Duration _itineraryAutoSaveDelay = Duration(seconds: 2);
   
   // Navigation drawer state (replaces TabController)
   NavigationItem _currentNavigationItem = NavigationItem.overview;
@@ -532,8 +546,23 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     if (widget.mode != AdventureMode.builder || _formState == null) return;
     _hasUnsavedChanges = true;
     _packingAutoSaveTimer?.cancel();
+    _itineraryAutoSaveTimer?.cancel();
     _packingAutoSaveTimer = Timer(_packingAutoSaveDelay, () {
       _packingAutoSaveTimer = null;
+      _performAutoSave().then((success) {
+        if (mounted && success) _hasUnsavedChanges = false;
+      });
+    });
+  }
+
+  /// Schedule a single debounced auto-save after itinerary/waypoint edits (add, edit, delete, reorder).
+  void _scheduleItineraryAutoSave() {
+    if (widget.mode != AdventureMode.builder || _formState == null) return;
+    _hasUnsavedChanges = true;
+    _formState!.notifyListeners();
+    _itineraryAutoSaveTimer?.cancel();
+    _itineraryAutoSaveTimer = Timer(_itineraryAutoSaveDelay, () {
+      _itineraryAutoSaveTimer = null;
       _performAutoSave().then((success) {
         if (mounted && success) _hasUnsavedChanges = false;
       });
@@ -851,6 +880,16 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           _isTripOwner = isTripOwner;
           _hasPurchased = hasPurchased;
         });
+        // Cache creator data for trip mode ("About the Creator" + "More by" cards)
+        if (plan.creatorId.isNotEmpty) {
+          _creatorUserFuture = _userService.getUserById(plan.creatorId);
+          _userFutureCache[plan.creatorId] = _creatorUserFuture!;
+          _creatorOverviewFuture = _getCreatorOverview(plan.creatorId);
+        }
+        final currentUserForTrip = FirebaseAuth.instance.currentUser;
+        _currentUserFuture = currentUserForTrip != null
+            ? _userService.getUserById(currentUserForTrip.uid)
+            : Future<UserModel?>.value(null);
         _deferLoadingComplete();
         _ensureDayTabControllerAfterLoad();
       } else if (widget.planId != null) {
@@ -961,7 +1000,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     }
 
     final headerContent = Container(
-      color: kDrawerAndPlanPageBackground,
+      color: Theme.of(context).colorScheme.background,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1240),
@@ -1043,16 +1082,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: kDrawerAndPlanPageBackground,
+      backgroundColor: Theme.of(context).colorScheme.background,
       resizeToAvoidBottomInset: !showItineraryBottomBar,
       appBar: useCompactBar ? _buildCompactItineraryAppBar(context) : _buildUnifiedNavBar(context),
       floatingActionButton: showItineraryBottomBar
           ? _buildItineraryFab(context)
           : null,
       floatingActionButtonLocation: showItineraryBottomBar
-          ? (isDesktop
-              ? const _ItineraryFabLocationRightPanel()
-              : FloatingActionButtonLocation.centerFloat)
+          ? FloatingActionButtonLocation.endFloat
           : null,
       // CRITICAL: Only create drawer after both _drawerReady AND _drawerHitTestReady are true.
       // This ensures DrawerController is never hit-tested before it's fully laid out.
@@ -1129,48 +1166,67 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   }
 
   Widget _buildBody(BuildContext context) {
-    // Loading state
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+    // Trip review prompt: once per load when in trip mode and data ready
+    if (widget.mode == AdventureMode.trip &&
+        !_isLoading &&
+        _trip != null &&
+        _plan != null &&
+        !_reviewPromptTriggered) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        _reviewPromptTriggered = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          tryShowTripReviewPrompt(
+            context: context,
+            trip: _trip!,
+            plan: _plan!,
+            userId: uid,
+          );
+        });
+      }
     }
-    
-    // Error state
-    if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
-            const SizedBox(height: 16),
-            Text(_errorMessage!),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _loadAdventure,
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    // Builder mode - no form state
-    if (widget.mode == AdventureMode.builder && _formState == null) {
-      return const Center(child: Text('No form state available'));
-    }
-    
-    // Viewer/trip mode - no adventure data
-    if (widget.mode != AdventureMode.builder && _adventureData == null) {
-      return const Center(child: Text('No adventure data available'));
-    }
-    
-    // Normal content - same as current try/catch LayoutBuilder block
+
+    // FIX: Always return a single LayoutBuilder so Scaffold body never changes type.
+    // Swapping Center → LayoutBuilder when loading finished caused "Cannot hit test
+    // a render box that has never been laid out" because the new body was hit-tested before layout.
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Loading state
+        if (_isLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        // Error state
+        if (_errorMessage != null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
+                const SizedBox(height: 16),
+                Text(_errorMessage!),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _loadAdventure,
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+        // Builder mode - no form state
+        if (widget.mode == AdventureMode.builder && _formState == null) {
+          return const Center(child: Text('No form state available'));
+        }
+        // Viewer/trip mode - no adventure data
+        if (widget.mode != AdventureMode.builder && _adventureData == null) {
+          return const Center(child: Text('No adventure data available'));
+        }
         // Defensive check: ensure constraints are valid
         if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) {
           return const SizedBox.shrink();
         }
-        
+
         try {
           final screenWidth = constraints.maxWidth;
           final isDesktop = WaypointBreakpoints.isDesktop(screenWidth);
@@ -1196,7 +1252,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             if (widget.mode != AdventureMode.builder && _adventureData == null) {
               return const Center(child: CircularProgressIndicator());
             }
-            return _buildItineraryTab();
+            final itineraryContent = _buildItineraryTab();
+            return _wrapWithPurchaseBlur(itineraryContent, 'Unlock to see full itinerary');
           }
           
           return Stack(
@@ -1210,10 +1267,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               ),
               
               // Sticky price card sidebar (desktop, overview tab only)
+              // Center the card in the space between the right edge of the main content (max 1240) and the right edge of the screen
               if (isDesktop && _currentNavigationItem == NavigationItem.overview)
                 Positioned(
                   top: _headerHeight + 20,
-                  right: 24,
+                  left: _priceCardLeftForDesktop(screenWidth),
                   width: 320,
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
@@ -1270,7 +1328,22 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     }
     return null;
   }
-  
+
+  /// Left position for the sticky price card on desktop so it is centered between
+  /// the right edge of the main content (max 1240px) and the right edge of the screen.
+  static const double _contentMaxWidth = 1240.0;
+  static const double _priceCardWidth = 320.0;
+  static const double _minSideMargin = 24.0;
+
+  double _priceCardLeftForDesktop(double screenWidth) {
+    if (screenWidth < _contentMaxWidth + _priceCardWidth + 2 * _minSideMargin) {
+      return screenWidth - _priceCardWidth - _minSideMargin;
+    }
+    final contentRight = (screenWidth + _contentMaxWidth) / 2;
+    final sidebarWidth = screenWidth - contentRight;
+    return contentRight + (sidebarWidth - _priceCardWidth) / 2;
+  }
+
   /// True when the sticky bottom buy bar is shown on mobile (so inline price should be hidden in overview).
   bool _isMobileBuyBarVisible() {
     if (WaypointBreakpoints.isDesktop(MediaQuery.of(context).size.width)) return false;
@@ -1398,7 +1471,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: WaypointColors.primary,
-                    foregroundColor: WaypointColors.surface,
+                    foregroundColor: WaypointColors.onPrimary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1416,15 +1489,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 width: 120,
                 height: 40,
                 child: FilledButton(
-                  onPressed: () {
-                    // TODO: Implement buy plan functionality
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Buy plan functionality coming soon')),
-                    );
-                  },
+                  onPressed: _handleBuyPlan,
                   style: FilledButton.styleFrom(
                     backgroundColor: WaypointColors.primary,
-                    foregroundColor: WaypointColors.surface,
+                    foregroundColor: WaypointColors.onPrimary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1495,7 +1563,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             },
             style: FilledButton.styleFrom(
               backgroundColor: WaypointColors.primary,
-              foregroundColor: Colors.white,
+              foregroundColor: WaypointColors.onPrimary,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
             child: const Text('View Pricing'),
@@ -2366,10 +2434,34 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   /// Load creator overview for About the Creator block: user + stats + other plans.
   Future<_CreatorOverviewData> _getCreatorOverview(String creatorId) async {
     if (creatorId.isEmpty) return const _CreatorOverviewData(null, CreatorStats.empty, []);
-    final user = await _userService.getUserById(creatorId);
-    final stats = await _planService.getCreatorStats(creatorId);
-    final plans = await _planService.getPlansByCreator(creatorId);
-    return _CreatorOverviewData(user, stats, plans);
+    try {
+      final results = await Future.wait([
+        _userService.getUserById(creatorId),
+        _planService.getCreatorStats(creatorId),
+        _planService.getPlansByCreator(creatorId),
+      ]);
+
+      final user = results[0] as UserModel?;
+      final stats = results[1] as CreatorStats;
+      var plans = results[2] as List<Plan>;
+
+      // Fallback: if Firestore query returns nothing, load from user's createdPlanIds
+      if (plans.isEmpty && user != null && user.createdPlanIds.isNotEmpty) {
+        try {
+          final fallback = await Future.wait(
+            user.createdPlanIds.take(10).map((id) => _planService.loadFullPlan(id)),
+          );
+          plans = fallback.whereType<Plan>().toList();
+        } catch (_) {
+          // Fallback failed silently
+        }
+      }
+
+      return _CreatorOverviewData(user, stats, plans);
+    } catch (e) {
+      Log.e('adventure_detail', 'Failed to load creator overview: $e');
+      return const _CreatorOverviewData(null, CreatorStats.empty, []);
+    }
   }
 
   
@@ -4346,7 +4438,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               label: Text(existingRoute == null ? 'Create Route' : 'Edit Route'),
                           style: FilledButton.styleFrom(
                             backgroundColor: WaypointColors.primary,
-                            foregroundColor: Colors.white,
+                            foregroundColor: WaypointColors.onPrimary,
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -4409,6 +4501,23 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
   
+  Future<void> _handleBuyPlan() async {
+    final planId = widget.planId;
+    if (planId == null) return;
+    if (!kIsWeb) {
+      final uri = Uri.parse(AppUrls.getPlanDetailsWebUrl(planId));
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      return;
+    }
+    context.push('/checkout/$planId', extra: {
+      'plan': _plan,
+      if (widget.inviteCode != null) 'inviteCode': widget.inviteCode,
+      if (widget.returnToJoin) 'returnToJoin': true,
+    });
+  }
+
   Widget _buildBuyPlanSidebar() {
     // Hide if purchase status is not yet checked (loading) or trip mode
     if (_hasPurchased == null && widget.mode != AdventureMode.builder) {
@@ -4463,18 +4572,13 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         durationDays: _adventureData?.selectedVersion?.durationDays,
       );
     } else {
-      // Show "Buy Plan" button
+      // Show "Buy Plan" button (web: in-app checkout; app: open web to buy)
       return BuyPlanCard(
         price: price,
         isBuilder: false,
         adventureTitle: displayName,
         priceController: null,
-        onBuyTap: () {
-          // TODO: Implement buy plan functionality
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Buy plan functionality coming soon')),
-          );
-        },
+        onBuyTap: _handleBuyPlan,
         activityCategory: _plan?.activityCategory,
         accommodationType: _plan?.accommodationType,
         durationDays: _adventureData?.selectedVersion?.durationDays,
@@ -5038,6 +5142,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         poiWaypoints: updatedWaypoints.map((w) => w.toJson()).toList(),
       );
     });
+    _scheduleItineraryAutoSave();
   }
 
   /// Move a waypoint (or its entire choice group) down by swapping orders with the next order group.
@@ -5067,9 +5172,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         poiWaypoints: updatedWaypoints.map((w) => w.toJson()).toList(),
       );
     });
+    _scheduleItineraryAutoSave();
   }
-  
-  
+
   /// Show dialog to edit duration (number of days)
   void _showDurationEditDialog() {
     if (_formState == null || _formState!.versions.isEmpty) return;
@@ -5145,6 +5250,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     if (!mounted) return;
     if (result is WaypointSaved) {
       setState(() => version.getDayState(dayNum).route = result.route);
+      _scheduleItineraryAutoSave();
     }
     // WaypointDeleted cannot occur in add flow (delete action hidden in add mode).
   }
@@ -5153,6 +5259,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   Widget _buildItineraryFab(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return FloatingActionButton(
+      heroTag: 'itinerary_add_waypoint_fab',
       onPressed: () => _onAddWaypointTapped(context),
       backgroundColor: const Color(0xFF228B22),
       foregroundColor: Colors.white,
@@ -5234,6 +5341,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     if (!mounted) return;
     if (result is WaypointSaved) {
       setState(() => version.getDayState(dayNum).route = result.route);
+      _scheduleItineraryAutoSave();
     } else if (result is WaypointDeleted) {
       final route = dayState.route;
       if (route != null) {
@@ -5246,10 +5354,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
           );
         });
+        _scheduleItineraryAutoSave();
       }
     }
   }
-  
+
   void _deleteWaypoint(int dayNum, RouteWaypoint waypoint, VersionFormState version) {
     final dayState = version.getDayState(dayNum);
     final route = dayState.route;
@@ -5265,6 +5374,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
       );
     });
+    _scheduleItineraryAutoSave();
   }
 
   /// Time override for trip owner. Persists to waypoint_overrides when tripId is set.
@@ -5680,6 +5790,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           poiWaypoints: waypoints.map((w) => w.toJson()).toList(),
         );
       });
+      _scheduleItineraryAutoSave();
       return;
     }
     if (widget.tripId == null || !mounted) return;
@@ -5736,6 +5847,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         poiWaypoints: updated.map((w) => w.toJson()).toList(),
       );
     });
+    _scheduleItineraryAutoSave();
   }
 
   /// Add alternative: open add-waypoint screen; on save, link the new waypoint as alternative to [primary]. Uses local vars only (no instance fields).
@@ -5789,6 +5901,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             poiWaypoints: updated.map((w) => w.toJson()).toList(),
           );
         });
+        _scheduleItineraryAutoSave();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -5798,6 +5911,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         }
       } else {
         setState(() => version.getDayState(dayNum).route = result.route);
+        _scheduleItineraryAutoSave();
         Log.w('add_alternative', 'Could not identify new waypoint; applying route without linking');
       }
     }
@@ -6142,8 +6256,6 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               _buildReviewPrepareCard(),
               _buildReviewLocalTipsCard(),
               _buildReviewDaysCard(),
-              
-              const SizedBox(height: 80),
     ]);
   }
   
@@ -6173,37 +6285,72 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             Switch(
               value: _formState!.isPublished,
               onChanged: (value) async {
-                if (_formState != null) {
-                  _formState!.isPublished = value;
-                  setState(() {});
-                  
-                  // Save publish status
-                  try {
-                    await _saveService.saveDraft(_formState!);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            value
-                                ? 'Adventure published successfully'
-                                : 'Adventure saved as draft',
+                if (_formState == null) return;
+                // Block turning ON publish for paid plans until payout setup is complete
+                if (value) {
+                  final basePrice = double.tryParse(_formState!.priceCtrl.text.trim()) ?? 0.0;
+                  if (basePrice > 0) {
+                    try {
+                      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+                      final result = await functions.httpsCallable('getConnectAccountStatus').call<Map<Object?, Object?>>({});
+                      final chargesEnabled = result.data?['chargesEnabled'] == true;
+                      if (!chargesEnabled && mounted) {
+                        showDialog<void>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Payout setup required'),
+                            content: const Text(
+                              'To publish a paid adventure, complete payout setup first. '
+                              'Go to Builder and tap "Add payment details to receive earnings".',
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
+                              FilledButton(
+                                onPressed: () {
+                                  Navigator.of(ctx).pop();
+                                  context.go('/builder');
+                                },
+                                child: const Text('Go to Builder'),
+                              ),
+                            ],
                           ),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
+                        );
+                        return;
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Could not verify payout setup: $e'), backgroundColor: Colors.red),
+                        );
+                      }
+                      return;
                     }
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Failed to update publish status: $e'),
-                          backgroundColor: Colors.red,
+                  }
+                }
+                _formState!.isPublished = value;
+                setState(() {});
+                try {
+                  await _saveService.saveDraft(_formState!);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          value ? 'Adventure published successfully' : 'Adventure saved as draft',
                         ),
-                      );
-                      // Revert on error
-                      _formState!.isPublished = !value;
-                      setState(() {});
-                    }
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to update publish status: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    _formState!.isPublished = !value;
+                    setState(() {});
                   }
                 }
               },
@@ -6784,36 +6931,15 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         _buildQuickStats(context),
                         const SizedBox(height: WaypointSpacing.sectionGap),
 
-                        // 4. Description
+                        // 4. Description (full text for everyone)
                         if (_plan!.description.isNotEmpty)
-                          _hasPurchased == false && _plan!.description.length > 200
-                              ? Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${_plan!.description.substring(0, 200)}...',
-                                      style: WaypointTypography.bodyLarge.copyWith(
-                                        height: 1.6,
-                                        color: context.colors.onSurfaceVariant,
-                                      ),
-                                    ),
-                                    const SizedBox(height: WaypointSpacing.gapSm),
-                                    Text(
-                                      'Unlock to see full description',
-                                      style: WaypointTypography.bodyMedium.copyWith(
-                                        color: context.colors.primary,
-                                        fontStyle: FontStyle.italic,
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Text(
-                                  _plan!.description,
-                                  style: WaypointTypography.bodyLarge.copyWith(
-                                    height: 1.6,
-                                    color: context.colors.onSurfaceVariant,
-                                  ),
-                                ),
+                          Text(
+                            _plan!.description,
+                            style: WaypointTypography.bodyLarge.copyWith(
+                              height: 1.6,
+                              color: context.colors.onSurfaceVariant,
+                            ),
+                          ),
                         const SizedBox(height: WaypointSpacing.subsectionGap),
                         
                         // Highlights (viewer: hidden per plan; builder only)
@@ -6848,7 +6974,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         // 8. Itinerary carousel + View All
                         _buildOverviewItineraryCarousel(context),
                         const SizedBox(height: WaypointSpacing.subsectionGap),
-                        
+                        // Location map (all days: routes + waypoints)
+                        _buildOverviewLocationMap(context),
+                        const SizedBox(height: WaypointSpacing.subsectionGap),
                         // 9. Travel Logistics (read-only)
                         _buildOverviewTravelLogistics(context),
                         const SizedBox(height: WaypointSpacing.subsectionGap),
@@ -6860,26 +6988,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                             icon: Icons.help_outline,
                             iconColor: Theme.of(context).colorScheme.primary,
                             titleColor: Theme.of(context).colorScheme.primary,
-                            children: _hasPurchased == false
-                                ? _adventureData!.faqItems.take(3).map((faq) => _buildFAQItem(faq)).toList()
-                                    + [
-                                        Padding(
-                                          padding: const EdgeInsets.all(16.0),
-                                          child: Text(
-                                            'Unlock to see all ${_adventureData!.faqItems.length} FAQ items',
-                                            style: WaypointTypography.bodyMedium.copyWith(
-                                              color: WaypointColors.textSecondary,
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                          ),
-                                        ),
-                                      ]
-                                : _adventureData!.faqItems.map((faq) => _buildFAQItem(faq)).toList(),
+                            children: _adventureData!.faqItems.map((faq) => _buildFAQItem(faq)).toList(),
                           ),
                         ],
-                        
-                        // Unlock banner for non-purchased plans
-                        if (_hasPurchased == false) _buildUnlockBanner(),
                       ],
                     ),
                   ),
@@ -6961,23 +7072,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 const SizedBox(width: 48),
               const SizedBox(width: WaypointSpacing.fieldGap),
 
-              // ---- Mobile: trip name only; desktop: logo + divider + breadcrumbs ----
-              if (isMobile)
-                Expanded(
-                  child: Text(
-                    title,
-                    style: WaypointTypography.titleMedium.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: context.colors.onSurface,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                )
-              else ...[
-                _buildLogoMark(),
-                const SizedBox(width: WaypointSpacing.fieldGap),
-                Container(width: 1, height: 20, color: context.colors.outlineVariant),
-                const SizedBox(width: 12),
+              // ---- Desktop: breadcrumbs only (no logo) | Mobile: spacer (no title in nav bar) ----
+              if (!isMobile) ...[
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, constraints) => SizedBox(
@@ -6986,7 +7082,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                     ),
                   ),
                 ),
-              ],
+              ] else
+                const Spacer(),
 
               // ---- Save status (top-right) ----
               _buildSaveStatus(),
@@ -6997,11 +7094,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
 
-  /// Compact app bar for itinerary: hamburger, trip title, save status. No logo.
+  /// Compact app bar for itinerary: hamburger, save status. No title in nav bar.
   PreferredSizeWidget _buildCompactItineraryAppBar(BuildContext context) {
-    final title = widget.mode == AdventureMode.builder && _formState != null
-        ? (_formState!.nameCtrl.text.isEmpty ? 'Trip' : _formState!.nameCtrl.text)
-        : (_adventureData?.displayName ?? 'Trip');
     return PreferredSize(
       preferredSize: const Size.fromHeight(56),
       child: Container(
@@ -7023,16 +7117,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               else
                 const SizedBox(width: 48),
               const SizedBox(width: WaypointSpacing.fieldGap),
-              Expanded(
-                child: Text(
-                  title,
-                  style: WaypointTypography.titleMedium.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: context.colors.onSurface,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+              const Spacer(),
               _buildSaveStatus(),
             ],
           ),
@@ -7059,19 +7144,72 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         } else if (widget.mode == AdventureMode.trip) {
           return _buildTripPrepareTab();
         } else {
-          return _buildPrepareTab();
+          final content = _buildPrepareTab();
+          return _wrapWithPurchaseBlur(content, 'Unlock to see checklist & prepare guide');
         }
       case NavigationItem.localTips:
         if (widget.mode == AdventureMode.builder) {
           return _buildBuilderLocalTipsTab();
         } else {
-          return _buildLocalTipsTab();
+          final content = _buildLocalTipsTab();
+          return _wrapWithPurchaseBlur(content, 'Unlock to see local tips');
         }
       case NavigationItem.comments:
         return _buildCommentsTab();
       case NavigationItem.review:
         return _buildBuilderReviewTab();
     }
+  }
+
+  /// Wraps content with blur overlay and unlock message when plan not purchased (viewer only).
+  Widget _wrapWithPurchaseBlur(Widget child, String unlockMessage) {
+    if (widget.mode == AdventureMode.builder || _hasPurchased != false) {
+      return child;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+        Positioned.fill(
+          child: ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+              child: Container(
+                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+        ),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lock_outline, size: 48, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(height: 12),
+                Text(
+                  unlockMessage,
+                  style: WaypointTypography.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Unlock this plan to see full details',
+                  style: WaypointTypography.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
   
   /// Build itinerary tab: desktop = static 50/50; mobile = full-screen map + draggable panel.
@@ -7169,6 +7307,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           padding: const EdgeInsets.only(top: 0),
           child: _buildCustomDayTabBar(compact: true),
         ),
+        _buildItineraryRouteAndLinksSection(),
         Expanded(
           child: _buildWaypointListContent(waypoints, isBuilder),
         ),
@@ -7182,6 +7321,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     return Column(
       children: [
         _buildCustomDayTabBar(compact: false, trailing: _buildModeSwitcher()),
+        _buildItineraryRouteAndLinksSection(),
         Expanded(
           child: _buildWaypointListContent(waypoints, isBuilder),
         ),
@@ -7314,6 +7454,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           child: Column(
             children: [
               _buildDesktopDayTabBar(),
+              _buildItineraryRouteAndLinksSection(),
               Expanded(
                 child: _buildWaypointListContent(waypoints, isBuilder),
               ),
@@ -7327,6 +7468,224 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   Widget _buildDesktopDayTabBar() {
     if (_dayTabController == null) return const SizedBox(height: 46);
     return _buildCustomDayTabBar(compact: false, trailing: _buildModeSwitcher());
+  }
+
+  /// Day image row for Route & links: thumbnail + Add/Change/Remove. Uses same state as day hero image; uploads to Storage on save.
+  Widget _buildRouteAndLinksDayImageRow(DayFormState dayState, int dayNum) {
+    final hasImage = dayState.newImageBytes.isNotEmpty || dayState.existingImageUrls.isNotEmpty;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          'Day image',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: const Color(0xFF1A1D21),
+          ),
+        ),
+        const SizedBox(width: 12),
+        if (hasImage) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: dayState.newImageBytes.isNotEmpty
+                  ? Image.memory(
+                      dayState.newImageBytes.first,
+                      fit: BoxFit.cover,
+                    )
+                  : Image.network(
+                      dayState.existingImageUrls.first,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.grey.shade200,
+                        child: Icon(Icons.broken_image, color: Colors.grey.shade400),
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => _pickDayImage(dayNum),
+            child: const Text('Change'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                dayState.newImageBytes = [];
+                dayState.newImageExtensions = [];
+                dayState.existingImageUrls = [];
+                dayState.notifyListeners();
+                _hasUnsavedChanges = true;
+              });
+              _scheduleItineraryAutoSave();
+            },
+            child: const Text('Remove'),
+          ),
+        ] else
+          OutlinedButton.icon(
+            onPressed: () => _pickDayImage(dayNum),
+            icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+            label: const Text('Add image'),
+          ),
+      ],
+    );
+  }
+
+  /// Route & links section for itinerary tab: under day tabs, above waypoints.
+  /// Builder: GPX upload + Komoot/AllTrails link fields (outdoor only). Trip/viewer: clickable external links.
+  Widget _buildItineraryRouteAndLinksSection() {
+    final activityCategory = widget.mode == AdventureMode.builder
+        ? _formState?.activityCategory
+        : _plan?.activityCategory;
+    final isOutdoor = isGpxSupportedActivity(activityCategory);
+
+    if (widget.mode == AdventureMode.builder && _formState != null && isOutdoor) {
+      final version = _formState!.activeVersion;
+      final dayNum = _effectiveSelectedDay;
+      if (dayNum < 1 || dayNum > version.daysCount) return const SizedBox.shrink();
+      final dayState = version.getDayState(dayNum);
+      final existingRoute = dayState.route;
+
+      return ListenableBuilder(
+        listenable: dayState,
+        builder: (context, _) {
+          return ActivityAwareBuilder(
+            activityCategory: activityCategory,
+            showFor: {
+              ActivityCategory.hiking,
+              ActivityCategory.cycling,
+              ActivityCategory.skis,
+              ActivityCategory.climbing,
+            },
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Route & links',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1A1D21),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: dayState.komootLinkCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Komoot link',
+                      hintText: 'https://www.komoot.com/...',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: dayState.allTrailsLinkCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'AllTrails link',
+                      hintText: 'https://www.alltrails.com/...',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 10),
+                  // Day image: upload per day, shown on overview itinerary carousel
+                  _buildRouteAndLinksDayImageRow(dayState, dayNum),
+                  const SizedBox(height: 10),
+                  if (dayState.gpxRoute != null) ...[
+                    Row(
+                      children: [
+                        Icon(Icons.check_circle, size: 18, color: Colors.green.shade700),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'GPX route (${dayState.gpxRoute!.totalDistanceKm.toStringAsFixed(1)} km)',
+                            style: TextStyle(fontSize: 13, color: Colors.green.shade800),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              dayState.gpxRoute = null;
+                              // Only remove the GPX route data; preserve manually added waypoints.
+                              if (existingRoute != null && existingRoute.routeType == RouteType.gpx) {
+                                dayState.route = existingRoute.copyWith(
+                                  geometry: {},
+                                  distance: 0,
+                                  duration: 0,
+                                  routePoints: const [],
+                                  elevationProfile: null,
+                                  ascent: null,
+                                  descent: null,
+                                  routeType: null,
+                                  // poiWaypoints preserved by copyWith (not passed = keep existing)
+                                );
+                              }
+                              dayState.routeInfo = null;
+                              dayState.distanceCtrl.clear();
+                              dayState.timeCtrl.clear();
+                            });
+                            _scheduleItineraryAutoSave();
+                          },
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          label: const Text('Remove'),
+                        ),
+                      ],
+                    ),
+                  ] else
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoadingGpx
+                            ? null
+                            : () => _showGpxImportDialog(context, dayState, existingRoute),
+                        icon: _isLoadingGpx
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.upload_file, size: 18),
+                        label: Text(_isLoadingGpx ? 'Importing…' : 'Import GPX route'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    // Trip / viewer: show clickable external links for selected day
+    if (!isOutdoor) return const SizedBox.shrink();
+    if (_adventureData == null) return const SizedBox.shrink();
+    final dayIndex = _effectiveSelectedDay - 1;
+    if (dayIndex < 0 || dayIndex >= _adventureData!.days.length) return const SizedBox.shrink();
+    final day = _adventureData!.days[dayIndex];
+    final hasKomoot = day.komootLink != null && day.komootLink!.isNotEmpty;
+    final hasAllTrails = day.allTrailsLink != null && day.allTrailsLink!.isNotEmpty;
+    final hasGpx = day.route?.routeType == RouteType.gpx;
+    if (!hasKomoot && !hasAllTrails && !hasGpx) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: ExternalLinksRow(
+        komootLink: day.komootLink,
+        allTrailsLink: day.allTrailsLink,
+        hasGpx: hasGpx,
+        onDownloadGpx: hasGpx ? () { /* TODO: Implement GPX download */ } : null,
+      ),
+    );
   }
 
   /// Mobile: full-screen map with draggable waypoints panel (3 snap states).
@@ -7377,6 +7736,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         children: [
           _buildDragHandle(),
           _buildPanelDayTabBar(),
+          _buildItineraryRouteAndLinksSection(),
           Expanded(
             child: _buildWaypointListContent(
               waypoints,
@@ -8154,48 +8514,6 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
 
-  // Logo mark — use actual SVG asset or the W glyph
-  Widget _buildLogoMark() {
-    // On web, skip loading the logo asset to avoid 404 (asset may be missing in web build)
-    final logoWidget = kIsWeb
-        ? _buildLogoPlaceholder()
-        : Image.asset(
-            'assets/images/waypoint_logo_mark.png',
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => _buildLogoPlaceholder(),
-          );
-    return GestureDetector(
-      onTap: () => context.go('/explore'),
-      child: SizedBox(
-        width: 28,
-        height: 28,
-        child: logoWidget,
-      ),
-    );
-  }
-
-  Widget _buildLogoPlaceholder() {
-    return Container(
-      width: 28,
-      height: 28,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B4332),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Center(
-        child: Text(
-          'W',
-          style: TextStyle(
-            fontFamily: 'DMSans',
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-          ),
-        ),
-      ),
-    );
-  }
-
   // Save status indicator (builder mode only)
   Widget _buildSaveStatus() {
     if (widget.mode != AdventureMode.builder || 
@@ -8790,50 +9108,253 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   }
 
   Widget _buildTransportationOptionReadOnly(BuildContext context, TransportationOption option) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    const kBeige = Color(0xFFF5F0E8);
+    const kIconBg = Color(0xFFD8F3DC);
+    const kGreen = Color(0xFF2D6A4F);
+    const kText = Color(0xFF1A1D21);
+    const kSubtext = Color(0xFF6C757D);
+
+    final types = option.types.isNotEmpty ? option.types : <TransportationType>[];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: kBeige,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (types.isEmpty)
+                _transportIconCircle(Icons.directions, kIconBg, kGreen)
+              else
+                ...types.take(2).map((type) => Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _transportIconCircle(
+                        _kTransportIcons[type] ?? Icons.directions,
+                        kIconBg,
+                        kGreen,
+                      ),
+                    )),
+            ],
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (option.types.isNotEmpty)
-                  ...option.types.map((type) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      _kTransportIcons[type] ?? Icons.directions,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  )),
-                if (option.types.isEmpty)
-                  Icon(Icons.directions, size: 20, color: Colors.grey.shade400),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    option.title.isEmpty ? 'Transport option' : option.title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                if (option.title.isNotEmpty)
+                  Text(
+                    option.title,
+                    style: const TextStyle(
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
+                      color: kText,
+                      height: 1.3,
                     ),
                   ),
-                ),
+                if (option.description.isNotEmpty) ...[
+                  if (option.title.isNotEmpty) const SizedBox(height: 4),
+                  Text(
+                    option.description,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: kSubtext,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
               ],
             ),
-            if (option.description.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                option.description,
-                style: WaypointTypography.bodySmall.copyWith(
-                  color: context.colors.onSurfaceVariant,
-                  height: 1.4,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _transportIconCircle(IconData icon, Color bg, Color fg) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+      child: Icon(icon, size: 18, color: fg),
+    );
+  }
+
+  /// Location map for overview: all days' routes (GPX or connected waypoints) and all waypoints.
+  Widget _buildOverviewLocationMap(BuildContext context) {
+    if (_adventureData == null || _plan == null) return const SizedBox.shrink();
+    final days = _adventureData!.days;
+    final activityCategory = _plan!.activityCategory;
+    final isGpxActivity = activityCategory == ActivityCategory.hiking ||
+        activityCategory == ActivityCategory.cycling ||
+        activityCategory == ActivityCategory.skis;
+
+    final annotations = <MapAnnotation>[];
+    final polylines = <MapPolyline>[];
+    final allPoints = <ll.LatLng>[];
+
+    for (final day in days) {
+      final route = day.route;
+      final waypointMaps = route?.poiWaypoints ?? [];
+      final waypoints = waypointMaps
+          .map((w) {
+            try {
+              return RouteWaypoint.fromJson(Map<String, dynamic>.from(w));
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<RouteWaypoint>()
+          .where((w) => w.type != WaypointType.routePoint)
+          .toList();
+      waypoints.sort((a, b) => (a.order ?? 0).compareTo(b.order ?? 0));
+
+      for (final wp in waypoints) {
+        annotations.add(MapAnnotation(
+          id: 'day_${day.dayNum}_${wp.id}',
+          position: wp.position,
+          icon: getWaypointIcon(wp.type),
+          color: getWaypointColor(wp.type),
+          waypointType: wp.type,
+          orderNumber: wp.order,
+          label: wp.name,
+          draggable: false,
+          onTap: () {},
+          markerSize: 28,
+          iconSize: 16,
+          showInfoWindow: true,
+        ));
+        allPoints.add(wp.position);
+      }
+
+      List<ll.LatLng> routePoints = [];
+      final useGpx = isGpxActivity &&
+          (day.gpxRoute != null || route?.routeType == RouteType.gpx);
+      if (useGpx && day.gpxRoute != null && day.gpxRoute!.simplifiedPoints.isNotEmpty) {
+        routePoints = day.gpxRoute!.simplifiedPoints;
+      } else if (useGpx && route != null) {
+        try {
+          final coords = route.geometry['coordinates'];
+          if (coords is List && coords.isNotEmpty) {
+            if (coords.first is List) {
+              routePoints = coords
+                  .map((c) => ll.LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()))
+                  .toList();
+            }
+          }
+        } catch (_) {}
+      }
+      if (routePoints.isEmpty && waypoints.isNotEmpty) {
+        routePoints = waypoints.map((w) => w.position).toList();
+      }
+      if (routePoints.isNotEmpty) {
+        polylines.add(MapPolyline(
+          id: 'overview_day_${day.dayNum}',
+          points: routePoints,
+          color: const Color(0xFF4CAF50),
+          width: 4.0,
+        ));
+        allPoints.addAll(routePoints);
+      }
+    }
+
+    if (allPoints.isEmpty) return const SizedBox.shrink();
+
+    ll.LatLng center;
+    double zoom;
+    if (allPoints.length == 1) {
+      center = allPoints.single;
+      zoom = 12.0;
+    } else {
+      final lats = allPoints.map((p) => p.latitude).toList();
+      final lngs = allPoints.map((p) => p.longitude).toList();
+      final minLat = lats.reduce((a, b) => a < b ? a : b);
+      final maxLat = lats.reduce((a, b) => a > b ? a : b);
+      final minLng = lngs.reduce((a, b) => a < b ? a : b);
+      final maxLng = lngs.reduce((a, b) => a > b ? a : b);
+      center = ll.LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+      final latDiff = maxLat - minLat;
+      final lngDiff = maxLng - minLng;
+      final maxDiff = latDiff > lngDiff ? latDiff : lngDiff;
+      zoom = 10.0;
+      if (maxDiff > 0) {
+        if (maxDiff > 10) zoom = 4.0;
+        else if (maxDiff > 5) zoom = 5.0;
+        else if (maxDiff > 2) zoom = 6.0;
+        else if (maxDiff > 1) zoom = 7.0;
+        else if (maxDiff > 0.5) zoom = 8.0;
+        else if (maxDiff > 0.2) zoom = 9.0;
+        else if (maxDiff > 0.1) zoom = 10.0;
+        else zoom = 12.0;
+      }
+    }
+
+    final mapConfig = MapConfiguration.mainMap(
+      enable3DTerrain: false,
+      initialZoom: zoom,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Location',
+              style: WaypointTypography.titleMedium.copyWith(
+                fontWeight: FontWeight.w700,
+                color: context.colors.onSurface,
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                final url = 'https://www.google.com/maps?q=${center.latitude},${center.longitude}&z=${zoom.round()}';
+                final uri = Uri.parse(url);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+              child: Text(
+                'Open in Maps',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
+            ),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: 300,
+            child: AdaptiveMapWidget(
+              key: const ValueKey('overview_location_map'),
+              initialCenter: center,
+              configuration: mapConfig,
+              annotations: annotations,
+              polylines: polylines,
+              onMapCreated: (controller) {
+                _overviewMapController = controller;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  if (_overviewMapController != controller) return;
+                  if (allPoints.isNotEmpty) {
+                    _animateCameraToPoints(allPoints, controller);
+                  }
+                });
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -9411,6 +9932,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   @override
   void dispose() {
     _packingAutoSaveTimer?.cancel();
+    _itineraryAutoSaveTimer?.cancel();
     // Restore original error handler to prevent leaking error suppression
     if (_originalErrorHandler != null) {
       FlutterError.onError = _originalErrorHandler;
@@ -9460,6 +9982,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     
     // Clear map controller references (controllers are disposed by AdaptiveMapWidget)
     _dayMapControllers.clear();
+    _overviewMapController = null;
     
     // Clear user future cache
     _userFutureCache.clear();
@@ -9695,21 +10218,6 @@ class _ReviewSummaryCard extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-/// Positions the itinerary FAB in the center of the right panel (waypoints list) on desktop.
-class _ItineraryFabLocationRightPanel extends FloatingActionButtonLocation {
-  const _ItineraryFabLocationRightPanel();
-
-  @override
-  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
-    final Size size = scaffoldGeometry.scaffoldSize;
-    final Size fabSize = scaffoldGeometry.floatingActionButtonSize ?? const Size(56, 56);
-    // Right half is 50% width; center of right half = 0.75 * width
-    final double x = size.width * 0.75 - fabSize.width / 2;
-    final double y = size.height / 2 - fabSize.height / 2;
-    return Offset(x, y);
   }
 }
 

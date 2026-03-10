@@ -18,6 +18,7 @@ import 'package:waypoint/nav.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/services/stripe_config_service.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
 
 /// Profile screen where users can sign in/up and manage their account
@@ -69,51 +70,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          _buildHeader(context, isDesktop),
-          SliverPadding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 32 : 16,
-              vertical: 8,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: StreamBuilder(
-                stream: auth.authStateChanges,
-                builder: (context, snapshot) {
-                  // Wait for stream to initialize
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(48.0),
-                        child: CircularProgressIndicator(),
+          if (isDesktop)
+            SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+          StreamBuilder(
+            stream: auth.authStateChanges,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SliverFillRemaining(
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(48.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                );
+              }
+              final firebaseUser = snapshot.data;
+              if (firebaseUser == null) {
+                return SliverToBoxAdapter(
+                  child: _LoggedOutView(
+                    auth: auth,
+                    onAuthSuccess: _handlePostAuthRedirect,
+                  ),
+                );
+              }
+              return SliverMainAxisGroup(
+                slivers: [
+                  _buildHeader(context, isDesktop),
+                  SliverPadding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isDesktop ? 32 : 16,
+                      vertical: 8,
+                    ),
+                    sliver: SliverToBoxAdapter(
+                      child: StreamBuilder(
+                        stream: userService.streamUser(firebaseUser.uid),
+                        builder: (context, userSnap) {
+                          final user = userSnap.data;
+                          return _LoggedInView(
+                            user: user,
+                            uid: firebaseUser.uid,
+                            email: firebaseUser.email,
+                            auth: auth,
+                            isDesktop: isDesktop,
+                          );
+                        },
                       ),
-                    );
-                  }
-                  
-                  final firebaseUser = snapshot.data;
-                  if (firebaseUser == null) {
-                    return _LoggedOutView(
-                      auth: auth,
-                      onAuthSuccess: _handlePostAuthRedirect,
-                    );
-                  }
-                  return StreamBuilder(
-                    stream: userService.streamUser(firebaseUser.uid),
-                    builder: (context, userSnap) {
-                      final user = userSnap.data;
-                      return _LoggedInView(
-                        user: user,
-                        uid: firebaseUser.uid,
-                        email: firebaseUser.email,
-                        auth: auth,
-                        isDesktop: isDesktop,
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                ],
+              );
+            },
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 32)),
         ],
       ),
     );
@@ -140,18 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 isDesktop ? 32 : 20,
                 24,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    'Profile',
-                    style: context.textStyles.displaySmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
+              child: const SizedBox.shrink(),
             ),
           ),
         ),
@@ -251,6 +249,7 @@ class _LoggedInView extends StatelessWidget {
                 subtitle: 'Manage system data and schema',
                 onTap: () => context.push('/admin/migration'),
               ),
+              _StripeModeTile(),
             ],
           ),
           const SizedBox(height: 24),
@@ -978,6 +977,63 @@ class _SettingsTileState extends State<_SettingsTile> {
   }
 }
 
+class _StripeModeTile extends StatefulWidget {
+  @override
+  State<_StripeModeTile> createState() => _StripeModeTileState();
+}
+
+class _StripeModeTileState extends State<_StripeModeTile> {
+  bool? _useLive;
+
+  @override
+  void initState() {
+    super.initState();
+    StripeConfigService.instance.getUseLiveKeysFromCache().then((v) {
+      if (mounted) setState(() => _useLive = v);
+    });
+  }
+
+  Future<void> _onChanged(bool useLive) async {
+    setState(() => _useLive = useLive);
+    try {
+      await StripeConfigService.instance.setUseLiveKeys(useLive);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Stripe mode updated. Takes effect after app restart.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _useLive = !useLive);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final useLive = _useLive ?? false;
+    return _SettingsTile(
+      icon: FontAwesomeIcons.creditCard,
+      title: 'Stripe mode',
+      subtitle: useLive ? 'Production' : 'Test (use for development)',
+      trailing: Switch(
+        value: useLive,
+        onChanged: _onChanged,
+        activeColor: context.colors.primary,
+        activeTrackColor: context.colors.primary.withValues(alpha: 0.4),
+        inactiveThumbColor: context.colors.onSurface.withValues(alpha: 0.7),
+        inactiveTrackColor: context.colors.outline,
+      ),
+      onTap: () => _onChanged(!useLive),
+    );
+  }
+}
+
 class _ThemeSwitchTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -1048,6 +1104,7 @@ class _LogoutButton extends StatelessWidget {
   }
 }
 
+/// Logged-out profile: full-page login/register UI matching the design (logo, card, tabs, social, footer).
 class _LoggedOutView extends StatefulWidget {
   const _LoggedOutView({required this.auth, required this.onAuthSuccess});
   final FirebaseAuthManager auth;
@@ -1068,15 +1125,629 @@ class _LoggedOutViewState extends State<_LoggedOutView> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isDesktop = screenWidth >= 1024;
+    final cardPadding = isDesktop ? 32.0 : 20.0;
+    final maxCardWidth = 420.0;
+
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: _EmailAuthForm(
-          initialMode: _mode,
-          auth: widget.auth,
-          onAuthSuccess: widget.onAuthSuccess,
-          onModeToggle: (mode) => setState(() => _mode = mode),
+        padding: EdgeInsets.symmetric(horizontal: isDesktop ? 32 : 20),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxCardWidth),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 32),
+                _WaypointLogoAndTagline(),
+                const SizedBox(height: 28),
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(cardPadding),
+                  decoration: BoxDecoration(
+                    color: context.colors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(AppRadius.xl),
+                    boxShadow: [
+                      BoxShadow(
+                        color: context.colors.shadow.withValues(alpha: 0.06),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: _LoginRegisterCard(
+                    initialMode: _mode,
+                    auth: widget.auth,
+                    onAuthSuccess: widget.onAuthSuccess,
+                    onModeToggle: (mode) => setState(() => _mode = mode),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _LoggedOutFooter(
+                  isRegisterMode: _mode == _AuthMode.signUp,
+                  onToggleMode: () => setState(() => _mode = _mode == _AuthMode.signIn ? _AuthMode.signUp : _AuthMode.signIn),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// Logo, app name and tagline for the login screen.
+class _WaypointLogoAndTagline extends StatelessWidget {
+  static const _logoAsset = 'assets/images/logo-waypoint.png';
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 144,
+          height: 144,
+          child: Image.asset(
+            _logoAsset,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Container(
+              width: 144,
+              height: 144,
+              decoration: BoxDecoration(
+                color: context.colors.primary,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: context.colors.primary.withValues(alpha: 0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.explore,
+                size: 80,
+                color: context.colors.onPrimary,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Waypoint',
+          style: context.textStyles.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: context.colors.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Plan your next adventure.',
+          style: context.textStyles.bodyMedium?.copyWith(
+            color: context.colors.onSurface.withValues(alpha: 0.65),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Footer: "Don't have an account? Create Account" / "Already have an account? Sign In" and legal links.
+class _LoggedOutFooter extends StatelessWidget {
+  const _LoggedOutFooter({required this.isRegisterMode, required this.onToggleMode});
+  final bool isRegisterMode;
+  final VoidCallback onToggleMode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              isRegisterMode ? "Already have an account? " : "Don't have an account? ",
+              style: context.textStyles.bodyMedium?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.8),
+              ),
+            ),
+            GestureDetector(
+              onTap: onToggleMode,
+              child: Text(
+                isRegisterMode ? 'Sign In' : 'Create Account',
+                style: context.textStyles.bodyMedium?.copyWith(
+                  color: context.colors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton(
+              onPressed: () {},
+              style: TextButton.styleFrom(
+                foregroundColor: context.colors.onSurface.withValues(alpha: 0.6),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                'Privacy Policy',
+                style: context.textStyles.bodySmall?.copyWith(
+                  color: context.colors.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+            Text(
+              ' • ',
+              style: context.textStyles.bodySmall?.copyWith(
+                color: context.colors.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            TextButton(
+              onPressed: () {},
+              style: TextButton.styleFrom(
+                foregroundColor: context.colors.onSurface.withValues(alpha: 0.6),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                'Terms of Service',
+                style: context.textStyles.bodySmall?.copyWith(
+                  color: context.colors.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Cream card content: Login | Register tabs, form, social buttons.
+class _LoginRegisterCard extends StatefulWidget {
+  const _LoginRegisterCard({
+    required this.initialMode,
+    required this.auth,
+    required this.onAuthSuccess,
+    required this.onModeToggle,
+  });
+  final _AuthMode initialMode;
+  final FirebaseAuthManager auth;
+  final VoidCallback onAuthSuccess;
+  final ValueChanged<_AuthMode> onModeToggle;
+
+  @override
+  State<_LoginRegisterCard> createState() => _LoginRegisterCardState();
+}
+
+class _LoginRegisterCardState extends State<_LoginRegisterCard> {
+  late _AuthMode _mode;
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _firstNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _loading = false;
+  bool _rememberMe = false;
+  bool _agreedToTerms = false;
+  bool _marketingOptIn = false;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _mode = widget.initialMode;
+  }
+
+  @override
+  void didUpdateWidget(covariant _LoginRegisterCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialMode != widget.initialMode) _mode = widget.initialMode;
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleMode() {
+    setState(() {
+      _mode = _mode == _AuthMode.signIn ? _AuthMode.signUp : _AuthMode.signIn;
+      _agreedToTerms = false;
+      _marketingOptIn = false;
+    });
+    widget.onModeToggle(_mode);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Form(
+      key: _formKey,
+      child: SizedBox(
+        width: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+          Row(
+            children: [
+              _TabChip(
+                label: 'Login',
+                isActive: _mode == _AuthMode.signIn,
+                onTap: () {
+                  setState(() => _mode = _AuthMode.signIn);
+                  widget.onModeToggle(_AuthMode.signIn);
+                },
+              ),
+              const SizedBox(width: 24),
+              _TabChip(
+                label: 'Register',
+                isActive: _mode == _AuthMode.signUp,
+                onTap: () {
+                  setState(() => _mode = _AuthMode.signUp);
+                  widget.onModeToggle(_AuthMode.signUp);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          if (_mode == _AuthMode.signUp) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _firstNameCtrl,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: 'First Name',
+                      prefixIcon: Icon(Icons.person_outline, color: context.colors.primary, size: 20),
+                      filled: true,
+                      fillColor: context.colors.surface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _lastNameCtrl,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: 'Last Name',
+                      prefixIcon: Icon(Icons.person_outline, color: context.colors.primary, size: 20),
+                      filled: true,
+                      fillColor: context.colors.surface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+          TextFormField(
+            controller: _emailCtrl,
+            autocorrect: false,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              labelText: 'Email Address',
+              hintText: 'explorer@waypoint.com',
+              prefixIcon: Icon(Icons.mail_outline, color: context.colors.primary, size: 20),
+              filled: true,
+              fillColor: context.colors.surface,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+            ),
+            validator: (v) => (v == null || v.isEmpty || !v.contains('@')) ? 'Enter a valid email' : null,
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _passwordCtrl,
+            obscureText: _obscurePassword,
+            onChanged: (_) => setState(() {}),
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              labelText: 'Password',
+              prefixIcon: Icon(Icons.lock_outline, color: context.colors.primary, size: 20),
+              filled: true,
+              fillColor: context.colors.surface,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, size: 20),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              ),
+            ),
+            validator: (v) {
+              if (_mode == _AuthMode.signIn) return (v == null || v.length < 6) ? 'Min 6 characters' : null;
+              return PasswordValidator(v ?? '').errorMessage;
+            },
+          ),
+          if (_mode == _AuthMode.signUp) ...[
+            const SizedBox(height: 12),
+            _PasswordRequirementsIndicator(password: _passwordCtrl.text),
+            const SizedBox(height: 16),
+            _CheckboxTile(
+              value: _agreedToTerms,
+              onChanged: (v) => setState(() => _agreedToTerms = v ?? false),
+              child: Text.rich(
+                TextSpan(
+                  text: 'I agree to the ',
+                  style: context.textStyles.bodySmall,
+                  children: [
+                    TextSpan(
+                      text: 'Terms and Conditions',
+                      style: context.textStyles.bodySmall?.copyWith(
+                        color: context.colors.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                    const TextSpan(text: ' and have read the '),
+                    TextSpan(
+                      text: 'Privacy Policy',
+                      style: context.textStyles.bodySmall?.copyWith(
+                        color: context.colors.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                    const TextSpan(text: '.'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _CheckboxTile(
+              value: _marketingOptIn,
+              onChanged: (v) => setState(() => _marketingOptIn = v ?? false),
+              child: Text(
+                'Send me interesting commercial offers from Waypoints.',
+                style: context.textStyles.bodySmall,
+              ),
+            ),
+          ],
+          if (_mode == _AuthMode.signIn) ...[
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: _CheckboxTile(
+                    value: _rememberMe,
+                    onChanged: (v) => setState(() => _rememberMe = v ?? false),
+                    child: Text(
+                      'Remember me',
+                      style: context.textStyles.bodySmall?.copyWith(
+                        color: context.colors.onSurface.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _showForgotPasswordDialog,
+                  style: TextButton.styleFrom(
+                    foregroundColor: context.colors.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    'Forgot Password?',
+                    style: context.textStyles.bodySmall?.copyWith(
+                      color: context.colors.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _loading ? null : _submit,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              ),
+              child: _loading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Text(_mode == _AuthMode.signIn ? 'Sign in' : 'Create Account'),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(child: Divider(color: context.colors.outline.withValues(alpha: 0.5))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'OR',
+                  style: context.textStyles.bodySmall?.copyWith(
+                    color: context.colors.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+              Expanded(child: Divider(color: context.colors.outline.withValues(alpha: 0.5))),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _loading ? null : () => _signInWithGoogle(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                    side: BorderSide(color: context.colors.outline.withValues(alpha: 0.6)),
+                  ),
+                  child: Icon(Icons.g_mobiledata, size: 26, color: context.colors.onSurface),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _loading ? null : () => _signInWithApple(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                    side: BorderSide(color: context.colors.outline.withValues(alpha: 0.6)),
+                  ),
+                  child: Icon(Icons.apple, size: 26, color: context.colors.onSurface),
+                ),
+              ),
+            ],
+          ),
+        ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_mode == _AuthMode.signUp && !_agreedToTerms) {
+      _showError('Please agree to the Terms and Conditions');
+      return;
+    }
+    setState(() => _loading = true);
+    String? errorMessage;
+    try {
+      if (_mode == _AuthMode.signIn) {
+        await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
+        if (!mounted) return;
+        if (!widget.auth.isEmailVerified) {
+          _showEmailVerificationDialog();
+          return;
+        }
+        widget.onAuthSuccess();
+      } else {
+        await widget.auth.createAccountWithEmail(
+          context,
+          _emailCtrl.text.trim(),
+          _passwordCtrl.text,
+          firstName: _firstNameCtrl.text.trim(),
+          lastName: _lastNameCtrl.text.trim(),
+          agreedToTerms: _agreedToTerms,
+          marketingOptIn: _marketingOptIn,
+        );
+        if (!mounted) return;
+        _showEmailVerificationDialog();
+        return;
+      }
+    } on AuthException catch (e) {
+      errorMessage = e.message;
+    } catch (e) {
+      debugPrint('Auth error: $e');
+      errorMessage = _mode == _AuthMode.signIn
+          ? 'Sign in failed. Please try again.'
+          : 'Failed to create account. Please try again.';
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+        if (errorMessage != null) _showError(errorMessage);
+      }
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: context.colors.error,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  void _showForgotPasswordDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _ForgotPasswordDialog(auth: widget.auth, initialEmail: _emailCtrl.text),
+    );
+  }
+
+  void _showEmailVerificationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _EmailVerificationDialog(
+        auth: widget.auth,
+        onVerified: () {
+          Navigator.of(ctx).pop();
+          widget.onAuthSuccess();
+        },
+      ),
+    );
+  }
+
+  Future<void> _signInWithGoogle() async {
+    final _ = await widget.auth.signInWithGoogle(context);
+    if (mounted && _ != null) widget.onAuthSuccess();
+  }
+
+  Future<void> _signInWithApple() async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Apple Sign-In is not yet available')),
+      );
+    }
+  }
+}
+
+/// Tab chip for Login / Register with optional green underline.
+class _TabChip extends StatelessWidget {
+  const _TabChip({required this.label, required this.isActive, required this.onTap});
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: context.textStyles.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: isActive ? context.colors.primary : context.colors.onSurface.withValues(alpha: 0.5),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            height: 3,
+            width: isActive ? 48 : 0,
+            decoration: BoxDecoration(
+              color: context.colors.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ],
       ),
     );
   }

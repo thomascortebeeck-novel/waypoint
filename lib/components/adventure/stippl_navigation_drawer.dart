@@ -14,9 +14,6 @@ enum NavigationItem {
   review,
 }
 
-/// Light warm background used by the drawer and plan page content.
-const Color kDrawerAndPlanPageBackground = Color(0xFFFDFBF7);
-
 /// Stippl-style left sidebar navigation drawer
 /// Replaces the TabController-based navigation system
 class StipplNavigationDrawer extends StatelessWidget {
@@ -56,7 +53,7 @@ class StipplNavigationDrawer extends StatelessWidget {
 
     return Drawer(
       width: drawerWidth,
-      backgroundColor: kDrawerAndPlanPageBackground,
+      backgroundColor: Theme.of(context).colorScheme.background,
       child: SafeArea(
         child: Column(
           // ALWAYS a Column — same structure to avoid DrawerController hit-test issues
@@ -82,10 +79,10 @@ class StipplNavigationDrawer extends StatelessWidget {
   Widget _buildHeader(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Color(0xFFD2B48C),
+            color: Theme.of(context).colorScheme.outline,
             width: 1,
           ),
         ),
@@ -224,9 +221,7 @@ class StipplNavigationDrawer extends StatelessWidget {
     required _NavigationItemData itemData,
     required bool isSelected,
   }) {
-    const Color activeBackground = Color(0xFFF0E8D2);
-    const Color activeForeground = Color(0xFF1A1D21);   // dark text on light bg
-    const Color passiveForeground = Color(0xFFA8A29E);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return InkWell(
       onTap: () {
@@ -236,10 +231,10 @@ class StipplNavigationDrawer extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
-          color: isSelected ? activeBackground : Colors.transparent,
+          color: isSelected ? colorScheme.primaryContainer : Colors.transparent,
           border: Border(
             left: BorderSide(
-              color: isSelected ? const Color(0xFF5D3A1A) : Colors.transparent,  // dark brown accent line
+              color: isSelected ? colorScheme.primary : Colors.transparent,
               width: 3,
             ),
           ),
@@ -249,7 +244,7 @@ class StipplNavigationDrawer extends StatelessWidget {
             Icon(
               itemData.icon,
               size: 22,
-              color: isSelected ? activeForeground : passiveForeground,
+              color: colorScheme.onSurface,
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -257,7 +252,7 @@ class StipplNavigationDrawer extends StatelessWidget {
                 itemData.label,
                 style: WaypointTypography.bodyMedium.copyWith(
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                  color: isSelected ? activeForeground : passiveForeground,
+                  color: colorScheme.onSurface,
                 ),
               ),
             ),
@@ -268,29 +263,30 @@ class StipplNavigationDrawer extends StatelessWidget {
   }
 
   Widget _buildFooter(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
           top: BorderSide(
-            color: Color(0xFFD2B48C),
+            color: colorScheme.outline,
             width: 1,
           ),
         ),
       ),
       child: SizedBox(
         width: double.infinity,
-        child: OutlinedButton.icon(
+        child: OutlinedButton(
           onPressed: () {
             Navigator.of(context).pop(); // Close drawer
             context.go('/');
           },
-          icon: const Icon(Icons.home_outlined, size: 20),
-          label: const Text('Back to home'),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            side: const BorderSide(color: Color(0xFFD2B48C)),
+            side: BorderSide(color: colorScheme.outline),
+            foregroundColor: colorScheme.onSurface,
           ),
+          child: const Text('Back to home'),
         ),
       ),
     );

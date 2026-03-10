@@ -1,0 +1,5 @@
+# Single branding logo used everywhere: nav bar, login page, favicon, PWA icons.
+#
+# Drop your logo here as: logo-waypoint.png (used in top nav, login, favicon/PWA)
+# Then run: dart run tool/generate_web_icons.dart
+# Full restart the app (flutter run -d chrome); hot reload will not refresh the asset.

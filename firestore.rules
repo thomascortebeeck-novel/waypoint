@@ -108,6 +108,11 @@ service cloud.firestore {
         // User can delete their own notifications
         allow delete: if isOwner(userId);
       }
+      
+      // Review prompt shown - one doc per trip to avoid showing dialog again
+      match /review_prompts_shown/{tripId} {
+        allow read, write: if isOwner(userId);
+      }
     }
     
     // ============================================
@@ -215,6 +220,39 @@ service cloud.firestore {
                        isAdmin()
                      );
       }
+    }
+    
+    // ============================================
+    // REVIEWS COLLECTION (plan/creator reviews)
+    // ============================================
+    match /reviews/{reviewId} {
+      // Anyone can read (for plan review display)
+      allow read: if true;
+      // Trip members can create for their trip; user_id must match auth
+      allow create: if isSignedIn() &&
+                      request.resource.data.user_id == request.auth.uid &&
+                      isTripMember(request.resource.data.trip_id);
+      allow update, delete: if false;
+    }
+    
+    // ============================================
+    // APP_REVIEWS COLLECTION (Waypoint app feedback)
+    // ============================================
+    match /app_reviews/{reviewId} {
+      // User can read own (e.g. "already submitted"); admins can read all
+      allow read: if isSignedIn() && (resource.data.user_id == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+    
+    // ============================================
+    // CONFIG COLLECTION (app/config, e.g. Stripe mode)
+    // ============================================
+    match /config/{configId} {
+      // Authenticated users can read (e.g. stripe useLiveKeys for checkout)
+      allow read: if isSignedIn();
+      // Only admins can write (e.g. Stripe test/live toggle)
+      allow write: if isAdmin();
     }
     
     // ============================================

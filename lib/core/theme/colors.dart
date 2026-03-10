@@ -4,32 +4,37 @@ import 'package:flutter/material.dart';
 // WAYPOINT BRAND PALETTE
 // Source: Waypoint Brand Guidelines + BRANDING_GUIDELINES.md
 // ============================================================
-/// Canonical light theme tokens from BRANDING_GUIDELINES.md (Designer screenshots).
+/// Canonical light theme tokens — 4-color palette: fdfbf7, faf5eb, f2e8d0, 2f7d32.
 class BrandingLightTokens {
-  static const Color primary        = Color(0xFF228B22); // Forest green - CTAs, selected tab, Add Waypoint
+  static const Color primary        = Color(0xFF2F7D32); // Brand green - logo, CTAs, selected
   static const Color onPrimary      = Color(0xFFFFFFFF);
-  static const Color secondary      = Color(0xFF5D3A1A); // Dark brown - secondary text, waypoint circle
+  static const Color secondary      = Color(0xFF5D3A1A); // Dark brown - secondary text only
   static const Color onSecondary    = Color(0xFFFFFFFF);
-  static const Color background     = Color(0xFFFDFBF7); // Light beige page background
-  static const Color surface        = Color(0xFFF2E8CF); // Light cream cards
+  static const Color background     = Color(0xFFFDFBF7); // Page background
+  static const Color surface        = Color(0xFFFAF5EB); // Sidebar, cards, sections
+  static const Color surfaceVariant = Color(0xFFF2E8D0); // Elevated surfaces, subtle dividers
   static const Color onSurface      = Color(0xFF212529); // Primary text
   static const Color error          = Color(0xFFD62828);
   static const Color onError        = Color(0xFFFFFFFF);
-  static const Color accent         = Color(0xFFE67E22); // Orange - activity waypoint circle
-  static const Color divider        = Color(0xFFD2B48C);
+  static const Color accent         = Color(0xFF2F7D32); // Aligned to primary for light mode
+  static const Color divider        = Color(0xFFF2E8D0); // Very subtle
   static const Color hint           = Color(0xFFA8A29E);
   static const Color primaryText    = Color(0xFF212529);
   static const Color secondaryText  = Color(0xFF5D3A1A);
   static const Color success        = Color(0xFF386641);
-  /// Form / waypoint edit: input and pill background (cream)
-  static const Color formFieldBackground = Color(0xFFF0E8D2);
+  /// Form / waypoint edit: input and pill background
+  static const Color formFieldBackground = Color(0xFFFAF5EB);
   /// Form / waypoint edit: input and pill border
-  static const Color formFieldBorder = Color(0xFFD4C5A0);
-  /// App bar, Save button, selected chip (forest green)
-  static const Color appBarGreen = Color(0xFF2E7D32);
+  static const Color formFieldBorder = Color(0xFFF2E8D0);
+  /// App bar, Save button, selected chip
+  static const Color appBarGreen = Color(0xFF2F7D32);
   /// Form labels and section titles
   static const Color formLabel = Color(0xFF1A1D21);
 }
+
+/// Light theme shadow/elevation — single source of truth (minimal, no heavy shadows).
+const double kLightCardElevation = 0.0;
+const Color kLightShadowColor = Colors.transparent;
 
 class BrandColors {
   // --- Primary (Hunter Green) ---
@@ -112,46 +117,48 @@ class SemanticColors {
 
 // ============================================================
 // LIGHT MODE TOKEN MAP
-// Aligned with BRANDING_GUIDELINES.md (Designer theme)
+// 4-color palette: fdfbf7, faf5eb, f2e8d0, 2f7d32
 // ============================================================
 class LightModeColors {
-  // Brand — use canonical branding tokens
-  static const Color primary              = BrandingLightTokens.primary;     // #228B22
-  static const Color primaryLight         = Color(0xFF2E9D2E);               // Lighter green
+  // Brand
+  static const Color primary              = BrandingLightTokens.primary;     // #2F7D32
+  static const Color primaryLight         = Color(0xFF3D8F40);
   static const Color onPrimary            = BrandingLightTokens.onPrimary;
-  static const Color primaryContainer     = Color(0xFFD8F3DC);
+  static const Color primaryContainer     = BrandingLightTokens.surfaceVariant; // f2e8d0
   static const Color onPrimaryContainer   = BrandingLightTokens.primaryText;
 
-  // Secondary — dark brown from branding
-  static const Color secondary            = BrandingLightTokens.secondary;   // #5D3A1A
+  // Secondary — text only
+  static const Color secondary            = BrandingLightTokens.secondary;
   static const Color onSecondary          = BrandingLightTokens.onSecondary;
-  static const Color secondaryContainer   = Color(0xFFE8DCC8);
+  static const Color secondaryContainer   = BrandingLightTokens.surfaceVariant;
 
-  // Tertiary (orange — FAQ icon, accents)
-  static const Color tertiary             = BrandingLightTokens.accent;     // #E67E22
+  // Tertiary — aligned to primary for minimal palette
+  static const Color tertiary             = BrandingLightTokens.primary;
   static const Color onTertiary           = NeutralColors.white;
-  /// Light lilac for "Add" section buttons (Add Transport, Add FAQ) per goal design
-  static const Color tertiaryContainer   = Color(0xFFEDE7F6);
-  static const Color onTertiaryContainer  = BrandingLightTokens.primary;   // Green icon/text on lilac
+  static const Color tertiaryContainer   = BrandingLightTokens.surfaceVariant;
+  static const Color onTertiaryContainer  = BrandingLightTokens.primary;
 
   // Error
   static const Color error                = BrandingLightTokens.error;
   static const Color onError              = BrandingLightTokens.onError;
   static const Color errorContainer       = SemanticColors.errorLight;
 
-  // Surface & Background — warm beige/cream from branding
-  static const Color surface              = BrandingLightTokens.surface;    // #F2E8CF
-  static const Color surfaceContainer     = BrandingLightTokens.surface;
-  static const Color onSurface            = BrandingLightTokens.onSurface;   // #212529
+  // Surface & Background — only fdfbf7, faf5eb, f2e8d0
+  static const Color surface              = BrandingLightTokens.surface;       // faf5eb
+  static const Color surfaceContainer     = BrandingLightTokens.surfaceVariant; // f2e8d0
+  static const Color surfaceContainerLow  = BrandingLightTokens.surface;       // faf5eb
+  static const Color surfaceContainerHigh = BrandingLightTokens.surfaceVariant;
+  static const Color surfaceContainerHighest = BrandingLightTokens.surfaceVariant;
+  static const Color onSurface            = BrandingLightTokens.onSurface;
   static const Color onSurfaceSecondary   = BrandingLightTokens.secondaryText;
   static const Color onSurfaceMuted       = BrandingLightTokens.hint;
-  static const Color surfaceVariant       = Color(0xFFE8DCC8);
-  static const Color background           = BrandingLightTokens.background;  // #FDFBF7
+  static const Color surfaceVariant       = BrandingLightTokens.surfaceVariant;
+  static const Color background           = BrandingLightTokens.background;    // fdfbf7
 
   // Borders & Shadows
-  static const Color outline              = BrandingLightTokens.divider;
-  static const Color outlineVariant       = NeutralColors.neutral300;
-  static const Color shadow               = NeutralColors.textPrimary;
+  static const Color outline              = BrandingLightTokens.divider;      // very subtle
+  static const Color outlineVariant       = BrandingLightTokens.surfaceVariant;
+  static const Color shadow               = kLightShadowColor;
 
   // Semantic aliases
   static const Color success              = BrandingLightTokens.success;
@@ -159,7 +166,7 @@ class LightModeColors {
   static const Color info                 = SemanticColors.info;
 
   // Legacy alias
-  static const Color backgroundSecondary  = NeutralColors.backgroundSecondary;
+  static const Color backgroundSecondary  = BrandingLightTokens.surfaceVariant;
 }
 
 // ============================================================
