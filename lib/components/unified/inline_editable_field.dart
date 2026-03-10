@@ -10,7 +10,8 @@ class InlineEditableField extends StatelessWidget {
   final int maxLines;
   final String? hint;
   final FormFieldValidator<String>? validator;
-  final VoidCallback? onEditComplete;       // Triggers auto-save
+  final VoidCallback? onEditComplete;       // Triggers auto-save when field loses focus
+  final VoidCallback? onChanged;            // Called on every change (e.g. for debounced auto-save while typing)
   final TextInputType? keyboardType;
   
   const InlineEditableField({
@@ -23,6 +24,7 @@ class InlineEditableField extends StatelessWidget {
     this.hint,
     this.validator,
     this.onEditComplete,
+    this.onChanged,
     this.keyboardType,
   });
   
@@ -58,6 +60,7 @@ class InlineEditableField extends StatelessWidget {
       maxLines: maxLines,
       keyboardType: keyboardType,
       validator: validator,
+      onChanged: onChanged != null ? (_) => onChanged!() : null,
       onEditingComplete: onEditComplete,
     );
   }

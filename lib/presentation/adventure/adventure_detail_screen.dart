@@ -50,6 +50,7 @@ import 'package:waypoint/models/route_info_model.dart';
 import 'package:waypoint/models/gpx_route_model.dart';
 import 'package:waypoint/utils/activity_utils.dart';
 import 'package:waypoint/utils/logger.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'dart:typed_data';
 import 'package:flutter_map/flutter_map.dart' as fm;
@@ -92,6 +93,7 @@ import 'package:waypoint/utils/image_utils.dart';
 import 'package:waypoint/components/adventure/stippl_navigation_drawer.dart';
 import 'package:waypoint/components/builder/location_search_dialog.dart';
 import 'package:waypoint/presentation/adventure/widgets/image_gallery.dart';
+import 'package:waypoint/presentation/mytrips/widgets/image_upload_dialog.dart';
 import 'package:waypoint/presentation/adventure/widgets/price_widgets.dart';
 import 'package:waypoint/presentation/reviews/trip_review_prompt.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
@@ -299,6 +301,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   static const Duration _packingAutoSaveDelay = Duration(milliseconds: 1500);
   Timer? _itineraryAutoSaveTimer;
   static const Duration _itineraryAutoSaveDelay = Duration(seconds: 2);
+  /// Debounced save for trip title (trip owner inline edit)
+  Timer? _tripTitleSaveTimer;
+  static const Duration _tripTitleSaveDelay = Duration(milliseconds: 800);
   
   // Navigation drawer state (replaces TabController)
   NavigationItem _currentNavigationItem = NavigationItem.overview;
@@ -343,6 +348,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   
   // Cached current user future (for privacy mode validation)
   Future<UserModel?>? _currentUserFuture;
+
+  /// Controller for inline trip title edit (trip owner only). Created when trip loads, disposed in dispose().
+  TextEditingController? _tripTitleController;
 
   // Flag to track if we're in reassemble (hot reload) to prevent problematic operations
   bool _isReassembling = false;
@@ -888,6 +896,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           _isTripOwner = isTripOwner;
           _hasPurchased = hasPurchased;
         });
+        // Inline-edit controller for trip title (owner only)
+        _tripTitleController?.dispose();
+        _tripTitleController = TextEditingController(text: trip.title ?? '');
+        if (mounted) setState(() {});
         // Cache creator data for trip mode ("About the Creator" + "More by" cards)
         if (plan.creatorId.isNotEmpty) {
           _creatorUserFuture = _userService.getUserById(plan.creatorId);
@@ -1020,6 +1032,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               children: [
                 const SizedBox(height: 16),
                 _buildTitleSection(context),     // title + stars
+                if (widget.mode == AdventureMode.trip) ...[
+                  const SizedBox(height: 8),
+                  _buildTripDatesRow(context),
+                ],
                 const SizedBox(height: 4),      // tight gap to location line
                 _buildLocationLine(context),
                 const SizedBox(height: 12),
@@ -3588,7 +3604,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             controller: option.titleCtrl,
             isEditable: true,
             hint: 'e.g., Flying from Brussels',
-            onChanged: _schedulePackingAutoSave,
+            onEditComplete: _schedulePackingAutoSave,
           ),
           const SizedBox(height: 16),
           InlineEditableField(
@@ -3597,7 +3613,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             isEditable: true,
             maxLines: 5,
             hint: 'Describe this route option...',
-            onChanged: _schedulePackingAutoSave,
+            onEditComplete: _schedulePackingAutoSave,
           ),
           const SizedBox(height: 16),
           Text(
@@ -6917,12 +6933,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         ),
                         const SizedBox(height: WaypointSpacing.sectionGap),
 
-                        // 2. Image gallery
-                        AdventureImageGallery(
-                          imageUrls: _adventureImageUrls,
-                          isDesktop: WaypointBreakpoints.isDesktop(
-                            MediaQuery.of(context).size.width),
-                        ),
+                        // 2. Image gallery (trip owner can change cover)
+                        _buildOverviewCoverImage(context),
                         const SizedBox(height: WaypointSpacing.sectionGap),
 
                         // Mobile price card (hidden when sticky bottom bar is shown to avoid duplicate price)
@@ -8669,6 +8681,68 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     return url.isNotEmpty ? [url] : [];
   }
 
+  /// Cover image for overview: gallery + "Change cover" overlay for trip owner.
+  Widget _buildOverviewCoverImage(BuildContext context) {
+    final gallery = AdventureImageGallery(
+      imageUrls: _adventureImageUrls,
+      isDesktop: WaypointBreakpoints.isDesktop(MediaQuery.of(context).size.width),
+    );
+    if (widget.mode != AdventureMode.trip || _isTripOwner != true || _trip == null || widget.tripId == null) {
+      return gallery;
+    }
+    final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (userId.isEmpty) return gallery;
+    return Stack(
+      alignment: Alignment.bottomRight,
+      children: [
+        gallery,
+        Positioned(
+          right: 12,
+          bottom: 12,
+          child: Material(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              onTap: () async {
+                final updated = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => ImageUploadDialog(userId: userId, tripId: _trip!.id),
+                );
+                if (updated == true && mounted && _trip != null && _plan != null && _adventureData != null) {
+                  final refreshed = await _tripService.getTripById(_trip!.id);
+                  if (refreshed != null && mounted) {
+                    _trip = refreshed;
+                    _adventureData = AdventureData.fromTrip(
+                      refreshed,
+                      _plan!,
+                      version: _adventureData!.selectedVersion,
+                      daySelections: _adventureData!.daySelections,
+                      memberPacking: _adventureData!.memberPacking,
+                    );
+                    setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cover image updated')));
+                  }
+                }
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.edit, size: 18, color: Theme.of(context).colorScheme.onSurface),
+                    const SizedBox(width: 6),
+                    Text('Change cover', style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ============================================================
   // TITLE SECTION — name + stars + review count + difficulty dot
   // ============================================================
@@ -8677,21 +8751,42 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     final reviewCount = _adventureReviewCount;
     final difficulty = _adventureDifficulty;
     final location = _adventureLocation;
+    final isTripOwnerEditing = widget.mode == AdventureMode.trip && _isTripOwner == true;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Adventure title — DM Serif Display
-        Text(
-          _adventureDisplayName,
-          style: const TextStyle(
-            fontFamily: 'DMSerifDisplay',
-            fontSize: 36,
-            height: 1.15,
-            letterSpacing: -0.5,
-            color: Color(0xFF212529),
+        // Adventure title — editable for trip owner, static otherwise
+        if (isTripOwnerEditing && _tripTitleController != null)
+          TextFormField(
+            controller: _tripTitleController,
+            style: const TextStyle(
+              fontFamily: 'DMSerifDisplay',
+              fontSize: 36,
+              height: 1.15,
+              letterSpacing: -0.5,
+              color: Color(0xFF212529),
+            ),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+              isDense: true,
+              hintText: 'Trip name',
+            ),
+            onChanged: (_) => _scheduleTripTitleSave(),
+            onEditingComplete: () => _saveTripTitle(),
+          )
+        else
+          Text(
+            _adventureDisplayName,
+            style: const TextStyle(
+              fontFamily: 'DMSerifDisplay',
+              fontSize: 36,
+              height: 1.15,
+              letterSpacing: -0.5,
+              color: Color(0xFF212529),
+            ),
           ),
-        ),
 
         const SizedBox(height: 10),
 
@@ -8793,6 +8888,127 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   decorationColor: Color(0xFF1B4332),
       ),
     );
+  }
+
+  /// Trip dates row: read-only for participants, tap-to-edit for owner.
+  Widget _buildTripDatesRow(BuildContext context) {
+    if (_trip == null) return const SizedBox.shrink();
+    final start = _trip!.startDate;
+    final end = _trip!.endDate;
+    final isOwner = _isTripOwner == true;
+    final dateFormat = DateFormat('d MMM y');
+    final text = start != null && end != null
+        ? '${dateFormat.format(start)} – ${dateFormat.format(end)}'
+        : (start != null
+            ? 'From ${dateFormat.format(start)}'
+            : (end != null ? 'Until ${dateFormat.format(end)}' : 'Dates not set'));
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.calendar_today, size: 16, color: context.colors.onSurfaceVariant),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: WaypointTypography.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant),
+        ),
+        if (isOwner) ...[
+          const SizedBox(width: 6),
+          Icon(Icons.edit, size: 14, color: context.colors.primary),
+        ],
+      ],
+    );
+    if (!isOwner) return content;
+    return GestureDetector(
+      onTap: () => _showTripDatesPicker(context),
+      behavior: HitTestBehavior.opaque,
+      child: content,
+    );
+  }
+
+  Future<void> _showTripDatesPicker(BuildContext context) async {
+    if (_trip == null || _isTripOwner != true) return;
+    DateTime start = _trip!.startDate ?? DateTime.now();
+    DateTime end = _trip!.endDate ?? start.add(const Duration(days: 1));
+    if (end.isBefore(start)) end = start.add(const Duration(days: 1));
+    final picked = await showDialog<DateTimeRange>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Trip dates'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: const Text('Start'),
+                    subtitle: Text(DateFormat('EEEE, d MMM y').format(start)),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: ctx,
+                        initialDate: start,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                      );
+                      if (d != null) {
+                        start = d;
+                        if (end.isBefore(start)) end = start.add(const Duration(days: 1));
+                        setDialogState(() {});
+                      }
+                    },
+                  ),
+                  ListTile(
+                    title: const Text('End'),
+                    subtitle: Text(DateFormat('EEEE, d MMM y').format(end)),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: ctx,
+                        initialDate: end,
+                        firstDate: start,
+                        lastDate: DateTime(2030),
+                      );
+                      if (d != null) {
+                        end = d;
+                        setDialogState(() {});
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(DateTimeRange(start: start, end: end)),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    try {
+      await _tripService.updateTripDates(tripId: _trip!.id, start: picked.start, end: picked.end);
+      if (mounted) {
+        _trip = _trip!.copyWith(startDate: picked.start, endDate: picked.end);
+        _adventureData = AdventureData.fromTrip(
+          _trip!,
+          _plan!,
+          version: _adventureData!.selectedVersion,
+          daySelections: _adventureData!.daySelections,
+          memberPacking: _adventureData!.memberPacking,
+        );
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dates updated')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save dates: $e')));
+      }
+    }
   }
 
   // Owner attribution row
@@ -9961,10 +10177,47 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
   
+  /// Schedule debounced save of trip title (trip owner only).
+  void _scheduleTripTitleSave() {
+    if (widget.mode != AdventureMode.trip || _trip == null || _isTripOwner != true) return;
+    _tripTitleSaveTimer?.cancel();
+    _tripTitleSaveTimer = Timer(_tripTitleSaveDelay, () {
+      _tripTitleSaveTimer = null;
+      _saveTripTitle();
+    });
+  }
+
+  Future<void> _saveTripTitle() async {
+    if (_trip == null || _tripTitleController == null || widget.tripId == null) return;
+    final title = _tripTitleController!.text.trim();
+    if (title.isEmpty) return;
+    try {
+      await _tripService.updateTripTitle(tripId: _trip!.id, title: title);
+      if (mounted) {
+        _trip = _trip!.copyWith(title: title);
+        _adventureData = AdventureData.fromTrip(
+          _trip!,
+          _plan!,
+          version: _adventureData!.selectedVersion,
+          daySelections: _adventureData!.daySelections,
+          memberPacking: _adventureData!.memberPacking,
+        );
+        setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save title: $e')),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     _packingAutoSaveTimer?.cancel();
     _itineraryAutoSaveTimer?.cancel();
+    _tripTitleSaveTimer?.cancel();
     // Restore original error handler to prevent leaking error suppression
     if (_originalErrorHandler != null) {
       FlutterError.onError = _originalErrorHandler;
@@ -10003,6 +10256,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     
     
     _locationSearchTimer?.cancel();
+    _tripTitleController?.dispose();
+    _tripTitleController = null;
     
     // Safely remove listeners (defensive for hot reload)
     try {

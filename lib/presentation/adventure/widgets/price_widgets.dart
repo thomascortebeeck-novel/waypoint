@@ -10,6 +10,10 @@ class AdventurePriceCard extends StatelessWidget {
   final int totalWaypoints;
   final List<String> languages;
   final bool showBuyButton;
+  /// When true, user has already purchased the plan (CTA shows "Start your trip").
+  final bool hasBoughtPlan;
+  /// When true, current user is the plan owner (CTA is hidden for owners).
+  final bool isPlanOwner;
   final VoidCallback? onBuyPlan;
 
   const AdventurePriceCard({
@@ -19,6 +23,8 @@ class AdventurePriceCard extends StatelessWidget {
     required this.totalWaypoints,
     required this.languages,
     this.showBuyButton = false,
+    this.hasBoughtPlan = false,
+    this.isPlanOwner = false,
     this.onBuyPlan,
   });
 
@@ -79,8 +85,8 @@ class AdventurePriceCard extends StatelessWidget {
             ),
           ],
 
-          // CTA button
-          if (showBuyButton && price != null) ...[
+          // CTA button: "Get the plan" (non-owners, not bought) or "Start your trip" (bought). Hidden for plan owners.
+          if (showBuyButton && price != null && !isPlanOwner) ...[
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
@@ -94,9 +100,9 @@ class AdventurePriceCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text(
-                  'Get this plan',
-                  style: TextStyle(
+                child: Text(
+                  hasBoughtPlan ? 'Start your trip' : 'Get the plan',
+                  style: const TextStyle(
                     fontFamily: 'DMSans',
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
