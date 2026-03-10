@@ -90,13 +90,25 @@ jobs:
           if [ -n "$WEBHOOK_SECRET" ]; then
             echo -n "$WEBHOOK_SECRET" | firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
           fi
-          # Live pair for admin Stripe mode toggle (config/stripe.useLiveKeys). Use test values if live not set so deploy succeeds.
+          # Live pair for admin Stripe mode toggle (config/stripe.useLiveKeys).
+          # Prefer explicit LIVE secrets; otherwise fall back to whatever we just used above (TEST or MAIN),
+          # but never push an empty payload to Secret Manager (that would cause HTTP 400: Secret Payload cannot be empty).
           LIVE_SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY_LIVE }}"
           LIVE_WEBHOOK_SECRET="${{ secrets.STRIPE_WEBHOOK_SECRET_LIVE }}"
           if [ -z "$LIVE_SECRET_KEY" ]; then LIVE_SECRET_KEY="$SECRET_KEY"; fi
           if [ -z "$LIVE_WEBHOOK_SECRET" ]; then LIVE_WEBHOOK_SECRET="$WEBHOOK_SECRET"; fi
-          echo -n "$LIVE_SECRET_KEY" | firebase functions:secrets:set STRIPE_SECRET_KEY_LIVE --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
-          echo -n "$LIVE_WEBHOOK_SECRET" | firebase functions:secrets:set STRIPE_WEBHOOK_SECRET_LIVE --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
+
+          if [ -n "$LIVE_SECRET_KEY" ]; then
+            echo -n "$LIVE_SECRET_KEY" | firebase functions:secrets:set STRIPE_SECRET_KEY_LIVE --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
+          else
+            echo "⚠️ STRIPE_SECRET_KEY_LIVE not set (and no fallback); skipping live secret update."
+          fi
+
+          if [ -n "$LIVE_WEBHOOK_SECRET" ]; then
+            echo -n "$LIVE_WEBHOOK_SECRET" | firebase functions:secrets:set STRIPE_WEBHOOK_SECRET_LIVE --data-file=- --project ${{ secrets.FIREBASE_PROJECT_ID }}
+          else
+            echo "⚠️ STRIPE_WEBHOOK_SECRET_LIVE not set (and no fallback); skipping live webhook secret update."
+          fi
 
       # 7. Create .env file (NOT .env.yaml!) - Firebase expects KEY=value format
       - name: Create Environment Variables File
