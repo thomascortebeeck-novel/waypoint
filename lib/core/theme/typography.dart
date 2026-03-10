@@ -24,7 +24,7 @@ class WaypointTypography {
 
   /// Adventure/plan title on detail page — 36px
   static TextStyle get displayLargeSerif => TextStyle(
-    fontFamily: 'DMSerifDisplay',
+    fontFamily: 'DM Serif Display',
     fontSize: sizeDisplay,
     height: 1.15,
     letterSpacing: -0.5,
@@ -33,7 +33,7 @@ class WaypointTypography {
 
   /// Tab content page title — 28px
   static TextStyle get pageTitleSerif => TextStyle(
-    fontFamily: 'DMSerifDisplay',
+    fontFamily: 'DM Serif Display',
     fontSize: sizeHeadline,
     height: 1.2,
     letterSpacing: -0.3,
@@ -42,7 +42,7 @@ class WaypointTypography {
 
   /// Section title (Stay, Eat, Do, Fix) — 22px
   static TextStyle get sectionTitleSerif => TextStyle(
-    fontFamily: 'DMSerifDisplay',
+    fontFamily: 'DM Serif Display',
     fontSize: sizeTitle,
     height: 1.25,
     color: NeutralColors.textPrimary,
@@ -54,7 +54,7 @@ class WaypointTypography {
   // ============================================================
 
   static TextStyle get display => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeDisplay,
     fontWeight: FontWeight.w700,
     height: 1.2,
@@ -63,7 +63,7 @@ class WaypointTypography {
   );
 
   static TextStyle get headline => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeHeadline,
     fontWeight: FontWeight.w600,
     height: 1.3,
@@ -72,7 +72,7 @@ class WaypointTypography {
   );
 
   static TextStyle get title => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeTitle,
     fontWeight: FontWeight.w600,
     height: 1.4,
@@ -81,7 +81,7 @@ class WaypointTypography {
   );
 
   static TextStyle get titleSmall => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeTitleSmall,
     fontWeight: FontWeight.w600,
     height: 1.4,
@@ -89,7 +89,7 @@ class WaypointTypography {
   );
 
   static TextStyle get body => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeBody,
     fontWeight: FontWeight.w400,
     height: 1.6,
@@ -97,7 +97,7 @@ class WaypointTypography {
   );
 
   static TextStyle get bodySmall => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeBodySmall,
     fontWeight: FontWeight.w400,
     height: 1.55,
@@ -105,7 +105,7 @@ class WaypointTypography {
   );
 
   static TextStyle get label => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeLabel,
     fontWeight: FontWeight.w600,
     height: 1.4,
@@ -114,7 +114,7 @@ class WaypointTypography {
   );
 
   static TextStyle get caption => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeCaption,
     fontWeight: FontWeight.w500,
     height: 1.4,
@@ -123,7 +123,7 @@ class WaypointTypography {
   );
 
   static TextStyle get small => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeSmall,
     fontWeight: FontWeight.w600,
     height: 1.3,
@@ -132,7 +132,7 @@ class WaypointTypography {
   );
 
   static TextStyle get tiny => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeTiny,
     fontWeight: FontWeight.w600,
     height: 1.2,
@@ -142,14 +142,14 @@ class WaypointTypography {
 
   // Tab bar styles
   static TextStyle get tabLabel => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeLabel,
     fontWeight: FontWeight.w500,
     letterSpacing: 0.2,
   );
 
   static TextStyle get tabActive => TextStyle(
-    fontFamily: 'DMSans',
+    fontFamily: 'DM Sans',
     fontSize: sizeLabel,
     fontWeight: FontWeight.w700,
     letterSpacing: 0.2,
@@ -161,16 +161,16 @@ class WaypointTypography {
   // ============================================================
   static TextTheme buildTextTheme() => TextTheme(
     displayLarge:   TextStyle(
-                      fontFamily: 'DMSerifDisplay',
+                      fontFamily: 'DM Serif Display',
                       fontSize: 48, height: 1.1, letterSpacing: -1.5,
                       color: NeutralColors.textPrimary),
     displayMedium:  TextStyle(
-                      fontFamily: 'DMSerifDisplay',
+                      fontFamily: 'DM Serif Display',
                       fontSize: 40, height: 1.15, letterSpacing: -1.0,
                       color: NeutralColors.textPrimary),
     displaySmall:   displayLargeSerif,   // 36px serif — adventure titles
     headlineLarge:  TextStyle(
-                      fontFamily: 'DMSerifDisplay',
+                      fontFamily: 'DM Serif Display',
                       fontSize: 28, height: 1.2, letterSpacing: -0.3,
                       color: NeutralColors.textPrimary),
     headlineMedium: pageTitleSerif,      // 28px serif — tab headings

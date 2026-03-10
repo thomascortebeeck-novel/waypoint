@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/core/theme/radius.dart';
 
@@ -155,7 +154,8 @@ ThemeData get lightTheme => ThemeData(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
-      textStyle: GoogleFonts.firaSans(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: 0.3,
@@ -171,7 +171,8 @@ ThemeData get lightTheme => ThemeData(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
       side: const BorderSide(color: LightModeColors.outline, width: 1),
-      textStyle: GoogleFonts.firaSans(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: 0.3,
@@ -181,7 +182,8 @@ ThemeData get lightTheme => ThemeData(
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
       foregroundColor: LightModeColors.primary,
-      textStyle: GoogleFonts.firaSans(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: 16,
       ),
@@ -265,13 +267,15 @@ ThemeData get lightTheme => ThemeData(
     height: 72,
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return GoogleFonts.firaSans(
+        return TextStyle(
+          fontFamily: 'DM Sans',
           fontSize: 12,
           fontWeight: FontWeight.w600,
           color: LightModeColors.primary,
         );
       }
-      return GoogleFonts.sourceSans3(
+      return TextStyle(
+        fontFamily: 'DM Sans',
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: NeutralColors.textSecondary,
@@ -360,7 +364,8 @@ ThemeData get darkTheme => ThemeData(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
-      textStyle: GoogleFonts.inter(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: 0.3,
@@ -375,7 +380,8 @@ ThemeData get darkTheme => ThemeData(
         borderRadius: BorderRadius.circular(WaypointRadius.md),
       ),
       side: const BorderSide(color: DarkModeColors.primary, width: 2),
-      textStyle: GoogleFonts.inter(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: 16,
         letterSpacing: 0.3,
@@ -399,13 +405,15 @@ ThemeData get darkTheme => ThemeData(
     height: 72,
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return GoogleFonts.inter(
+        return TextStyle(
+          fontFamily: 'DM Sans',
           fontSize: 12,
           fontWeight: FontWeight.w600,
           color: DarkModeColors.primary,
         );
       }
-      return GoogleFonts.inter(
+      return TextStyle(
+        fontFamily: 'DM Sans',
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: DarkModeColors.onSurfaceMuted,
@@ -436,94 +444,106 @@ TextTheme _buildTextTheme(Brightness brightness) {
       ? NeutralColors.textSecondary
       : DarkModeColors.onSurfaceSecondary;
 
-  // Fira Sans for headings/primary UI, Source Sans 3 for body (BRANDING_GUIDELINES)
-  final headlineFont = GoogleFonts.firaSans;
-  final bodyFont = GoogleFonts.sourceSans3;
-
+  // DM Serif Display for headings, DM Sans for body (loaded via CSS on web, local assets on mobile)
   return TextTheme(
-    displayLarge: headlineFont(
+    displayLarge: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.displayLarge,
       fontWeight: FontWeight.w800,
       letterSpacing: -1.5,
       color: textColor,
     ),
-    displayMedium: headlineFont(
+    displayMedium: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.displayMedium,
       fontWeight: FontWeight.w800,
       letterSpacing: -1.0,
       color: textColor,
     ),
-    displaySmall: headlineFont(
+    displaySmall: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.displaySmall,
       fontWeight: FontWeight.w700,
       letterSpacing: -0.5,
       color: textColor,
     ),
-    headlineLarge: headlineFont(
+    headlineLarge: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.headlineLarge,
       fontWeight: FontWeight.w700,
       letterSpacing: -0.3,
       color: textColor,
     ),
-    headlineMedium: headlineFont(
+    headlineMedium: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.headlineMedium,
       fontWeight: FontWeight.w600,
       letterSpacing: -0.2,
       color: textColor,
     ),
-    headlineSmall: headlineFont(
+    headlineSmall: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.headlineSmall,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    titleLarge: headlineFont(
+    titleLarge: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.titleLarge,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    titleMedium: headlineFont(
+    titleMedium: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.titleMedium,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    titleSmall: headlineFont(
+    titleSmall: TextStyle(
+      fontFamily: 'DM Serif Display',
       fontSize: FontSizes.titleSmall,
       fontWeight: FontWeight.w600,
       color: textColor,
     ),
-    bodyLarge: bodyFont(
+    bodyLarge: TextStyle(
+      fontFamily: 'DM Sans',
       fontSize: FontSizes.bodyLarge,
       fontWeight: FontWeight.w400,
       height: 1.5,
       letterSpacing: 0.15,
       color: textColor,
     ),
-    bodyMedium: bodyFont(
+    bodyMedium: TextStyle(
+      fontFamily: 'DM Sans',
       fontSize: FontSizes.bodyMedium,
       fontWeight: FontWeight.w400,
       height: 1.5,
       letterSpacing: 0.15,
       color: textColor,
     ),
-    bodySmall: bodyFont(
+    bodySmall: TextStyle(
+      fontFamily: 'DM Sans',
       fontSize: FontSizes.bodySmall,
       fontWeight: FontWeight.w500,
       height: 1.4,
       color: textColor,
     ),
-    labelLarge: bodyFont(
+    labelLarge: TextStyle(
+      fontFamily: 'DM Sans',
       fontSize: 14.0,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.1,
       color: secondaryColor,
     ),
-    labelMedium: bodyFont(
+    labelMedium: TextStyle(
+      fontFamily: 'DM Sans',
       fontSize: 12.0,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.5,
       color: secondaryColor,
     ),
-    labelSmall: bodyFont(
+    labelSmall: TextStyle(
+      fontFamily: 'DM Sans',
       fontSize: FontSizes.labelSmall,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.5,

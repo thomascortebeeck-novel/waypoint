@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'colors.dart';
 import 'typography.dart';
@@ -25,7 +24,7 @@ export 'package:waypoint/core/constants/icon_sizes.dart';
 
 ThemeData get waypointLightTheme => ThemeData(
   useMaterial3: true,
-  fontFamily: 'DMSans', // DM Sans replaces Inter
+  fontFamily: 'DM Sans',
   colorScheme: ColorScheme.light(
     primary: LightModeColors.primary,
     onPrimary: LightModeColors.onPrimary,
@@ -266,7 +265,8 @@ ThemeData get waypointDarkTheme => ThemeData(
       shape: RoundedRectangleBorder(
         borderRadius: WaypointRadius.borderMd,
       ),
-      textStyle: GoogleFonts.inter(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: WaypointTypography.sizeLabel,
         letterSpacing: 0.1,
@@ -282,7 +282,8 @@ ThemeData get waypointDarkTheme => ThemeData(
         borderRadius: WaypointRadius.borderMd,
       ),
       side: const BorderSide(color: DarkModeColors.primary, width: WaypointRadius.borderThick),
-      textStyle: GoogleFonts.inter(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: WaypointTypography.sizeLabel,
         letterSpacing: 0.1,
@@ -293,7 +294,8 @@ ThemeData get waypointDarkTheme => ThemeData(
     style: TextButton.styleFrom(
       foregroundColor: DarkModeColors.primary,
       padding: WaypointSpacing.buttonStandard,
-      textStyle: GoogleFonts.inter(
+      textStyle: const TextStyle(
+        fontFamily: 'DM Sans',
         fontWeight: FontWeight.w600,
         fontSize: WaypointTypography.sizeLabel,
       ),
@@ -326,13 +328,15 @@ ThemeData get waypointDarkTheme => ThemeData(
     height: 72,
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return GoogleFonts.inter(
+        return TextStyle(
+          fontFamily: 'DM Sans',
           fontSize: WaypointTypography.sizeSmall,
           fontWeight: FontWeight.w600,
           color: DarkModeColors.primary,
         );
       }
-      return GoogleFonts.inter(
+      return TextStyle(
+        fontFamily: 'DM Sans',
         fontSize: WaypointTypography.sizeSmall,
         fontWeight: FontWeight.w500,
         color: DarkModeColors.onSurfaceMuted,

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/review_model.dart' show CreatorStats;
 import 'package:waypoint/utils/plan_display_utils.dart';

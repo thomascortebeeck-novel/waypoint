@@ -11,7 +11,6 @@ import 'package:waypoint/utils/logger.dart';
 import 'package:waypoint/services/map_marker_service.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/providers/theme_provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:waypoint/services/stripe_config_service.dart';
 
@@ -39,10 +38,6 @@ Future<void> main() async {
     // IMPORTANT: Keep bindings and runApp in the SAME zone to avoid web zone mismatch.
     WidgetsFlutterBinding.ensureInitialized();
     Log.i('bootstrap', 'Widgets binding initialized');
-    
-    // Enable Google Fonts runtime fetching since local font assets are not available
-    // Fonts will be fetched from Google Fonts CDN at runtime
-    GoogleFonts.config.allowRuntimeFetching = true;
     
     // Configure global image cache for better performance
     _configureImageCache();
@@ -106,12 +101,9 @@ Future<void> main() async {
            errorString.contains('Unable to load asset') ||
            errorString.contains('asset does not exist') ||
            stackString.contains('AssetManifest.json') ||
-           stackString.contains('asset_bundle.dart') ||
-           stackString.contains('google_fonts')) &&
+           stackString.contains('asset_bundle.dart')) &&
           (errorString.contains('AssetManifest') ||
-           errorString.contains('Unable to load asset') ||
-           stackString.contains('loadFontIfNecessary') ||
-           stackString.contains('google_fonts_base'));
+           errorString.contains('Unable to load asset'));
       
       if (isAssetManifestError) {
         // Silently ignore AssetManifest.json errors
