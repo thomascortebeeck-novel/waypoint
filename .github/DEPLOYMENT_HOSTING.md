@@ -1,14 +1,13 @@
 # Firebase Hosting deployment (GitHub Actions)
 
-The **Deploy Firebase Hosting** workflow builds the Flutter web app and deploys it to Firebase Hosting on every push to `main` that touches the app or hosting config.
+The **Deploy Firebase Hosting** workflow builds the Flutter web app and deploys it to Firebase Hosting on **every push to `main`**.
 
 ## When it runs
 
-- **Push to `main`** when any of these change:
-  - `lib/**`, `web/**`, `assets/**`
-  - `pubspec.yaml`, `pubspec.lock`, `firebase.json`
-  - `.github/workflows/deploy-hosting.yml`
-- **Manual run**: Actions → Deploy Firebase Hosting → Run workflow
+- **Push to `main`**: Runs on every push (no path filter), so all Hosting domains stay in sync with the latest release.
+- **Manual run**: Actions → Deploy Firebase Hosting → Run workflow.
+
+**Important:** Firebase Hosting has a single site and a single release. All domains (default `.web.app`, `.firebaseapp.com`, and custom e.g. `waypoint.tours`) serve that same release. There is no separate “update domain” step in code—one deploy updates all URLs. If a URL showed old content, the Hosting workflow likely did not run for that push (e.g. before we removed the path filter, only pushes that changed `lib/`, `web/`, etc. triggered a deploy). After a deploy, if you still see old content, try a hard refresh or incognito to rule out browser/PWA cache.
 
 ## Required secrets
 
@@ -35,7 +34,17 @@ After a successful run, the site is at:
 - **https://&lt;FIREBASE_PROJECT_ID&gt;.web.app**
 - **https://&lt;FIREBASE_PROJECT_ID&gt;.firebaseapp.com**
 
-Add a custom domain (e.g. www.waypoint.tours) in [Firebase Console → Hosting → Add custom domain](https://console.firebase.google.com/).
+Add a custom domain (e.g. waypoint.tours and www.waypoint.tours) in [Firebase Console → Hosting → Add custom domain](https://console.firebase.google.com/).
+
+### Making both apex and www work (e.g. waypoint.tours and www.waypoint.tours)
+
+If the site loads at `https://waypoint.tours` but not at `https://www.waypoint.tours` (or vice versa):
+
+1. **Firebase Console** → Hosting → **Custom domains**: Add **both** the apex (`waypoint.tours`) and the www subdomain (`www.waypoint.tours`) as separate custom domains. Complete the wizard for each.
+2. **DNS (at your registrar, e.g. Namecheap)**:
+   - **Apex**: Add the **A** records Firebase shows for the apex (usually two IPs).
+   - **www**: Add a **CNAME** record: host = `www`, value = the target Firebase gives (e.g. `&lt;project&gt;.web.app`).
+3. Wait for DNS propagation (often 15–60 minutes; Firebase may say up to 24h). SSL is provisioned automatically for each domain.
 
 ## Local web development
 

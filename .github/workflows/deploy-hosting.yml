@@ -4,14 +4,7 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'lib/**'
-      - 'web/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'firebase.json'
-      - 'assets/**'
-      - '.github/workflows/deploy-hosting.yml'
+    # No path filter: every push to main updates Hosting so all domains (.web.app, .firebaseapp.com, waypoint.tours) serve the latest release.
   workflow_dispatch: # Manual run from Actions tab
 
 jobs:
@@ -29,8 +22,10 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Clean and install dependencies
+        run: |
+          flutter clean
+          flutter pub get
 
       - name: Build web
         run: flutter build web

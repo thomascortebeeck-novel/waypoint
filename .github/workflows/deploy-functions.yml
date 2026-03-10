@@ -153,12 +153,13 @@ jobs:
           gcloud config get-value project || echo "⚠️ Project not set, but continuing..."
           echo "✅ Ready to deploy"
           echo ""
-          # Deploy with explicit project to avoid API enablement checks
+          # Deploy with explicit project to avoid API enablement checks.
+          # Do NOT use --debug here: it dumps every API request/response and makes logs huge.
           firebase deploy --only functions \
             --project ${{ secrets.FIREBASE_PROJECT_ID }} \
             --non-interactive \
             --force \
-            --debug || (echo "❌ Deployment failed. Check logs above." && exit 1)
+            || (echo "❌ Deployment failed. Check logs above." && exit 1)
 
       # 10. Cleanup sensitive files
       - name: Cleanup Credentials

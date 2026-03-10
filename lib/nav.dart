@@ -735,9 +735,23 @@ class _ScrollAwareDesktopShellState extends State<_ScrollAwareDesktopShell> {
   bool get _scrolledPastHero => _scrollOffset > _kMarketplaceHeroScrollThreshold;
 
   @override
+  void didUpdateWidget(covariant _ScrollAwareDesktopShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // When switching to marketplace (index 0), reset so the bar is transparent over the hero.
+    // Otherwise we'd keep the previous page's scroll offset and show a solid bar incorrectly.
+    final nowOnMarketplace = widget.navigationShell.currentIndex == 0;
+    final wasNotOnMarketplace = oldWidget.navigationShell.currentIndex != 0;
+    if (nowOnMarketplace && wasNotOnMarketplace) {
+      setState(() => _scrollOffset = 0);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return NotificationListener<ScrollNotification>(
       onNotification: (ScrollNotification notification) {
+        // Only use scroll position when on marketplace (index 0); other branches' scrollables would otherwise set a high offset and force a solid bar on home.
+        if (widget.navigationShell.currentIndex != 0) return false;
         if (notification is ScrollUpdateNotification || notification is ScrollEndNotification) {
           final pixels = notification.metrics.pixels;
           if (pixels != _scrollOffset) {
