@@ -19,6 +19,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.27.4'  # Pin: 3.41+ has google_fonts 6.2.1 FontWeight const bug; remove when google_fonts fixed
           channel: 'stable'
           cache: true
 
