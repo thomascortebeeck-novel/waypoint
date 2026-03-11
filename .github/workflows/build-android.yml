@@ -62,15 +62,16 @@ jobs:
             echo "::warning::FIREBASE_OPTIONS_DART secret not set; using placeholder. Add it for real Firebase config: run 'flutterfire configure' locally, copy lib/firebase_options.dart content into repo Secrets."
           fi
 
-      - name: Create google-services.json from secret
+      - name: Create google-services.json from secret (optional)
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
-            echo "::error::GOOGLE_SERVICES_JSON secret is not set. Add it in repo Settings > Secrets and variables > Actions. Get the file from Firebase Console (Project settings > Your apps > Android). Paste the full JSON content as the secret value."
-            exit 1
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON secret not set; writing minimal file so build succeeds. Add it for real Firebase on Android (Firebase Console → Your apps → Android → paste JSON as secret)."
+            printf '%s\n' '{"project_info":{"project_number":"0","project_id":"placeholder","storage_bucket":"placeholder.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:0","android_client_info":{"package_name":"com.mycompany.CounterApp"}},"api_key":[{"current_key":""}]}]}' > android/app/google-services.json
           fi
-          echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
 
       - name: Substitute Google Maps API key (optional)
         env:
@@ -149,15 +150,16 @@ jobs:
             echo "::warning::FIREBASE_OPTIONS_DART secret not set; using placeholder."
           fi
 
-      - name: Create google-services.json from secret
+      - name: Create google-services.json from secret (optional)
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
-            echo "::error::GOOGLE_SERVICES_JSON secret is not set. Add it in repo Settings > Secrets and variables > Actions."
-            exit 1
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON secret not set; using minimal file."
+            printf '%s\n' '{"project_info":{"project_number":"0","project_id":"placeholder","storage_bucket":"placeholder.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:0","android_client_info":{"package_name":"com.mycompany.CounterApp"}},"api_key":[{"current_key":""}]}]}' > android/app/google-services.json
           fi
-          echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
 
       - name: Substitute Google Maps API key (optional)
         env:
