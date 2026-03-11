@@ -13,10 +13,21 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Transistorsoft (flutter_background_geolocation native SDK); 3.x no longer published
+        maven { url 'https://maven.transistorsoft.com/repository/maven-public/' }
     }
     // Force Kotlin Gradle plugin so plugins (e.g. flutter_haptic) that request 1.3.x use 2.1.0
     buildscript {
         configurations.classpath.resolutionStrategy.force 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0'
+    }
+    // Force tslocationmanager to 4.x (plugin may request 3.+ but only 4.x is available)
+    configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'com.transistorsoft' && details.requested.name == 'tslocationmanager') {
+                details.useVersion '4.0.19'
+                details.because 'tslocationmanager 3.x no longer in repos'
+            }
+        }
     }
 }
 

@@ -107,12 +107,11 @@
   -->
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAbK1n5nk4DUKsWps05V8c4hv94b2vI-cA&libraries=places,geometry,marker&loading=async" async defer></script>
   
-  <!-- Suppress non-critical AssetManifest.json errors in console -->
+  <!-- Suppress non-critical and verbose logs in console -->
   <script>
-    // Filter out AssetManifest.json / asset bundle errors from console.
-    // Common in Flutter web debug mode (e.g. hot reload) when manifest is missing.
-    // Fonts fall back to CDN or system; app remains functional.
+    // Filter out AssetManifest.json / asset bundle errors and Firebase Firestore debug logs.
     (function() {
+      const originalLog = console.log;
       const originalWarn = console.warn;
       const originalError = console.error;
       function shouldSuppressAssetError(message) {
@@ -125,13 +124,21 @@
           message.includes('EncodingError') ||
           message.includes('source image cannot be decoded');
       }
+      function isFirebaseFirestoreLog(message) {
+        if (!message || typeof message !== 'string') return false;
+        return message.indexOf('@firebase/firestore') !== -1;
+      }
       function shouldSuppress(args) {
         const message = args.map(function(a) {
           if (a && typeof a === 'object' && a.message) return a.message;
           return String(a);
         }).join(' ');
-        return shouldSuppressAssetError(message);
+        return shouldSuppressAssetError(message) || isFirebaseFirestoreLog(message);
       }
+      console.log = function(...args) {
+        if (shouldSuppress(args)) return;
+        originalLog.apply(console, args);
+      };
       console.warn = function(...args) {
         if (shouldSuppress(args)) return;
         originalWarn.apply(console, args);
@@ -144,8 +151,8 @@
       window.addEventListener('unhandledrejection', function(event) {
         var msg = '';
         if (event.reason != null) {
-          msg = typeof event.reason.message === 'string' 
-            ? event.reason.message 
+          msg = typeof event.reason.message === 'string'
+            ? event.reason.message
             : (typeof event.reason.toString === 'function' ? event.reason.toString() : String(event.reason));
         } else {
           msg = String(event.reason);

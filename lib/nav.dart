@@ -767,8 +767,10 @@ class _ScrollAwareDesktopShellState extends State<_ScrollAwareDesktopShell> {
         builder: (context, authSnapshot) {
           final firebaseUser = authSnapshot.data;
           final isLoggedIn = firebaseUser != null;
+          final isMarketplace = widget.navigationShell.currentIndex == 0;
           if (!isLoggedIn) {
             return Scaffold(
+              backgroundColor: isMarketplace ? Colors.transparent : null,
               body: Stack(
                 children: [
                   Positioned.fill(child: widget.navigationShell),
@@ -794,6 +796,7 @@ class _ScrollAwareDesktopShellState extends State<_ScrollAwareDesktopShell> {
               final user = userSnapshot.data;
               final profileImageUrl = user?.photoUrl ?? firebaseUser.photoURL;
               return Scaffold(
+                backgroundColor: isMarketplace ? Colors.transparent : null,
                 body: Stack(
                   children: [
                     Positioned.fill(child: widget.navigationShell),
@@ -914,18 +917,32 @@ class _DesktopLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = lightStyle ? Colors.white : context.colors.primary;
-    final content = SizedBox(
-      width: 64,
-      height: 64,
-      child: Image.asset(
-        _logoAsset,
-        fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => Icon(
-          Icons.terrain,
-          color: color,
-          size: 56,
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 48,
+          height: 48,
+          child: Image.asset(
+            _logoAsset,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Icon(
+              Icons.terrain,
+              color: color,
+              size: 42,
+            ),
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Text(
+          'WAYPOINT',
+          style: (context.textStyles.titleLarge ?? const TextStyle(fontSize: 18)).copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.5,
+            color: color,
+          ),
+        ),
+      ],
     );
     if (onTap == null) return content;
     return GestureDetector(

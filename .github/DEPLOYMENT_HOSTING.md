@@ -59,6 +59,30 @@ All domains share the same release, so if the default URLs work, the custom doma
 3. **DNS at your registrar**: Apex needs the **A** records from Firebase; **www** needs a **CNAME** to your `.web.app` host. Wait for propagation (up to 24h).
 4. **Cache**: Try a hard refresh (Ctrl+Shift+R) or an incognito window; CDN/browser cache can show old content.
 
+### ERR_SSL_VERSION_OR_CIPHER_MISMATCH on www.waypoint.tours (or waypoint.tours)
+
+This means the browser cannot agree on TLS with the server. Firebase Hosting manages SSL; you cannot fix it from code. Fix it in DNS and Firebase:
+
+1. **Check where the domain points**
+   - Open [Firebase Console → Hosting → Custom domains](https://console.firebase.google.com/project/_/hosting/sites). For **www.waypoint.tours** (and **waypoint.tours** if broken), status should be **Connected**.
+   - If a domain is not listed, add it via **Add custom domain** and follow the wizard.
+
+2. **Fix DNS at your registrar**
+   - **www.waypoint.tours** must have a **CNAME** record: name `www`, value = the host Firebase shows (e.g. `yourproject.web.app`). It must **not** point to an old server, another CDN, or an IP.
+   - **waypoint.tours** (apex) must use the **A** records Firebase gives (two IPs). Do not use a CNAME for the apex unless your registrar supports flattening (ALIAS/ANAME).
+   - Remove any old A or CNAME records that point elsewhere. Wait for DNS propagation (15–60 min, sometimes up to 24h).
+
+3. **If you use Cloudflare (or another proxy) in front of Firebase**
+   - **DNS**: CNAME `www` → `yourproject.web.app`. In Cloudflare, set the proxy to **Proxied (orange)** only if you use Cloudflare’s SSL; otherwise use **DNS only (grey)** so the browser talks directly to Firebase and uses Firebase’s certificate.
+   - **SSL/TLS**: Use **Full (strict)** and **Minimum TLS Version 1.2** (or higher). Avoid “Flexible” (client–Cloudflare only) if you want end-to-end HTTPS to Firebase.
+   - If the error persists with proxy enabled, try **DNS only** for `www` temporarily to confirm Firebase’s certificate works when not proxied.
+
+4. **Certificate provisioning**
+   - After DNS is correct, Firebase provisions SSL (Let’s Encrypt). This can take **up to 24 hours**. If the domain was just added or DNS was just changed, wait and retry.
+
+5. **Quick check**
+   - If **https://&lt;your-project&gt;.web.app** works but **https://www.waypoint.tours** does not, the problem is DNS or custom-domain setup for www, not your app code.
+
 ## Local web development
 
 - **"Failed to exit Chromium" / dangling process**: On Windows, Flutter often cannot cleanly kill the Chrome process it started. The message is harmless. Close the browser tab/window yourself, or end any leftover `chrome.exe` in Task Manager if needed.

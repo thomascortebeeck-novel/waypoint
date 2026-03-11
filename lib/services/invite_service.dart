@@ -236,20 +236,31 @@ class InviteService {
     return result.status;
   }
 
-  /// Get member details for a trip
+  /// Get member details for a trip (owner + all members so everyone sees the full list).
   Future<List<UserModel>> getMembersDetails(String tripId) async {
     try {
       final trip = await _tripService.getTripById(tripId);
       if (trip == null) return [];
 
-      final members = <UserModel>[];
+      final seenIds = <String>{};
+      final result = <UserModel>[];
+
+      // Owner first so they appear at top for all participants
+      final owner = await _userService.getUserById(trip.ownerId);
+      if (owner != null) {
+        result.add(owner);
+        seenIds.add(owner.id);
+      }
+
       for (final memberId in trip.memberIds) {
+        if (seenIds.contains(memberId)) continue;
         final user = await _userService.getUserById(memberId);
         if (user != null) {
-          members.add(user);
+          result.add(user);
+          seenIds.add(user.id);
         }
       }
-      return members;
+      return result;
     } catch (e) {
       debugPrint('Error getting member details: $e');
       return [];

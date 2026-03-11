@@ -3,7 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/services/invite_service.dart';
 import 'package:waypoint/services/order_service.dart';
+import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 
 /// Full-page success screen after successful checkout
@@ -40,8 +43,14 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
   final OrderService _orderService = OrderService();
+  final InviteService _inviteService = InviteService();
+  final TripService _tripService = TripService();
   bool _purchaseConfirmed = false;
   bool _timeoutReached = false;
+  bool _joinStarted = false;
+  bool _joinScheduled = false;
+  bool _isJoiningTrip = false;
+  String? _joinTripError;
 
   @override
   void initState() {
@@ -66,38 +75,74 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
         if (mounted) setState(() => _timeoutReached = true);
       });
     }
-    
-    if (widget.returnToJoin && widget.inviteCode != null) {
-      _scheduleAutoRedirect();
-    }
   }
 
-  void _scheduleAutoRedirect() {
-    Future.delayed(const Duration(seconds: 2), () async {
-      if (!mounted) return;
-      
-      final inviteCode = widget.inviteCode;
-      debugPrint('CheckoutSuccessScreen: Auto-redirecting to join with inviteCode: $inviteCode');
-      
-      // Clear any pending invite code from storage
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('pending_invite_code');
-      } catch (e) {
-        debugPrint('CheckoutSuccessScreen: Failed to clear pending invite: $e');
-      }
-      
-      if (!mounted) return;
-      
-      // Ensure we have a valid invite code before redirecting
-      if (inviteCode != null && inviteCode.isNotEmpty) {
-        debugPrint('CheckoutSuccessScreen: Navigating to /join/$inviteCode');
-        context.go('/join/$inviteCode', extra: {'fromAuth': true});
-      } else {
-        debugPrint('CheckoutSuccessScreen: No invite code, going to explore');
-        context.go('/');
-      }
+  /// Join the trip and go straight to trip detail (one redirect, no intermediate join page).
+  Future<void> _joinAndGoToTrip() async {
+    if (_joinStarted) return;
+    final inviteCode = widget.inviteCode;
+    if (inviteCode == null || inviteCode.isEmpty) {
+      if (mounted) context.go('/');
+      return;
+    }
+
+    _joinStarted = true;
+    if (mounted) setState(() {
+      _isJoiningTrip = true;
+      _joinTripError = null;
     });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('pending_invite_code');
+    } catch (_) {}
+
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null || !mounted) return;
+
+    final result = await _inviteService.validateInvite(inviteCode, userId);
+    if (!mounted) return;
+
+    if (result.status != InviteStatus.valid) {
+      setState(() {
+        _isJoiningTrip = false;
+        _joinTripError = result.errorMessage ?? 'Could not join trip';
+      });
+      return;
+    }
+
+    final trip = result.trip!;
+    final plan = result.plan;
+
+    try {
+      await _inviteService.processInvite(inviteCode, userId);
+      if (plan != null && trip.versionId != null) {
+        final version = plan.versions.firstWhere(
+          (v) => v.id == trip.versionId,
+          orElse: () => plan.versions.first,
+        );
+        final allItemIds = <String>[];
+        for (final category in version.packingCategories) {
+          for (final item in category.items) allItemIds.add(item.id);
+        }
+        if (allItemIds.isNotEmpty) {
+          await _tripService.initializeMemberPacking(
+            tripId: trip.id,
+            memberId: userId,
+            itemIds: allItemIds,
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) setState(() {
+        _isJoiningTrip = false;
+        _joinTripError = e.toString();
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    context.go('/trip/${trip.id}');
   }
 
   @override
@@ -234,12 +279,21 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
   }
 
   Widget _buildSuccessContent() {
+    // One-shot: after purchase with invite, join trip and go straight to trip detail
+    if (widget.returnToJoin && widget.inviteCode != null && !_joinStarted && !_joinScheduled) {
+      _joinScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _joinAndGoToTrip());
+    }
+
     final title = widget.alreadyPurchased
         ? 'You already own this plan'
         : (widget.isFree ? 'You\'re All Set!' : 'Purchase Complete!');
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
+
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
         children: [
           const Spacer(flex: 2),
 
@@ -296,7 +350,7 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                 const SizedBox(height: 24),
 
                 // Invite flow notification
-                if (widget.returnToJoin && widget.inviteCode != null)
+                if (widget.returnToJoin && widget.inviteCode != null && !_isJoiningTrip && _joinTripError == null)
                   FadeTransition(
                     opacity: _fadeAnimation,
                     child: Container(
@@ -313,7 +367,7 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'Redirecting you to join the trip...',
+                              'Adding you to the trip…',
                               style: context.textStyles.bodyMedium?.copyWith(
                                 color: Colors.blue.shade900,
                                 fontWeight: FontWeight.w500,
@@ -403,16 +457,13 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                   opacity: _fadeAnimation,
                   child: Column(
                     children: [
-                      // Show "Join Trip" button if user came from invite flow
-                      if (widget.returnToJoin && widget.inviteCode != null) ...[
+                      // Show "Join Trip" button if user came from invite flow (only when not auto-joining and no error yet)
+                      if (widget.returnToJoin && widget.inviteCode != null && !_isJoiningTrip && _joinTripError == null) ...[
                         SizedBox(
                           width: double.infinity,
                           height: 52,
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              debugPrint('CheckoutSuccessScreen: Manual navigation to /join/${widget.inviteCode}');
-                              context.go('/join/${widget.inviteCode}', extra: {'fromAuth': true});
-                            },
+                            onPressed: () => context.go('/join/${widget.inviteCode}', extra: {'fromAuth': true}),
                             icon: const Icon(Icons.group_add, size: 20),
                             label: const Text(
                               'Continue to Join Trip',
@@ -481,6 +532,61 @@ class _CheckoutSuccessScreenState extends State<CheckoutSuccessScreen>
                 const SizedBox(height: 16),
               ],
             ),
+        ),
+        if (_isJoiningTrip)
+          Container(
+            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: CircularProgressIndicator(),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Adding you to the trip…',
+                    style: context.textStyles.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (_joinTripError != null && !_isJoiningTrip)
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 24,
+            child: Material(
+              elevation: 8,
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _joinTripError!,
+                      style: context.textStyles.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () => context.go('/join/${widget.inviteCode}', extra: {'fromAuth': true}),
+                      child: const Text('Continue to Join Trip'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

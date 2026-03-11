@@ -1159,16 +1159,19 @@ class TestimonialsSection extends StatelessWidget {
           const SizedBox(height: 32),
           SizedBox(
             height: isDesktop ? 320 : 280,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
-              itemCount: testimonials.length,
-              separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 24 : 16),
-              itemBuilder: (context, index) => SizedBox(
-                width: isDesktop
-                    ? 360
-                    : MediaQuery.of(context).size.width * 0.85,
-                child: TestimonialCard(testimonial: testimonials[index]),
+            child: Scrollbar(
+              thumbVisibility: isDesktop,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.zero,
+                itemCount: testimonials.length,
+                separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 24 : 16),
+                itemBuilder: (context, index) => SizedBox(
+                  width: isDesktop
+                      ? 380
+                      : MediaQuery.of(context).size.width * 0.85,
+                  child: TestimonialCard(testimonial: testimonials[index]),
+                ),
               ),
             ),
           ),

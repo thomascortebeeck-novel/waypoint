@@ -19,6 +19,7 @@ export {
   cancelPaymentIntent,
   cleanupPendingOrders,
 } from "./stripe";
+export {sharePreview} from "./share-preview";
 
 // Simple callable function to fetch OpenGraph/Twitter meta tags for a given URL.
 // Returns: { title, description, image, siteName }
