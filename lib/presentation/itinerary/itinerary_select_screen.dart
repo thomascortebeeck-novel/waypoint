@@ -127,7 +127,7 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
         leading: Padding(
           padding: const EdgeInsets.all(8.0),
           child: GestureDetector(
-            onTap: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+            onTap: () => context.go('/trip/${widget.tripId}'),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -204,7 +204,7 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
         ),
       ),
       bottomNavigationBar: ItineraryBottomBar(
-        onBack: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+        onBack: () => context.go('/trip/${widget.tripId}'),
         backLabel: 'Back to Overview',
         onNext: _saving ? null : _confirmSelections,
         nextEnabled: !_saving && _hasAnySelections,
@@ -376,7 +376,7 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
       if (!mounted) return;
 
       // Navigate back to setup screen
-      context.go('/itinerary/${widget.planId}/setup/${widget.tripId}');
+      context.go('/trip/${widget.tripId}');
     } catch (e) {
       debugPrint('Error saving selections: $e');
       if (!mounted) return;

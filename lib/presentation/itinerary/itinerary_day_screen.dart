@@ -71,7 +71,7 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+            onPressed: () => context.go('/trip/${widget.tripId}'),
           ),
         ),
         body: const Center(child: Text('Failed to load day info')),
@@ -84,7 +84,7 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
           appBar: AppBar(
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
-              onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+              onPressed: () => context.go('/trip/${widget.tripId}'),
             ),
           title: const Text('Day not found'),
         ),
@@ -115,7 +115,7 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
             pinned: true,
             leading: IconButton(
               icon: const Icon(Icons.terrain, color: Colors.white),
-              onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+              onPressed: () => context.go('/trip/${widget.tripId}'),
               style: IconButton.styleFrom(
                 backgroundColor: Colors.black.withValues(alpha: 0.3),
               ),
@@ -390,7 +390,7 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
                 ElevatedButton.icon(
                   onPressed: () {
                     // Finish viewing days, go back to Trip Dashboard
-                    context.go('/itinerary/${widget.planId}/setup/${widget.tripId}');
+                    context.go('/trip/${widget.tripId}');
                   },
                   icon: const Icon(Icons.check_circle, size: 18),
                   label: const Text('Finish'),

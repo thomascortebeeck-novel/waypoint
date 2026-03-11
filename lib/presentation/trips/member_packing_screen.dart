@@ -126,7 +126,7 @@ class _MemberPackingScreenState extends State<MemberPackingScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.terrain),
-          onPressed: () => context.go('/itinerary/${_trip!.planId}/setup/${_trip!.id}'),
+          onPressed: () => context.go('/trip/${_trip!.id}'),
         ),
         title: const Text('My Packing List'),
         centerTitle: false,

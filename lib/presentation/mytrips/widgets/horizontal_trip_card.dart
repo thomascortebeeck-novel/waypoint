@@ -129,8 +129,7 @@ class HorizontalTripCard extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: () =>
-                context.push('/itinerary/${plan.id}/setup/${trip.id}'),
+            onTap: () => context.go('/trip/${trip.id}'),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -310,7 +309,7 @@ class _MenuButton extends StatelessWidget {
         onSelected: (value) {
           switch (value) {
             case 'open':
-              context.push('/itinerary/${plan.id}/setup/${trip.id}');
+              context.go('/trip/${trip.id}');
               break;
             case 'delete':
               _confirmDelete(context);

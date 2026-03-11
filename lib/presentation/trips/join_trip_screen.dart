@@ -148,7 +148,7 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
       
       if (mounted) {
         // Navigate to the trip
-        context.go('/itinerary/${trip.planId}/setup/${trip.id}');
+        context.go('/trip/${trip.id}');
       }
     } catch (e) {
       if (mounted) {
@@ -418,7 +418,7 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
             ),
             const SizedBox(height: 32),
             FilledButton.icon(
-              onPressed: () => context.go('/itinerary/${trip.planId}/setup/${trip.id}'),
+              onPressed: () => context.go('/trip/${trip.id}'),
               icon: const Icon(Icons.arrow_forward),
               label: const Text('Go to Trip'),
             ),

@@ -101,7 +101,7 @@ class _ImageUploadDialogState extends State<ImageUploadDialog> {
   Widget _buildPreviewArea(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       AspectRatio(
-        aspectRatio: 4 / 3,
+        aspectRatio: 16 / 9,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppRadius.lg),
           child: Image.memory(_selectedBytes!, fit: BoxFit.cover),

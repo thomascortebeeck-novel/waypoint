@@ -105,7 +105,7 @@ class _ItineraryReviewScreenState extends State<ItineraryReviewScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.terrain),
-          onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+          onPressed: () => context.go('/trip/${widget.tripId}'),
         ),
         title: const Text('Review Your Trip'),
         centerTitle: false,
@@ -196,7 +196,7 @@ class _ItineraryReviewScreenState extends State<ItineraryReviewScreen> {
       if (!mounted) return;
 
       // Navigate to setup screen (main trip dashboard)
-      context.go('/itinerary/${widget.planId}/setup/${widget.tripId}');
+      context.go('/trip/${widget.tripId}');
     } catch (e) {
       debugPrint('Error updating status: $e');
       if (!mounted) return;

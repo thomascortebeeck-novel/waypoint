@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
@@ -106,5 +107,33 @@ Future<ValidAspectRatio?> validateVideoAspectRatio(File videoFile) async {
 /// Get error message for invalid aspect ratio
 String getInvalidAspectRatioMessage() {
   return 'Image/video must be 16:9 (landscape) or 9:16 (portrait/story) aspect ratio. Please crop or resize your media before uploading.';
+}
+
+/// Center-crop image bytes to 16:9 (landscape). Used for plan and trip cover images.
+/// Returns JPEG bytes, or null if decode fails.
+Uint8List? cropImageBytesTo16x9(Uint8List bytes, {int quality = 90}) {
+  try {
+    final image = img.decodeImage(bytes);
+    if (image == null) return null;
+    const targetRatio = 16 / 9;
+    final current = image.width / image.height;
+    img.Image cropped;
+    if ((current - targetRatio).abs() < 0.02) {
+      cropped = image;
+    } else if (current > targetRatio) {
+      final targetW = (image.height * targetRatio).round();
+      final x = ((image.width - targetW) / 2).round();
+      cropped = img.copyCrop(image, x: x, y: 0, width: targetW, height: image.height);
+    } else {
+      final targetH = (image.width / targetRatio).round();
+      final y = ((image.height - targetH) / 2).round();
+      cropped = img.copyCrop(image, x: 0, y: y, width: image.width, height: targetH);
+    }
+    final out = img.encodeJpg(cropped, quality: quality);
+    return Uint8List.fromList(out);
+  } catch (e) {
+    debugPrint('Error cropping image to 16:9: $e');
+    return null;
+  }
 }
 

@@ -1298,9 +1298,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 body: _buildNavigationContent(),
               ),
               
-              // Sticky price card sidebar (desktop, overview tab only)
+              // Sticky price card sidebar (desktop, overview tab only; not on trip page)
               // Center the card in the space between the right edge of the main content (max 1240) and the right edge of the screen
-              if (isDesktop && _currentNavigationItem == NavigationItem.overview)
+              if (isDesktop && _currentNavigationItem == NavigationItem.overview && widget.mode != AdventureMode.trip)
                 Positioned(
                   top: _headerHeight + 20,
                   left: _priceCardLeftForDesktop(screenWidth),
@@ -5953,17 +5953,36 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     }
   }
 
-  /// Pick and set cover image from device
+  /// Pick and set cover image from device. Plan cover is always stored as 16:9.
   Future<void> _pickCoverImage() async {
     if (_formState == null) return;
     
     try {
       final result = await _storageService.pickImage();
-      if (result != null && mounted) {
+      if (result == null || !mounted) return;
+      final aspectRatio = validateImageAspectRatioFromBytes(result.bytes);
+      if (aspectRatio == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(getInvalidAspectRatioMessage())),
+          );
+        }
+        return;
+      }
+      final cropped = cropImageBytesTo16x9(result.bytes);
+      if (cropped == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to process image')),
+          );
+        }
+        return;
+      }
+      if (mounted) {
         setState(() {
-          _formState!.coverImageBytes = result.bytes;
-          _formState!.coverImageExtension = result.extension;
-          _formState!.heroImageUrlCtrl.clear(); // Clear URL if image is picked
+          _formState!.coverImageBytes = cropped;
+          _formState!.coverImageExtension = 'jpg';
+          _formState!.heroImageUrlCtrl.clear();
           _hasUnsavedChanges = true;
         });
       }
@@ -6937,27 +6956,28 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         _buildOverviewCoverImage(context),
                         const SizedBox(height: WaypointSpacing.sectionGap),
 
-                        // Mobile price card (hidden when sticky bottom bar is shown to avoid duplicate price)
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            if (constraints.maxWidth <= 0) return const SizedBox.shrink();
-                            try {
-                              final isMobile = WaypointBreakpoints.isMobile(constraints.maxWidth);
-                              if (isMobile && !_isMobileBuyBarVisible()) {
-                                return Column(
-                                  children: [
-                                    const SizedBox(height: WaypointSpacing.sectionGap),
-                                    _buildPriceCard(context),
-                                    const SizedBox(height: WaypointSpacing.sectionGap),
-                                  ],
-                                );
+                        // Mobile price card (hidden when sticky bottom bar is shown; hidden on trip page)
+                        if (widget.mode != AdventureMode.trip)
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              if (constraints.maxWidth <= 0) return const SizedBox.shrink();
+                              try {
+                                final isMobile = WaypointBreakpoints.isMobile(constraints.maxWidth);
+                                if (isMobile && !_isMobileBuyBarVisible()) {
+                                  return Column(
+                                    children: [
+                                      const SizedBox(height: WaypointSpacing.sectionGap),
+                                      _buildPriceCard(context),
+                                      const SizedBox(height: WaypointSpacing.sectionGap),
+                                    ],
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              } catch (e) {
+                                return const SizedBox.shrink();
                               }
-                              return const SizedBox.shrink();
-                            } catch (e) {
-                              return const SizedBox.shrink();
-                            }
-                          },
-                        ),
+                            },
+                          ),
 
                         // 3. Quick stats row (between image and description)
                         _buildQuickStats(context),

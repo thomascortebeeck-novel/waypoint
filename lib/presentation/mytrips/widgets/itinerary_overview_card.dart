@@ -220,7 +220,7 @@ class _ItineraryOverviewCardState extends State<ItineraryOverviewCard> {
                 Row(children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => context.go('/itinerary/${plan.id}/setup/${trip.id}'),
+                      onPressed: () => context.go('/trip/${trip.id}'),
                       icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                       label: const Text('View Trip', style: TextStyle(fontSize: 13)),
                     ),
@@ -296,7 +296,7 @@ class _ItineraryOverviewCardState extends State<ItineraryOverviewCard> {
               if (updated == true && mounted) setState(() {});
               break;
             case 'view_details':
-              if (mounted) context.go('/itinerary/${widget.plan.id}/setup/${widget.trip.id}');
+              if (mounted) context.go('/trip/${widget.trip.id}');
               break;
             case 'delete':
               await _confirmDelete(context);

@@ -63,7 +63,7 @@ class _ItineraryTravelScreenState extends State<ItineraryTravelScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.terrain),
-          onPressed: () => context.go('/itinerary/${widget.planId}/setup/${widget.tripId}'),
+          onPressed: () => context.go('/trip/${widget.tripId}'),
         ),
         title: const Text('How to get there'),
       ),
