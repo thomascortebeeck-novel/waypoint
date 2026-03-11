@@ -16,7 +16,7 @@ dependencies:
   fl_chart: 0.68.0
   cloud_functions: ^6.0.0
   geolocator: 13.0.4
-  flutter_background_geolocation: ^4.18.2
+  flutter_background_geolocation: ^5.0.0
   sqflite: ^2.0.0
   path_provider: ^2.1.4
   connectivity_plus: ^7.0.0

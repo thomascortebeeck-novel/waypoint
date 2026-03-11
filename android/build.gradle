@@ -13,8 +13,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        // Transistorsoft (flutter_background_geolocation native SDK); 3.x no longer published
-        maven { url 'https://maven.transistorsoft.com/repository/maven-public/' }
     }
     // Force Kotlin Gradle plugin so plugins (e.g. flutter_haptic) that request 1.3.x use 2.1.0
     buildscript {
