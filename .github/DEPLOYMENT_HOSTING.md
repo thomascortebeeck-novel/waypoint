@@ -13,16 +13,13 @@ The **Deploy Firebase Hosting** workflow (`.github/workflows/deploy-hosting.yml`
 
 ## Required secrets
 
-Uses the same secrets as the Cloud Functions workflow:
-
-
 | Secret                     | Description                                                                             |
 | -------------------------- | --------------------------------------------------------------------------------------- |
-| `FIREBASE_PROJECT_ID`      | Your Firebase project ID (e.g. `lo72dwmjbzy4xz7nodczq859vs6xkf`)                        |
-| `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account with permission to deploy Hosting (same as for Functions) |
+| `FIREBASE_PROJECT_ID`      | Your Firebase project ID (e.g. from `.firebaserc`).                                     |
+| `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account with permission to deploy Hosting (same as for Functions). |
+| `GOOGLE_MAPS_API_KEY`      | **Required for the web map to load.** Google Maps JavaScript API key. Enable "Maps JavaScript API" in [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/credentials), restrict the key to your domain (e.g. `waypoint.tours`, `*.web.app`), then add the key as this repo secret. You can use `GOOGLE_PLACES_API_KEY` instead if that secret is already set. |
 
-
-No extra secrets are needed. The service account used for Functions deploy can deploy Hosting if it has the **Firebase Hosting Admin** (or **Editor**) role.
+Without `GOOGLE_MAPS_API_KEY` (or `GOOGLE_PLACES_API_KEY`), the deploy will **fail** and the published site would show blank maps.
 
 If deploy fails with **HTTP 404, Requested entity was not found** on “finalizing version”, the Hosting API is being called without a valid project or site:
 

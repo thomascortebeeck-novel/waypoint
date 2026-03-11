@@ -74,12 +74,15 @@ import 'package:waypoint/components/adventure/poi_card.dart';
 import 'package:waypoint/components/adventure/external_links_row.dart';
 import 'package:waypoint/components/adventure/gpx_import_area.dart';
 import 'package:waypoint/components/adventure/buy_plan_card.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:waypoint/services/gpx_parser_service.dart';
 import 'package:waypoint/components/adventure/breadcrumb_nav.dart';
 import 'package:waypoint/components/adventure/action_buttons_row.dart';
-import 'package:waypoint/components/waypoint/waypoint_timeline_list.dart' show WaypointTimelineList, WaypointTimelineItem, DashedLinePainter, kTimelineConnectorLeft;
+import 'package:waypoint/components/waypoint/waypoint_timeline_list.dart' show WaypointTimelineList, WaypointTimelineItem, DashedLinePainter, kTimelineConnectorLeft, kTimelineColumnWidth;
 import 'package:waypoint/components/waypoint/waypoint_itinerary_card.dart';
+import 'package:waypoint/components/waypoint/trail_itinerary_card.dart';
+import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 import 'package:waypoint/components/common/price_display_widget.dart';
 import 'package:waypoint/utils/app_urls.dart';
 import 'package:waypoint/data/checklist_suggestions.dart';
@@ -1460,7 +1463,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                     )
                   else
                     Text(
-                      'Get this adventure',
+                      'Back this plan',
                       style: WaypointTypography.bodyMedium.copyWith(
                         color: WaypointColors.textSecondary,
                         fontSize: 12,
@@ -1594,7 +1597,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Purchase this plan to see all content',
+                  'Back this plan to see all content',
                   style: WaypointTypography.bodyMedium.copyWith(
                     color: WaypointColors.textSecondary,
                   ),
@@ -1605,10 +1608,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           const SizedBox(width: 12),
           FilledButton(
             onPressed: () {
-              // Scroll to buy bar or trigger purchase flow
-              // For now, show snackbar - can be enhanced to scroll to buy bar
+              // Scroll to back bar or trigger purchase flow
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Scroll down to purchase this plan')),
+                const SnackBar(content: Text('Scroll down to back this plan')),
               );
             },
             style: FilledButton.styleFrom(
@@ -1616,7 +1618,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               foregroundColor: WaypointColors.onPrimary,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
-            child: const Text('View Pricing'),
+            child: Text(backPlanButtonLabel(_plan?.creatorName)),
           ),
         ],
       ),
@@ -4623,9 +4625,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         activityCategory: _plan?.activityCategory,
         accommodationType: _plan?.accommodationType,
         durationDays: _adventureData?.selectedVersion?.durationDays,
+        creatorName: _plan?.creatorName,
+        salesCount: _plan?.salesCount,
       );
     } else {
-      // Show "Buy Plan" button (web: in-app checkout; app: open web to buy)
+      // Show "Back [Creator]" button (web: in-app checkout; app: open web to buy)
       return BuyPlanCard(
         price: price,
         isBuilder: false,
@@ -4635,6 +4639,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         activityCategory: _plan?.activityCategory,
         accommodationType: _plan?.accommodationType,
         durationDays: _adventureData?.selectedVersion?.durationDays,
+        creatorName: _plan?.creatorName,
+        salesCount: _plan?.salesCount,
       );
     }
   }
@@ -7662,6 +7668,31 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   ),
                   const SizedBox(height: 8),
                   TextField(
+                    controller: dayState.trailDisplayNameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Trail name',
+                      hintText: 'e.g. Kungsleden Stage 1',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: dayState.trailDescriptionCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Trail description (optional)',
+                      hintText: 'Short description for the route card',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    maxLines: 2,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
                     controller: dayState.komootLinkCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Komoot link',
@@ -7755,26 +7786,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       );
     }
 
-    // Trip / viewer: show clickable external links for selected day
+    // Trip / viewer: trail links are shown in the trail card as waypoint 0, not here
     if (!isOutdoor) return const SizedBox.shrink();
-    if (_adventureData == null) return const SizedBox.shrink();
-    final dayIndex = _effectiveSelectedDay - 1;
-    if (dayIndex < 0 || dayIndex >= _adventureData!.days.length) return const SizedBox.shrink();
-    final day = _adventureData!.days[dayIndex];
-    final hasKomoot = day.komootLink != null && day.komootLink!.isNotEmpty;
-    final hasAllTrails = day.allTrailsLink != null && day.allTrailsLink!.isNotEmpty;
-    final hasGpx = day.route?.routeType == RouteType.gpx;
-    if (!hasKomoot && !hasAllTrails && !hasGpx) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: ExternalLinksRow(
-        komootLink: day.komootLink,
-        allTrailsLink: day.allTrailsLink,
-        hasGpx: hasGpx,
-        onDownloadGpx: hasGpx ? () { /* TODO: Implement GPX download */ } : null,
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   /// Mobile: full-screen map with draggable waypoints panel (3 snap states).
@@ -8010,6 +8024,101 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
 
+  /// Trail data for the selected day when Komoot/AllTrails/GPX is present. Null when none.
+  ({String name, String? description, bool hasKomoot, bool hasAllTrails, bool hasGpx, String? komootLink, String? allTrailsLink, VoidCallback? onDownloadGpx})? _getTrailDataForSelectedDay(
+    int dayNum,
+    bool isBuilder,
+    VersionFormState? version,
+  ) {
+    if (isBuilder && version != null) {
+      final dayState = version.getDayState(dayNum);
+      final hasKomoot = dayState.komootLinkCtrl.text.trim().isNotEmpty;
+      final hasAllTrails = dayState.allTrailsLinkCtrl.text.trim().isNotEmpty;
+      final hasGpx = dayState.gpxRoute != null;
+      if (!hasKomoot && !hasAllTrails && !hasGpx) return null;
+      final name = dayState.trailDisplayNameCtrl.text.trim();
+      final description = dayState.trailDescriptionCtrl.text.trim();
+      return (
+        name: name.isEmpty ? 'Route' : name,
+        description: description.isEmpty ? null : description,
+        hasKomoot: hasKomoot,
+        hasAllTrails: hasAllTrails,
+        hasGpx: hasGpx,
+        komootLink: hasKomoot ? dayState.komootLinkCtrl.text.trim() : null,
+        allTrailsLink: hasAllTrails ? dayState.allTrailsLinkCtrl.text.trim() : null,
+        onDownloadGpx: null,
+      );
+    }
+    if (_adventureData != null && dayNum >= 1 && dayNum <= _adventureData!.days.length) {
+      final day = _adventureData!.days[dayNum - 1];
+      final hasKomoot = day.komootLink != null && day.komootLink!.isNotEmpty;
+      final hasAllTrails = day.allTrailsLink != null && day.allTrailsLink!.isNotEmpty;
+      final hasGpx = day.route?.routeType == RouteType.gpx || day.gpxRoute != null;
+      if (!hasKomoot && !hasAllTrails && !hasGpx) return null;
+      final name = (day.trailDisplayName?.trim().isEmpty ?? true) ? 'Route' : day.trailDisplayName!.trim();
+      final description = day.trailDescription?.trim().isEmpty ?? true ? null : day.trailDescription!.trim();
+      return (
+        name: name,
+        description: description,
+        hasKomoot: hasKomoot,
+        hasAllTrails: hasAllTrails,
+        hasGpx: hasGpx,
+        komootLink: day.komootLink,
+        allTrailsLink: day.allTrailsLink,
+        onDownloadGpx: null,
+      );
+    }
+    return null;
+  }
+
+  Widget _buildTrailTimelineRow({
+    required ({String name, String? description, bool hasKomoot, bool hasAllTrails, bool hasGpx, String? komootLink, String? allTrailsLink, VoidCallback? onDownloadGpx}) trailData,
+    required bool showConnectingLine,
+  }) {
+    const connectorColor = Color(0xFFD2B48C);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: kTimelineColumnWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                WaypointPinBadge(
+                  orderIndex: 0,
+                  color: WaypointColors.catDo,
+                ),
+                if (showConnectingLine)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: CustomPaint(
+                        painter: DashedLinePainter(color: connectorColor),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TrailItineraryCard(
+              name: trailData.name,
+              description: trailData.description,
+              hasKomoot: trailData.hasKomoot,
+              hasAllTrails: trailData.hasAllTrails,
+              hasGpx: trailData.hasGpx,
+              komootLink: trailData.komootLink,
+              allTrailsLink: trailData.allTrailsLink,
+              onDownloadGpx: trailData.onDownloadGpx,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Shared waypoint list for desktop and mobile panel. Pass [scrollController] from
   /// DraggableScrollableSheet on mobile so list scroll and panel drag don't fight.
   /// Uses primary+alternatives grouping: each primary can have 0+ alternatives in a collapsible section.
@@ -8020,8 +8129,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final dayNum = _effectiveSelectedDay;
+    final version = isBuilder && _formState != null ? _formState!.activeVersion : null;
 
-    if (waypoints.isEmpty) {
+    // Trail-as-waypoint-0: get trail data for selected day
+    final trailData = _getTrailDataForSelectedDay(dayNum, isBuilder, version);
+    final hasTrail = trailData != null;
+
+    if (waypoints.isEmpty && !hasTrail) {
       return ColoredBox(
         color: const Color(0xFFFDFBF7),
         child: Center(
@@ -8051,8 +8166,6 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     final overridesByWaypointId = <String, TripWaypointOverride>{
       for (final o in _waypointOverridesMap.values) o.waypointId: o,
     };
-    final version = isBuilder && _formState != null ? _formState!.activeVersion : null;
-    final dayNum = _effectiveSelectedDay;
     final canEditTime = widget.mode == AdventureMode.trip && _isTripOwner == true;
     final isTripOwner = widget.mode == AdventureMode.trip && _isTripOwner == true;
 
@@ -8090,6 +8203,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     }
 
     final children = <Widget>[];
+    if (hasTrail && trailData != null) {
+      children.add(
+        _buildTrailTimelineRow(
+          trailData: trailData,
+          showConnectingLine: groups.isNotEmpty,
+        ),
+      );
+    }
     for (int i = 0; i < groups.length; i++) {
       final (primary, alternatives) = groups[i];
       final isLastGroup = i == groups.length - 1;
@@ -9425,7 +9546,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
-                  height: 220,
+                  height: 200,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: EdgeInsets.zero,
@@ -9438,7 +9559,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         width: 160,
                         child: AdventureCard(
                           plan: plan,
-                          variant: AdventureCardVariant.imageOnly,
+                          variant: AdventureCardVariant.moreByCreator,
                           onTap: () => context.push('/details/${plan.id}'),
                         ),
                       );

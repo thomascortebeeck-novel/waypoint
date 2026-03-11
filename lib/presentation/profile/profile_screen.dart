@@ -293,7 +293,7 @@ class _CreatedPlansSection extends StatelessWidget {
         const SectionHeader(title: 'Created plans'),
         const SizedBox(height: 16),
         SizedBox(
-          height: isDesktop ? 400 : 380,
+          height: isDesktop ? 440 : 420,
           child: StreamBuilder<List<Plan>>(
             stream: stream,
             builder: (context, snapshot) {

@@ -5,6 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 ///
 /// [tripId] is stored for context only (e.g. which trip led to this feedback;
 /// future admin/analytics). Not used for querying in v1.
+///
+/// [allowShowOnWebsite] is only set when rating >= 4 and comment is not empty;
+/// used to show reviews in "Our latest reviews" on the website.
 class AppReview {
   final String id;
   final String userId;
@@ -14,6 +17,8 @@ class AppReview {
   final String comment;
   /// Optional; for context (which trip led to this feedback). Not queried in v1.
   final String? tripId;
+  /// True when user agreed to show this review on the website (only asked when rating >= 4 and comment not empty).
+  final bool allowShowOnWebsite;
   final DateTime createdAt;
 
   const AppReview({
@@ -22,6 +27,7 @@ class AppReview {
     required this.rating,
     this.comment = '',
     this.tripId,
+    this.allowShowOnWebsite = false,
     required this.createdAt,
   });
 
@@ -32,6 +38,7 @@ class AppReview {
       rating: json['rating'] as int,
       comment: json['comment'] as String? ?? '',
       tripId: json['trip_id'] as String?,
+      allowShowOnWebsite: json['allow_show_on_website'] as bool? ?? false,
       createdAt: (json['created_at'] as Timestamp).toDate(),
     );
   }
@@ -43,6 +50,7 @@ class AppReview {
       'rating': rating,
       'comment': comment,
       if (tripId != null && tripId!.isNotEmpty) 'trip_id': tripId,
+      'allow_show_on_website': allowShowOnWebsite,
       'created_at': Timestamp.fromDate(createdAt),
     };
   }

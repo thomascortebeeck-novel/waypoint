@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/services/user_service.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme/waypoint_typography.dart';
@@ -201,32 +202,52 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         itemCount: _filteredPlans.length,
                         itemBuilder: (context, index) {
                           final plan = _filteredPlans[index];
-                          final initials = plan.creatorName.isNotEmpty
-                              ? plan.creatorName.trim().split(' ').take(2).map((s) => s.isNotEmpty ? s[0].toUpperCase() : '?').toList()
-                              : <String>['?'];
                           final tagLabels = activityTagLabelsForPlan(plan);
-                          return WaypointFeaturedPlanCard(
-                            title: plan.name,
-                            creatorName: plan.creatorName,
-                            rating: 4.5,
-                            reviewCount: 2,
-                            price: plan.minPrice > 0 ? plan.minPrice : null,
-                            location: plan.location.isNotEmpty ? plan.location : null,
-                            isFree: plan.minPrice == 0,
-                            imageWidget: plan.heroImageUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    imageUrl: plan.heroImageUrl,
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, __) => Container(color: BrandingLightTokens.surface),
-                                    errorWidget: (_, __, ___) => Container(
-                                      color: BrandingLightTokens.surface,
-                                      child: const Icon(Icons.landscape_outlined),
-                                    ),
-                                  )
-                                : null,
-                            initials: initials,
-                            tagLabels: tagLabels,
-                            onTap: () => context.push('/details/${plan.id}'),
+                          return FutureBuilder(
+                            future: UserService().getUserById(plan.creatorId),
+                            builder: (context, userSnap) {
+                              final user = userSnap.data;
+                              final creatorAvatarUrl = user?.photoUrl;
+                              String initialsStr;
+                              if (user != null &&
+                                  user.firstName != null &&
+                                  user.firstName!.isNotEmpty &&
+                                  user.lastName != null &&
+                                  user.lastName!.isNotEmpty) {
+                                initialsStr = '${user.firstName![0]}${user.lastName![0]}'.toUpperCase();
+                              } else {
+                                final parts = plan.creatorName.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).take(2);
+                                initialsStr = parts.isEmpty
+                                    ? '?'
+                                    : parts.length == 1
+                                        ? parts.first[0].toUpperCase()
+                                        : '${parts.first[0]}${parts.elementAt(1)[0]}'.toUpperCase();
+                              }
+                              return WaypointFeaturedPlanCard(
+                                title: plan.name,
+                                creatorName: plan.creatorName,
+                                rating: plan.reviewStats?.averageRating ?? 0.0,
+                                reviewCount: (plan.reviewStats?.totalReviews ?? 0) > 0 ? plan.reviewStats!.totalReviews : null,
+                                price: plan.minPrice > 0 ? plan.minPrice : null,
+                                location: plan.location.isNotEmpty ? plan.location : null,
+                                isFree: plan.minPrice == 0,
+                                imageWidget: plan.heroImageUrl.isNotEmpty
+                                    ? CachedNetworkImage(
+                                        imageUrl: plan.heroImageUrl,
+                                        fit: BoxFit.cover,
+                                        placeholder: (_, __) => Container(color: BrandingLightTokens.surface),
+                                        errorWidget: (_, __, ___) => Container(
+                                          color: BrandingLightTokens.surface,
+                                          child: const Icon(Icons.landscape_outlined),
+                                        ),
+                                      )
+                                    : null,
+                                initials: [initialsStr],
+                                creatorAvatarUrl: creatorAvatarUrl,
+                                tagLabels: tagLabels,
+                                onTap: () => context.push('/details/${plan.id}'),
+                              );
+                            },
                           );
                         },
                       ),

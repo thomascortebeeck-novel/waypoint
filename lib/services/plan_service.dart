@@ -1028,6 +1028,9 @@ class PlanService {
         activityCategory: activityCategory,
         accommodationType: accommodationType,
         faqItems: planFaqItems,
+        reviewStats: planData['review_stats'] != null
+            ? ReviewStats.fromJson(planData['review_stats'] as Map<String, dynamic>)
+            : null,
       );
     } catch (e) {
       debugPrint('Error loading full plan: $e');

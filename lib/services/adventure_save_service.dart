@@ -308,6 +308,12 @@ class AdventureSaveService {
             : day.allTrailsLinkCtrl.text.trim(),
         routeInfo: day.routeInfo ?? prev?.routeInfo,
         gpxRoute: day.gpxRoute ?? prev?.gpxRoute,
+        trailDisplayName: day.trailDisplayNameCtrl.text.trim().isEmpty
+            ? (prev?.trailDisplayName)
+            : day.trailDisplayNameCtrl.text.trim(),
+        trailDescription: day.trailDescriptionCtrl.text.trim().isEmpty
+            ? (prev?.trailDescription)
+            : day.trailDescriptionCtrl.text.trim(),
       ));
     }
     return days;

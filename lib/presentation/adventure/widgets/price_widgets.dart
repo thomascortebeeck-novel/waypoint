@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 
@@ -15,6 +16,8 @@ class AdventurePriceCard extends StatelessWidget {
   /// When true, current user is the plan owner (CTA is hidden for owners).
   final bool isPlanOwner;
   final VoidCallback? onBuyPlan;
+  /// Creator name for "Back [Creator]" CTA. Optional.
+  final String? creatorName;
 
   const AdventurePriceCard({
     super.key,
@@ -26,6 +29,7 @@ class AdventurePriceCard extends StatelessWidget {
     this.hasBoughtPlan = false,
     this.isPlanOwner = false,
     this.onBuyPlan,
+    this.creatorName,
   });
 
   @override

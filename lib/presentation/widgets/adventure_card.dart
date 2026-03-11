@@ -16,6 +16,8 @@ enum AdventureCardVariant {
   compact,
   /// Image-only card for "About the creator" / "More by" carousel: just image + price badge, no text.
   imageOnly,
+  /// "More by creator" carousel: image + title + location overlay only (no description/rating).
+  moreByCreator,
 }
 
 enum AdventureCardTheme {
@@ -59,6 +61,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
 
   bool get _isCompact => widget.variant == AdventureCardVariant.compact;
   bool get _isImageOnly => widget.variant == AdventureCardVariant.imageOnly;
+  bool get _isMoreByCreator => widget.variant == AdventureCardVariant.moreByCreator;
   bool get _isBuilder => widget.variant == AdventureCardVariant.builder;
 
   @override
@@ -131,10 +134,10 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(_isCompact || _isImageOnly ? 16 : 24),
+              borderRadius: BorderRadius.circular(_isCompact || _isImageOnly || _isMoreByCreator ? 16 : 24),
               child: Stack(
                 children: [
-                  _isImageOnly
+                  (_isImageOnly || _isMoreByCreator)
                       ? _buildImageSection(context, isDark)
                       : Column(
                           children: [
@@ -143,7 +146,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                               child: _buildImageSection(context, isDark),
                             ),
                             Expanded(
-                              flex: 40,
+                              // Builder/standard need slightly more bottom space for 2-line description + rating
+                              flex: _isBuilder ? 44 : 40,
                               child: _buildBottomSection(context, isDark),
                             ),
                           ],
@@ -222,11 +226,11 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         _buildPriceBadge(context),
         if (widget.variant == AdventureCardVariant.builder) _buildStatusBadge(context),
         if (widget.variant == AdventureCardVariant.builder && widget.onDelete != null) _buildDeleteButton(context),
-        if (!_isImageOnly)
+        if (!_isImageOnly || _isMoreByCreator)
           Positioned(
-          left: _isCompact ? 12 : 20,
-          right: _isCompact ? 12 : 20,
-          bottom: _isCompact ? 12 : 20,
+          left: (_isCompact || _isMoreByCreator) ? 12 : 20,
+          right: (_isCompact || _isMoreByCreator) ? 12 : 20,
+          bottom: (_isCompact || _isMoreByCreator) ? 12 : 20,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -235,7 +239,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                 widget.plan.name,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: _isCompact ? 16 : 22,
+                  fontSize: (_isCompact || _isMoreByCreator) ? 16 : 22,
                   fontWeight: FontWeight.w700,
                   height: 1.3,
                   shadows: const [
@@ -246,25 +250,25 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                     ),
                   ],
                 ),
-                maxLines: _isCompact ? 1 : 2,
+                maxLines: (_isCompact || _isMoreByCreator) ? 1 : 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              SizedBox(height: _isCompact ? 4 : 8),
+              SizedBox(height: (_isCompact || _isMoreByCreator) ? 4 : 8),
               if (widget.plan.location.isNotEmpty)
                 Row(
                   children: [
                     Icon(
                       FontAwesomeIcons.locationDot,
                       color: Colors.white.withValues(alpha: 0.95),
-                      size: _isCompact ? 10 : 12,
+                      size: (_isCompact || _isMoreByCreator) ? 10 : 12,
                     ),
-                    SizedBox(width: _isCompact ? 4 : 6),
+                    SizedBox(width: (_isCompact || _isMoreByCreator) ? 4 : 6),
                     Expanded(
                       child: Text(
                         widget.plan.location,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.95),
-                          fontSize: _isCompact ? 11 : 14,
+                          fontSize: (_isCompact || _isMoreByCreator) ? 11 : 14,
                           fontWeight: FontWeight.w400,
                           shadows: const [
                             Shadow(
@@ -280,8 +284,8 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
                     ),
                   ],
                 ),
-              // Season badge below location (skip in compact to save space)
-              if (!_isCompact && _hasSeason(widget.plan)) ...[
+              // Season badge below location (skip in compact / moreByCreator to save space)
+              if (!_isCompact && !_isMoreByCreator && _hasSeason(widget.plan)) ...[
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -499,8 +503,10 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
     final hPad = _isCompact ? 12.0 : (_isBuilder ? 16.0 : 20.0);
     final vPad = _isCompact ? 6.0 : (_isBuilder ? 6.0 : 10.0);
     final descLines = _isCompact ? 1 : (_isBuilder ? 2 : 2);
-    final descHeight = _isCompact ? 18.0 : (_isBuilder ? 32.0 : 42.0);
     final descSize = _isCompact ? 12.0 : 14.0;
+    // Min height for description so 2 lines render at 100% (fontSize * lineHeight * lines). Builder had 32px which clipped 2nd line.
+    final lineHeight = 1.4;
+    final descMinHeight = _isCompact ? 18.0 : (descSize * lineHeight * descLines);
     // Option A: compact "More by" card omits description and rating to fit 160×220
     final showDescription = !_isCompact && widget.plan.description.isNotEmpty;
     final showRating = !_isCompact;
@@ -509,7 +515,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1F2937) : Colors.white,
       ),
-      clipBehavior: Clip.hardEdge,
+      clipBehavior: Clip.none,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -519,15 +525,15 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
             SizedBox(height: _isCompact ? 4 : (_isBuilder ? 6 : 8)),
           ],
           if (showDescription) ...[
-            SizedBox(
-              height: descHeight,
+            ConstrainedBox(
+              constraints: BoxConstraints(minHeight: descMinHeight),
               child: Text(
                 widget.plan.description,
                 style: TextStyle(
                   color: isDark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF374151),
                   fontSize: descSize,
                   fontWeight: FontWeight.w400,
-                  height: 1.4,
+                  height: lineHeight,
                 ),
                 maxLines: descLines,
                 overflow: TextOverflow.ellipsis,

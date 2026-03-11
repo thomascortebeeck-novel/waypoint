@@ -311,7 +311,7 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                   const SectionHeader(title: 'Created plans'),
                   const SizedBox(height: 16),
                   SizedBox(
-                    height: 380,
+                    height: 420,
                     child: _plans.isEmpty
                         ? Center(
                             child: Text(

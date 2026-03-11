@@ -426,7 +426,7 @@ class WaypointStatsRow extends StatelessWidget {
 // WaypointTripCard
 // =============================================================================
 
-/// Image-left card with date, avatars, status chip; My Trips + Home "Your Recent Plans".
+/// Image-left card with date, avatars, status chip; My Trips + Home "Your Recent Trips".
 class WaypointTripCard extends StatelessWidget {
   const WaypointTripCard({
     super.key,
@@ -771,6 +771,7 @@ class WaypointFeaturedPlanCard extends StatelessWidget {
     this.isFree = false,
     this.imageWidget,
     this.initials = const [],
+    this.creatorAvatarUrl,
     this.tagLabels = const [],
     this.onTap,
   });
@@ -783,7 +784,10 @@ class WaypointFeaturedPlanCard extends StatelessWidget {
   final String? location;
   final bool isFree;
   final Widget? imageWidget;
+  /// One or more initial letters for the creator (e.g. ["TC"] for first+last). Shown when [creatorAvatarUrl] is null or fails to load.
   final List<String> initials;
+  /// Creator profile image URL. Shown in the circle when set; falls back to [initials].
+  final String? creatorAvatarUrl;
   final List<String> tagLabels;
   final VoidCallback? onTap;
 
@@ -918,7 +922,12 @@ class WaypointFeaturedPlanCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        WaypointUserAvatarGroup(initials: initials.isEmpty ? ['?'] : initials),
+                        WaypointUserAvatarGroup(
+                          initials: initials.isEmpty ? ['?'] : initials,
+                          imageUrls: creatorAvatarUrl != null && creatorAvatarUrl!.isNotEmpty
+                              ? [creatorAvatarUrl]
+                              : null,
+                        ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(

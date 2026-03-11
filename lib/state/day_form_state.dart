@@ -26,6 +26,8 @@ class DayFormState extends ChangeNotifier {
   final TextEditingController elevationCtrl;   // Elevation gain in m
   final TextEditingController komootLinkCtrl;
   final TextEditingController allTrailsLinkCtrl;
+  final TextEditingController trailDisplayNameCtrl;
+  final TextEditingController trailDescriptionCtrl;
   
   // --- Coordinates ---
   ll.LatLng? start;
@@ -60,6 +62,8 @@ class DayFormState extends ChangeNotifier {
       stayCostCtrl = TextEditingController(),
       komootLinkCtrl = TextEditingController(),
       allTrailsLinkCtrl = TextEditingController(),
+      trailDisplayNameCtrl = TextEditingController(),
+      trailDescriptionCtrl = TextEditingController(),
       accommodations = [],
       restaurants = [],
       activities = [];
@@ -122,6 +126,8 @@ class DayFormState extends ChangeNotifier {
     stayCostCtrl.dispose();
     komootLinkCtrl.dispose();
     allTrailsLinkCtrl.dispose();
+    trailDisplayNameCtrl.dispose();
+    trailDescriptionCtrl.dispose();
     for (final a in accommodations) { a.dispose(); }
     for (final r in restaurants) { r.dispose(); }
     for (final act in activities) { act.dispose(); }

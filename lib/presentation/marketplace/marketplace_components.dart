@@ -4,6 +4,10 @@ import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 import 'package:waypoint/components/waypoint/waypoint_pin_geometry.dart';
 import 'package:waypoint/core/constants/breakpoints.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/app_review_model.dart';
+import 'package:waypoint/models/user_model.dart';
+import 'package:waypoint/services/app_review_service.dart';
+import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/theme/colors.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
@@ -1099,7 +1103,8 @@ class _UspStepCard extends StatelessWidget {
   }
 }
 
-/// Testimonials Section
+/// Our latest reviews: app reviews (rating 4–5, with description, allowShowOnWebsite).
+/// Shows reviewer profile image, name, location and comment.
 class TestimonialsSection extends StatelessWidget {
   const TestimonialsSection({super.key, required this.isDesktop});
 
@@ -1107,29 +1112,8 @@ class TestimonialsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final testimonials = [
-      TestimonialData(
-        quote: "Waypoint made planning our Iceland trek so easy! The offline maps were a lifesaver when we lost signal. Highly recommend!",
-        name: "Sarah Johnson",
-        location: "Portland, OR",
-        rating: 5.0,
-        avatarUrl: "https://i.pravatar.cc/150?img=1",
-      ),
-      TestimonialData(
-        quote: "As a solo traveler, Waypoint gave me the confidence to explore safely. The detailed maps and community notes were invaluable.",
-        name: "Marco Rossi",
-        location: "Milan, Italy",
-        rating: 5.0,
-        avatarUrl: "https://i.pravatar.cc/150?img=12",
-      ),
-      TestimonialData(
-        quote: "Downloaded everything offline for our Patagonia trip. No connectivity issues, just pure adventure!",
-        name: "Emma & Jake",
-        location: "Sydney, Australia",
-        rating: 5.0,
-        avatarUrl: "https://i.pravatar.cc/150?img=5",
-      ),
-    ];
+    final appReviewService = AppReviewService();
+    final userService = UserService();
 
     return Container(
       padding: EdgeInsets.symmetric(
@@ -1143,45 +1127,177 @@ class TestimonialsSection extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: WaypointBreakpoints.contentMaxWidth),
           padding: EdgeInsets.symmetric(horizontal: isDesktop ? 48 : 24),
           child: Column(
-        children: [
-          Text(
-            'What Adventurers Say',
-            style: context.textStyles.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Real experiences from our community',
-            style: context.textStyles.bodyLarge?.copyWith(
-              color: context.colors.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            height: isDesktop ? 320 : 280,
-            child: Scrollbar(
-              thumbVisibility: isDesktop,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: EdgeInsets.zero,
-                itemCount: testimonials.length,
-                separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 24 : 16),
-                itemBuilder: (context, index) => SizedBox(
-                  width: isDesktop
-                      ? 380
-                      : MediaQuery.of(context).size.width * 0.85,
-                  child: TestimonialCard(testimonial: testimonials[index]),
+            children: [
+              Text(
+                'Our latest reviews',
+                style: context.textStyles.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Latest reviews for the Waypoint app',
+                style: context.textStyles.bodyLarge?.copyWith(
+                  color: context.colors.onSurface.withValues(alpha: 0.6),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                height: isDesktop ? 320 : 280,
+                child: StreamBuilder<List<AppReview>>(
+                  stream: appReviewService.streamLatestReviewsForWebsite(limit: 20),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final reviews = snapshot.data ?? [];
+                    if (reviews.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No reviews yet. Be the first to share your experience!',
+                          style: context.textStyles.bodyMedium?.copyWith(
+                            color: context.colors.onSurface.withValues(alpha: 0.6),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      );
+                    }
+                    return Scrollbar(
+                      thumbVisibility: isDesktop,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: EdgeInsets.zero,
+                        itemCount: reviews.length,
+                        separatorBuilder: (_, __) => SizedBox(width: isDesktop ? 24 : 16),
+                        itemBuilder: (context, index) => SizedBox(
+                          width: isDesktop
+                              ? 380
+                              : MediaQuery.of(context).size.width * 0.85,
+                          child: _AppReviewCard(
+                            review: reviews[index],
+                            userService: userService,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-            ),
+            ],
           ),
-          ],
-        ),
         ),
       ),
+    );
+  }
+}
+
+/// Single app review card with reviewer avatar, name, location and comment.
+class _AppReviewCard extends StatelessWidget {
+  const _AppReviewCard({required this.review, required this.userService});
+
+  final AppReview review;
+  final UserService userService;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<UserModel?>(
+      future: userService.getUserById(review.userId),
+      builder: (context, userSnapshot) {
+        final user = userSnapshot.data;
+        final name = user?.displayName ?? 'Anonymous';
+        final location = user?.location ?? '';
+        final avatarUrl = user?.photoUrl;
+
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: context.colors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: context.colors.outline,
+              width: 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: List.generate(
+                  5,
+                  (i) => Icon(
+                    Icons.star,
+                    size: 16,
+                    color: i < review.rating
+                        ? context.colors.primary
+                        : context.colors.outline.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                fit: FlexFit.loose,
+                child: Text(
+                  review.comment,
+                  style: context.textStyles.bodyMedium?.copyWith(
+                    color: context.colors.onSurface.withValues(alpha: 0.7),
+                    height: 1.6,
+                  ),
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: context.colors.primaryContainer,
+                    backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                        ? CachedNetworkImageProvider(avatarUrl)
+                        : null,
+                    child: avatarUrl == null || avatarUrl.isEmpty
+                        ? Text(
+                            name.isNotEmpty ? name[0].toUpperCase() : '?',
+                            style: context.textStyles.titleMedium?.copyWith(
+                              color: context.colors.onPrimaryContainer,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: context.textStyles.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (location.isNotEmpty)
+                          Text(
+                            location,
+                            style: context.textStyles.labelSmall?.copyWith(
+                              color: context.colors.onSurface.withValues(alpha: 0.6),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

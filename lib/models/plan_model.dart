@@ -788,6 +788,10 @@ class DayItinerary {
   final RouteInfo? routeInfo;
   // Imported GPX route for outdoor activities
   final GpxRoute? gpxRoute;
+  /// Display name for the trail (AllTrails/Komoot/GPX) shown as waypoint 0
+  final String? trailDisplayName;
+  /// Optional description for the trail card
+  final String? trailDescription;
 
   DayItinerary({
     required this.dayNum,
@@ -810,6 +814,8 @@ class DayItinerary {
     this.allTrailsLink,
     this.routeInfo,
     this.gpxRoute,
+    this.trailDisplayName,
+    this.trailDescription,
   });
 
   Duration get estimatedTime => Duration(minutes: estimatedTimeMinutes);
@@ -852,6 +858,8 @@ class DayItinerary {
       gpxRoute: json['gpx_route'] != null
           ? GpxRoute.fromJson(json['gpx_route'] as Map<String, dynamic>)
           : null,
+      trailDisplayName: json['trail_display_name'] as String?,
+      trailDescription: json['trail_description'] as String?,
     );
   }
 
@@ -877,6 +885,8 @@ class DayItinerary {
       if (allTrailsLink != null && allTrailsLink!.isNotEmpty) 'all_trails_link': allTrailsLink,
       if (routeInfo != null) 'route_info': routeInfo!.toJson(),
       if (gpxRoute != null) 'gpx_route': gpxRoute!.toJson(),
+      if (trailDisplayName != null && trailDisplayName!.isNotEmpty) 'trail_display_name': trailDisplayName,
+      if (trailDescription != null && trailDescription!.isNotEmpty) 'trail_description': trailDescription,
     };
   }
 }

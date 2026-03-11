@@ -53,11 +53,12 @@ jobs:
         run: |
           MAPS_KEY="$GOOGLE_MAPS_API_KEY"
           if [ -z "$MAPS_KEY" ] && [ -n "$GOOGLE_PLACES_API_KEY" ]; then MAPS_KEY="$GOOGLE_PLACES_API_KEY"; fi
-          if [ -n "$MAPS_KEY" ]; then
-            sed -i "s/YOUR_GOOGLE_MAPS_API_KEY/$MAPS_KEY/g" build/web/index.html
-          else
-            echo "::warning::Neither GOOGLE_MAPS_API_KEY nor GOOGLE_PLACES_API_KEY set; web map may not work."
+          if [ -z "$MAPS_KEY" ]; then
+            echo "::error::Google Maps on the deployed web app require an API key. Add repo secret GOOGLE_MAPS_API_KEY (or GOOGLE_PLACES_API_KEY) in Settings → Secrets and variables → Actions. Enable Maps JavaScript API and restrict the key to your domain (e.g. waypoint.tours)."
+            exit 1
           fi
+          sed -i "s/YOUR_GOOGLE_MAPS_API_KEY/$MAPS_KEY/g" build/web/index.html
+          echo "Google Maps API key substituted in build/web/index.html."
 
       - name: Verify build output
         run: |

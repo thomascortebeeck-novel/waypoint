@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme/waypoint_typography.dart';
 import 'package:waypoint/theme/waypoint_spacing.dart';
 import 'package:waypoint/components/common/price_display_widget.dart';
 import 'package:waypoint/models/plan_model.dart';
 
-/// Buy Plan card component
-/// 
-/// Sidebar CTA card for purchasing/viewing adventure plans.
-/// Builder mode: Shows price editor
-/// Viewer mode: Shows buy button with price
+/// Back Plan card component (brand: "Back" not "Buy").
+///
+/// Sidebar CTA card for backing/viewing adventure plans.
+/// Builder mode: Shows price editor.
+/// Viewer mode: Shows back button with price and optional "X people have backed this".
 
 class BuyPlanCard extends StatefulWidget {
   final double? price; // null or 0 = FREE
@@ -20,7 +21,11 @@ class BuyPlanCard extends StatefulWidget {
   final ActivityCategory? activityCategory;
   final AccommodationType? accommodationType;
   final int? durationDays;
-  
+  /// Creator name for "Back [Creator]" CTA. Optional.
+  final String? creatorName;
+  /// Plan sales count for "X people have backed this". Optional.
+  final int? salesCount;
+
   const BuyPlanCard({
     super.key,
     this.price,
@@ -31,6 +36,8 @@ class BuyPlanCard extends StatefulWidget {
     this.activityCategory,
     this.accommodationType,
     this.durationDays,
+    this.creatorName,
+    this.salesCount,
   });
   
   @override
@@ -146,7 +153,7 @@ class _BuyPlanCardState extends State<BuyPlanCard> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Get this adventure',
+                'Back this adventure',
                 style: WaypointTypography.headlineMedium,
               ),
             ),
@@ -157,6 +164,15 @@ class _BuyPlanCardState extends State<BuyPlanCard> {
           price: widget.price,
           fontSize: 28,
         ),
+        if (widget.salesCount != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            backedCountLabel(widget.salesCount!),
+            style: WaypointTypography.bodySmall.copyWith(
+              color: WaypointColors.textSecondary,
+            ),
+          ),
+        ],
         const SizedBox(height: WaypointSpacing.subsectionGap),
         if (widget.onBuyTap != null)
           SizedBox(
@@ -172,7 +188,7 @@ class _BuyPlanCardState extends State<BuyPlanCard> {
                 ),
               ),
               child: Text(
-                'Buy this plan',
+                backPlanButtonLabel(widget.creatorName),
                 style: WaypointTypography.bodyLarge.copyWith(
                   fontWeight: FontWeight.w600,
                 ),

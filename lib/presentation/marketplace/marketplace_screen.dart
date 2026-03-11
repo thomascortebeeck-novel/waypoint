@@ -157,6 +157,24 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           SliverToBoxAdapter(
             child: _buildHeroWithSearch(context, isDesktop, screenWidth),
           ),
+          // Featured Travel Experts (above 3 USPs)
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _CenteredSection(
+                  child: _SwimmingLane(
+                    title: 'Featured Travel Experts',
+                    subtitle: 'Discover their hand-crafted adventures',
+                    stream: _planService.streamFeaturedPlans(),
+                    isDesktop: isDesktop,
+                    onSeeAll: () => context.go('/explore'),
+                  ),
+                ),
+                SizedBox(height: isDesktop ? 48 : 32),
+              ],
+            ),
+          ),
           // 3-step USP section
           SliverToBoxAdapter(
             child: UspStepsSection(isDesktop: isDesktop),
@@ -169,16 +187,6 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
               padding: const EdgeInsets.only(bottom: 32),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  _CenteredSection(
-                    child: _SwimmingLane(
-                      title: 'Featured Adventures',
-                      subtitle: 'Hand-picked by experts',
-                      stream: _planService.streamFeaturedPlans(),
-                      isDesktop: isDesktop,
-                      onSeeAll: () => context.go('/explore'),
-                    ),
-                  ),
-                  SizedBox(height: isDesktop ? 48 : 32),
                   // Following Lane (only show if user is logged in and follows creators)
                   _FollowingLane(
                     auth: _auth,
@@ -885,6 +893,7 @@ class _SwimmingLane extends StatelessWidget {
 
   Widget _buildCarousel(BuildContext context, List<Plan> plans) {
     final cardWidth = isDesktop ? 300.0 : 280.0;
+    final userService = UserService();
 
     return ListView.separated(
       padding: EdgeInsets.zero,
@@ -894,31 +903,51 @@ class _SwimmingLane extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(width: 24),
       itemBuilder: (context, index) {
         final plan = plans[index];
-        final initials = plan.creatorName.isNotEmpty
-            ? plan.creatorName.trim().split(' ').take(2).map((s) => s.isNotEmpty ? s[0].toUpperCase() : '?').toList()
-            : <String>['?'];
         final tagLabels = activityTagLabelsForPlan(plan);
         return SizedBox(
           width: cardWidth,
-          child: WaypointFeaturedPlanCard(
-            title: plan.name,
-            creatorName: plan.creatorName,
-            rating: 4.5,
-            reviewCount: 2,
-            price: plan.minPrice > 0 ? plan.minPrice : null,
-            location: plan.location.isNotEmpty ? plan.location : null,
-            isFree: plan.minPrice == 0,
-            imageWidget: plan.heroImageUrl.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: plan.heroImageUrl,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => Container(color: context.colors.surfaceContainerHighest),
-                    errorWidget: (_, __, ___) => Container(color: context.colors.surfaceContainerHighest, child: Icon(Icons.landscape_outlined, color: context.colors.onSurface.withValues(alpha: 0.5))),
-                  )
-                : null,
-            initials: initials,
-            tagLabels: tagLabels,
-            onTap: () => context.push('/details/${plan.id}'),
+          child: FutureBuilder(
+            future: userService.getUserById(plan.creatorId),
+            builder: (context, userSnap) {
+              final user = userSnap.data;
+              final creatorAvatarUrl = user?.photoUrl;
+              String initialsStr;
+              if (user != null &&
+                  user.firstName != null &&
+                  user.firstName!.isNotEmpty &&
+                  user.lastName != null &&
+                  user.lastName!.isNotEmpty) {
+                initialsStr = '${user.firstName![0]}${user.lastName![0]}'.toUpperCase();
+              } else {
+                final parts = plan.creatorName.trim().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).take(2);
+                initialsStr = parts.isEmpty
+                    ? '?'
+                    : parts.length == 1
+                        ? parts.first[0].toUpperCase()
+                        : '${parts.first[0]}${parts.elementAt(1)[0]}'.toUpperCase();
+              }
+              return WaypointFeaturedPlanCard(
+                title: plan.name,
+                creatorName: plan.creatorName,
+                rating: plan.reviewStats?.averageRating ?? 0.0,
+                reviewCount: (plan.reviewStats?.totalReviews ?? 0) > 0 ? plan.reviewStats!.totalReviews : null,
+                price: plan.minPrice > 0 ? plan.minPrice : null,
+                location: plan.location.isNotEmpty ? plan.location : null,
+                isFree: plan.minPrice == 0,
+                imageWidget: plan.heroImageUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: plan.heroImageUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(color: context.colors.surfaceContainerHighest),
+                        errorWidget: (_, __, ___) => Container(color: context.colors.surfaceContainerHighest, child: Icon(Icons.landscape_outlined, color: context.colors.onSurface.withValues(alpha: 0.5))),
+                      )
+                    : null,
+                initials: [initialsStr],
+                creatorAvatarUrl: creatorAvatarUrl,
+                tagLabels: tagLabels,
+                onTap: () => context.push('/details/${plan.id}'),
+              );
+            },
           ),
         );
       },
@@ -994,7 +1023,7 @@ class _YourPlansLane extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader(
-          title: 'Your Recent Plans',
+          title: 'Your Recent Trips',
           subtitle: 'Quick access to your itineraries',
         ),
         const SizedBox(height: 16),

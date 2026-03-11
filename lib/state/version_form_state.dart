@@ -415,6 +415,8 @@ class VersionFormState extends ChangeNotifier {
       }
       dayState.komootLinkCtrl.text = day.komootLink ?? '';
       dayState.allTrailsLinkCtrl.text = day.allTrailsLink ?? '';
+      dayState.trailDisplayNameCtrl.text = day.trailDisplayName ?? '';
+      dayState.trailDescriptionCtrl.text = day.trailDescription ?? '';
       if (day.startLat != null && day.startLng != null) {
         dayState.start = ll.LatLng(day.startLat!, day.startLng!);
       }

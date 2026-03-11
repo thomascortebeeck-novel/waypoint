@@ -34,6 +34,7 @@ class _TripReviewDialogState extends State<TripReviewDialog> {
   final TextEditingController _planCommentController = TextEditingController();
   int _appRating = 0;
   final TextEditingController _appCommentController = TextEditingController();
+  bool _allowShowOnWebsite = false;
 
   bool _savingPlan = false;
   bool _savingApp = false;
@@ -85,11 +86,14 @@ class _TripReviewDialogState extends State<TripReviewDialog> {
       _errorMessage = null;
       _savingApp = true;
     });
+    final comment = _appCommentController.text.trim();
+    final allowShowOnWebsite = _appRating >= 4 && comment.isNotEmpty && _allowShowOnWebsite;
     try {
       await _appReviewService.createAppReview(
         rating: _appRating,
-        comment: _appCommentController.text.trim(),
+        comment: comment,
         tripId: widget.trip.id,
+        allowShowOnWebsite: allowShowOnWebsite,
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -123,8 +127,13 @@ class _TripReviewDialogState extends State<TripReviewDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'How was your trip with ${widget.plan.name}?',
+          'Score for the plan',
           style: WaypointTypography.titleMedium.copyWith(color: WaypointColors.textPrimary),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'How was your trip with ${widget.plan.name}?',
+          style: WaypointTypography.bodySmall?.copyWith(color: WaypointColors.textSecondary),
         ),
         const SizedBox(height: 20),
         _StarRating(
@@ -180,8 +189,13 @@ class _TripReviewDialogState extends State<TripReviewDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'How did you like using Waypoint?',
+          'Score for the Waypoint app',
           style: WaypointTypography.titleMedium.copyWith(color: WaypointColors.textPrimary),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'How did you like using Waypoint?',
+          style: WaypointTypography.bodySmall?.copyWith(color: WaypointColors.textSecondary),
         ),
         const SizedBox(height: 20),
         _StarRating(
@@ -198,6 +212,21 @@ class _TripReviewDialogState extends State<TripReviewDialog> {
           maxLines: 3,
           onChanged: (_) => setState(() {}),
         ),
+        if (_appRating >= 4 && _appCommentController.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          CheckboxListTile(
+            value: _allowShowOnWebsite,
+            onChanged: (v) => setState(() => _allowShowOnWebsite = v ?? false),
+            title: Text(
+              'May we show your review on our website?',
+              style: WaypointTypography.bodySmall.copyWith(
+                color: WaypointColors.textPrimary,
+              ),
+            ),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+          ),
+        ],
         if (_errorMessage != null) ...[
           const SizedBox(height: 12),
           Text(
