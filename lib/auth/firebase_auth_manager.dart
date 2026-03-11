@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:waypoint/auth/auth_manager.dart';
 import 'package:waypoint/auth/auth_exception.dart';
+import 'package:waypoint/firebase_options.dart';
 import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/services/user_service.dart';
 
@@ -26,12 +27,34 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
     return await _userService.getUserById(fbUser.uid);
   }
 
+  bool _showPlaceholderDialog(BuildContext context) {
+    if (!DefaultFirebaseOptions.isPlaceholder) return false;
+    if (!context.mounted) return true;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Firebase config needed'),
+        content: const Text(
+          'Sign-in needs your Firebase config in this project. You do not need to upload anything online. From the project root in a terminal run:\n\nflutterfire configure\n\nThen restart the app. This downloads your existing Firebase project config into lib/firebase_options.dart.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    return true;
+  }
+
   @override
   Future<UserModel?> signInWithEmail(
     BuildContext context,
     String email,
     String password,
   ) async {
+    if (_showPlaceholderDialog(context)) return null;
     try {
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,
@@ -65,6 +88,7 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
     required bool agreedToTerms,
     required bool marketingOptIn,
   }) async {
+    if (_showPlaceholderDialog(context)) return null;
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -156,6 +180,7 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
 
   @override
   Future<UserModel?> signInWithGoogle(BuildContext context) async {
+    if (_showPlaceholderDialog(context)) return null;
     // Note: Google Sign-In requires additional setup and the google_sign_in package
     // This is a placeholder for future implementation
     _showErrorSnackBar(context, 'Google Sign-In not yet implemented');

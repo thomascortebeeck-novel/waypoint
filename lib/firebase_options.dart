@@ -7,6 +7,19 @@ import 'package:flutter/foundation.dart'
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 class DefaultFirebaseOptions {
+  /// True when the current platform is using placeholder config (invalid for Auth). Run `flutterfire configure` for local sign-in.
+  static bool get isPlaceholder {
+    if (kIsWeb) return web.apiKey == 'REPLACE_VIA_FIREBASE_OPTIONS_DART';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return android.apiKey == 'REPLACE_VIA_FIREBASE_OPTIONS_DART';
+      case TargetPlatform.iOS:
+        return ios.apiKey == 'REPLACE_VIA_FIREBASE_OPTIONS_DART';
+      default:
+        return true;
+    }
+  }
+
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
       return web;
@@ -64,4 +77,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'your-project-id.firebasestorage.app',
     iosBundleId: 'com.thomascortebeeck.waypoint',
   );
+
 }

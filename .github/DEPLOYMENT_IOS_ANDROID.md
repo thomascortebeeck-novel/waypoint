@@ -13,6 +13,13 @@ This doc covers running the Waypoint Flutter app on iOS (Xcode) and Android, and
 - **Flutter SDK** (stable), **Xcode** (iOS), **Android Studio** or Android SDK (Android), **CocoaPods** (iOS)
 - For release builds: **Apple Developer account** (iOS), **Android keystore** (see `android/key.properties.example`)
 
+## Local: Authentication (email / Google sign-in)
+
+The repo ships with placeholder Firebase config in `lib/firebase_options.dart`. To sign in locally (email or Google), you need real Firebase keys:
+
+1. Install **`dart pub global activate flutterfire_cli`**, add `$HOME/.pub-cache/bin` to PATH, then from the project root run **`flutterfire configure --project=PROJECT_ID --platforms=web --yes --overwrite-firebase-options`** (PROJECT_ID from `.firebaserc`). If you run interactively and are asked to reuse `firebase.json`, choose **no**. For full platforms use `--platforms=android,ios,web` (iOS step may fail without Ruby xcodeproj).
+2. Restart the app. Do not commit that file’s config. Do not commit that file if it contains real keys.
+
 ## Google Maps API key (required for map on device)
 
 The app uses **Google Maps** for the map. You must set an API key per platform:
