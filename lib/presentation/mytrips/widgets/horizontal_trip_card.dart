@@ -178,9 +178,9 @@ class HorizontalTripCard extends StatelessWidget {
         trip.title?.isNotEmpty == true ? trip.title! : plan.name;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 4),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 176),
+        constraints: const BoxConstraints(maxHeight: 180),
         child: SingleChildScrollView(
           clipBehavior: Clip.none,
           child: Column(
@@ -259,7 +259,7 @@ class HorizontalTripCard extends StatelessWidget {
                     ),
                   ],
                 ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [

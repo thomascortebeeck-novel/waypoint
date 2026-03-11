@@ -64,6 +64,7 @@ import 'package:waypoint/components/adventure/review_score_row.dart';
 import 'package:waypoint/components/adventure/version_carousel.dart';
 import 'package:waypoint/components/adventure/creator_card.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart' show AdventureCard, AdventureCardVariant;
+import 'package:waypoint/presentation/widgets/share_bottom_sheet.dart';
 import 'package:waypoint/components/adventure/day_hero_image.dart';
 import 'package:waypoint/components/adventure/stat_bar.dart';
 import 'package:waypoint/services/seo_service.dart';
@@ -1135,7 +1136,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 title: displayName,
                 isPlanMode: widget.mode != AdventureMode.trip,
                 onShare: () {
-                  // TODO: Implement share functionality
+                  if (_plan != null) {
+                    ShareBottomSheet.show(context, _plan!);
+                  }
                 },
                 onLike: () {
                   // TODO: Implement like functionality
@@ -7059,6 +7062,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                             children: _adventureData!.faqItems.map((faq) => _buildFAQItem(faq)).toList(),
                           ),
                         ],
+                        // Bottom padding so content is not hidden by sticky buy bar on mobile
+                        SizedBox(
+                          height: MediaQuery.of(context).padding.bottom +
+                              (WaypointBreakpoints.isMobile(MediaQuery.of(context).size.width) &&
+                                      _isMobileBuyBarVisible()
+                                  ? 80
+                                  : 24),
+                        ),
                       ],
                     ),
                   ),
@@ -9464,6 +9475,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
 
     final types = option.types.isNotEmpty ? option.types : <TransportationType>[];
 
+    final isMobile = MediaQuery.of(context).size.width < WaypointBreakpoints.tablet;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -9474,22 +9486,40 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (types.isEmpty)
-                _transportIconCircle(Icons.directions, kIconBg, kGreen)
-              else
-                ...types.take(2).map((type) => Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: _transportIconCircle(
-                        _kTransportIcons[type] ?? Icons.directions,
-                        kIconBg,
-                        kGreen,
-                      ),
-                    )),
-            ],
-          ),
+          if (isMobile)
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (types.isEmpty)
+                  _transportIconCircle(Icons.directions, kIconBg, kGreen)
+                else
+                  ...types.map((type) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: _transportIconCircle(
+                          _kTransportIcons[type] ?? Icons.directions,
+                          kIconBg,
+                          kGreen,
+                        ),
+                      )),
+              ],
+            )
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (types.isEmpty)
+                  _transportIconCircle(Icons.directions, kIconBg, kGreen)
+                else
+                  ...types.take(2).map((type) => Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: _transportIconCircle(
+                          _kTransportIcons[type] ?? Icons.directions,
+                          kIconBg,
+                          kGreen,
+                        ),
+                      )),
+              ],
+            ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -9573,8 +9603,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           label: wp.name,
           draggable: false,
           onTap: () {},
-          markerSize: 28,
-          iconSize: 12,
+          markerSize: 26,
+          iconSize: 14,
           showInfoWindow: true,
         ));
         allPoints.add(wp.position);
@@ -9732,13 +9762,13 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         ),
         const SizedBox(height: 12),
         SizedBox(
-          height: 200,
+          height: 136,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.zero,
             clipBehavior: Clip.none,
             itemCount: days.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 16),
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, index) {
               final day = days[index];
               final imageUrls = day.mediaItems
@@ -9750,7 +9780,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   ? imageUrls.first
                   : (day.photos.isNotEmpty ? day.photos.first : null);
               return SizedBox(
-                width: 160,
+                width: 104,
                 child: GestureDetector(
                   onTap: () => _onNavigationItemSelected(NavigationItem.itinerary),
                   child: Column(
@@ -9760,8 +9790,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                       ClipRRect(
                         borderRadius: BorderRadius.circular(WaypointSpacing.radiusMd),
                         child: Container(
-                          height: 140,
-                          width: 160,
+                          height: 84,
+                          width: 104,
                           decoration: BoxDecoration(
                             color: context.colors.surfaceContainerHighest,
                             image: imageUrl != null
@@ -9774,19 +9804,20 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                           child: Stack(
                             children: [
                               Positioned(
-                                left: 8,
-                                bottom: 8,
+                                left: 4,
+                                bottom: 4,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                                   decoration: BoxDecoration(
                                     color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(8),
+                                    borderRadius: BorderRadius.circular(5),
                                   ),
                                   child: Text(
                                     'Day ${day.dayNum}',
                                     style: WaypointTypography.labelMedium.copyWith(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w600,
+                                      fontSize: 10,
                                     ),
                                   ),
                                 ),
@@ -9795,12 +9826,13 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                           ),
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 3),
                       Text(
                         day.title.isEmpty ? 'Day ${day.dayNum}' : day.title,
                         style: WaypointTypography.bodySmall.copyWith(
                           color: context.colors.onSurface,
                           fontWeight: FontWeight.w500,
+                          fontSize: 11,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,

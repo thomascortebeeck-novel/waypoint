@@ -24,10 +24,11 @@ Restrict the key in [Google Cloud Console](https://console.cloud.google.com/goog
 
 ## Local: iOS (Xcode)
 
-1. On a Mac, clone the repo and open `**ios/Runner.xcworkspace`** in Xcode (not the `.xcodeproj`).
+1. On a Mac, clone the repo and open **`ios/Runner.xcworkspace`** in Xcode (not the `.xcodeproj`).
 2. Select the **Runner** target → **Signing & Capabilities** → choose your **Team** (automatic signing).
-3. Connect your iPhone, select it as the run destination, and run (or from project root: `flutter run` with device connected).
-4. If you need **GoogleService-Info.plist** (e.g. for Crashlytics), add it from Firebase Console (iOS app with bundle ID `com.thomascortebeeck.waypoint`) into `ios/Runner/` and add it to the Runner target in Xcode. See `ios/Runner/README-GoogleService-Info.md`.
+3. For the map to work locally: **Edit Scheme** → **Run** → **Arguments** tab → **Environment Variables** → add `GOOGLE_MAPS_API_KEY` with your Google Maps API key (avoids "Client authentication failed").
+4. Connect your iPhone, select it as the run destination, and run (or from project root: `flutter run` with device connected).
+5. If you need **GoogleService-Info.plist** (e.g. for Crashlytics), add it from Firebase Console (iOS app with bundle ID `com.thomascortebeeck.waypoint`) into `ios/Runner/` and add it to the Runner target in Xcode. See `ios/Runner/README-GoogleService-Info.md`.
 
 ## Local: Android
 

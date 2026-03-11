@@ -497,9 +497,9 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
 
   Widget _buildBottomSection(BuildContext context, bool isDark) {
     final hPad = _isCompact ? 12.0 : (_isBuilder ? 16.0 : 20.0);
-    final vPad = _isCompact ? 6.0 : (_isBuilder ? 8.0 : 10.0);
+    final vPad = _isCompact ? 6.0 : (_isBuilder ? 6.0 : 10.0);
     final descLines = _isCompact ? 1 : (_isBuilder ? 2 : 2);
-    final descHeight = _isCompact ? 18.0 : (_isBuilder ? 36.0 : 42.0);
+    final descHeight = _isCompact ? 18.0 : (_isBuilder ? 32.0 : 42.0);
     final descSize = _isCompact ? 12.0 : 14.0;
     // Option A: compact "More by" card omits description and rating to fit 160×220
     final showDescription = !_isCompact && widget.plan.description.isNotEmpty;
@@ -516,7 +516,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
         children: [
           if (widget.plan.activityCategory != null || widget.plan.accommodationType != null) ...[
             _buildBadgeRow(context, isDark),
-            SizedBox(height: _isCompact ? 4 : 8),
+            SizedBox(height: _isCompact ? 4 : (_isBuilder ? 6 : 8)),
           ],
           if (showDescription) ...[
             SizedBox(

@@ -230,7 +230,8 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       builder: (context, constraints) {
         final width = constraints.crossAxisExtent;
         final crossAxisCount = width > 1200 ? 4 : (width > 900 ? 3 : (width > 600 ? 2 : 1));
-        final aspectRatio = crossAxisCount == 1 ? 16 / 12 : 4 / 5;
+        // Slightly taller cards on mobile to avoid bottom overflow (description + badges + rating)
+        final aspectRatio = crossAxisCount == 1 ? 16 / 14 : 4 / 5;
 
         return SliverGrid(
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
