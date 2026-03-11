@@ -33,6 +33,16 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Create firebase_options.dart from secret
+        env:
+          FIREBASE_OPTIONS_DART: ${{ secrets.FIREBASE_OPTIONS_DART }}
+        run: |
+          if [ -z "$FIREBASE_OPTIONS_DART" ]; then
+            echo "::error::FIREBASE_OPTIONS_DART secret is not set. Run 'flutterfire configure' locally, then copy lib/firebase_options.dart content into repo Secrets."
+            exit 1
+          fi
+          echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
+
       - name: Create GoogleService-Info.plist from secret (optional)
         env:
           GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
@@ -44,9 +54,12 @@ jobs:
       - name: Substitute Google Maps API key in AppDelegate (optional)
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
         run: |
-          if [ -n "$GOOGLE_MAPS_API_KEY" ]; then
-            sed -i '' "s/YOUR_GOOGLE_MAPS_API_KEY/$GOOGLE_MAPS_API_KEY/g" ios/Runner/AppDelegate.swift
+          MAPS_KEY="$GOOGLE_MAPS_API_KEY"
+          if [ -z "$MAPS_KEY" ] && [ -n "$GOOGLE_PLACES_API_KEY" ]; then MAPS_KEY="$GOOGLE_PLACES_API_KEY"; fi
+          if [ -n "$MAPS_KEY" ]; then
+            sed -i '' "s/YOUR_GOOGLE_MAPS_API_KEY/$MAPS_KEY/g" ios/Runner/AppDelegate.swift
           fi
 
       - name: Install CocoaPods
@@ -54,7 +67,12 @@ jobs:
           cd ios && pod install && cd ..
 
       - name: Build iOS (no codesign)
-        run: flutter build ios --no-codesign
+        env:
+          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+        run: |
+          EXTRA_DEFINES=""
+          if [ -n "$MAPBOX_PUBLIC_TOKEN" ]; then EXTRA_DEFINES="--dart-define=MAPBOX_PUBLIC_TOKEN=$MAPBOX_PUBLIC_TOKEN"; fi
+          flutter build ios --no-codesign $EXTRA_DEFINES
 
       - name: Summary
         if: success()

@@ -28,8 +28,36 @@ jobs:
           flutter clean
           flutter pub get
 
+      - name: Create firebase_options.dart from secret
+        env:
+          FIREBASE_OPTIONS_DART: ${{ secrets.FIREBASE_OPTIONS_DART }}
+        run: |
+          if [ -z "$FIREBASE_OPTIONS_DART" ]; then
+            echo "::error::FIREBASE_OPTIONS_DART secret is not set. Run 'flutterfire configure' locally, then copy lib/firebase_options.dart content into repo Secrets."
+            exit 1
+          fi
+          echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
+
       - name: Build web
-        run: flutter build web
+        env:
+          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+        run: |
+          EXTRA_DEFINES=""
+          if [ -n "$MAPBOX_PUBLIC_TOKEN" ]; then EXTRA_DEFINES="--dart-define=MAPBOX_PUBLIC_TOKEN=$MAPBOX_PUBLIC_TOKEN"; fi
+          flutter build web $EXTRA_DEFINES
+
+      - name: Substitute Google Maps API key in built web
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+        run: |
+          MAPS_KEY="$GOOGLE_MAPS_API_KEY"
+          if [ -z "$MAPS_KEY" ] && [ -n "$GOOGLE_PLACES_API_KEY" ]; then MAPS_KEY="$GOOGLE_PLACES_API_KEY"; fi
+          if [ -n "$MAPS_KEY" ]; then
+            sed -i "s/YOUR_GOOGLE_MAPS_API_KEY/$MAPS_KEY/g" build/web/index.html
+          else
+            echo "::warning::Neither GOOGLE_MAPS_API_KEY nor GOOGLE_PLACES_API_KEY set; web map may not work."
+          fi
 
       - name: Verify build output
         run: |

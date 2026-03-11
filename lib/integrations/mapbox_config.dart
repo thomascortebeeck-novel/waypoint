@@ -8,10 +8,11 @@
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-/// Mapbox access token (waypoint token with STYLES:TILES scope)
+/// Mapbox access token (waypoint token with STYLES:TILES scope).
+/// Set via --dart-define=MAPBOX_PUBLIC_TOKEN=... in CI or local builds; or leave empty to disable Mapbox features.
 const mapboxPublicToken = String.fromEnvironment(
   'MAPBOX_PUBLIC_TOKEN',
-  defaultValue: 'pk.eyJ1IjoidGhvbWFzY29ydGViZWVjazkzIiwiYSI6ImNtazFtbDhncDA2bDEzZ3F5eXh3Mm9pc3UifQ.Zt295Dc_mTs9L7rvgpJ4dA',
+  defaultValue: '',
 );
 
 // ✅ UPDATED: Using your new Outdoors template style (created from Mapbox Gallery)
