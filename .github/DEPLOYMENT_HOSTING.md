@@ -24,6 +24,11 @@ Uses the same secrets as the Cloud Functions workflow:
 
 No extra secrets are needed. The service account used for Functions deploy can deploy Hosting if it has the **Firebase Hosting Admin** (or **Editor**) role.
 
+If deploy fails with **HTTP 404, Requested entity was not found** on “finalizing version”, the Hosting API is being called without a valid project or site:
+
+1. **Check GitHub secrets**: Repo → Settings → Secrets and variables → Actions. Ensure **FIREBASE_PROJECT_ID** is set to your Firebase project ID (e.g. the value from `.firebaserc` locally). If it’s missing or wrong, the CLI can end up using `projects/-` and the finalize step returns 404.
+2. **Check project and site**: In [Firebase Console](https://console.firebase.google.com/), open your project and go to Hosting. Confirm the default site (or the one you use) exists. If you use a **second Hosting site** (e.g. for a separate domain), add `"site": "your-site-id"` under `hosting` in `firebase.json` so the CLI targets the correct site.
+
 ## What it does
 
 1. Checkout repo, set up Flutter (stable), install dependencies.

@@ -426,10 +426,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_background_geolocation
-      sha256: "6910bec29cfed37fe11972c0207411c36d26f62067f2465b22d0c1176da60f6c"
+      sha256: "2c5f23bf35837b31c4e1badadf7fb5da418a1862133b5a671b3e0bfa60c3bf2f"
       url: "https://pub.dev"
     source: hosted
-    version: "4.18.2"
+    version: "4.18.3"
   flutter_cache_manager:
     dependency: transitive
     description:

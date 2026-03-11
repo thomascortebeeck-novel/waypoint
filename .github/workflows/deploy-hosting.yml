@@ -45,9 +45,15 @@ jobs:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       - name: Deploy to Firebase Hosting
+        env:
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
+          if [ -z "$FIREBASE_PROJECT_ID" ]; then
+            echo "::error::FIREBASE_PROJECT_ID secret is not set. Add it in repo Settings → Secrets and Variables → Actions."
+            exit 1
+          fi
           firebase deploy --only hosting \
-            --project ${{ secrets.FIREBASE_PROJECT_ID }} \
+            --project "$FIREBASE_PROJECT_ID" \
             --non-interactive
 
       - name: Deployment summary
