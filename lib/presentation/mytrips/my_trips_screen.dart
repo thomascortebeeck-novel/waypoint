@@ -68,17 +68,18 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
       builder: (context, authSnapshot) {
         final uid = authSnapshot.data?.uid;
 
+        final topPadding = isDesktop ? kDesktopNavHeight : MediaQuery.of(context).padding.top;
         return Scaffold(
           floatingActionButton: uid == null
               ? null
               : WaypointFAB(
+                  heroTag: 'mytrips_new_itinerary_fab',
                   icon: Icons.add,
                   label: 'New Itinerary',
                   onPressed: () => context.go('/mytrips/create'),
                 ),
           body: CustomScrollView(slivers: [
-            if (isDesktop)
-              SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+            SliverToBoxAdapter(child: SizedBox(height: topPadding)),
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(

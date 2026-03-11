@@ -1,5 +1,6 @@
 // Mobile implementation of Google Maps
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps_mobile;
@@ -57,12 +58,14 @@ class _GoogleMapWidgetMobileState extends State<GoogleMapWidget> {
   double? _currentZoom; // From onCameraMove; used with mapWidth for marker scale
 
   /// Scale factor for waypoint pin markers (46×58 base). Guard against zoom 0.
-  /// Markers kept small: max ~18px (0.39×46). Higher zoom = larger; lower zoom = smaller. Reference 700px width.
+  /// Smaller markers that scale with zoom: zoomed out = smaller, zoomed in = larger. Max ~12px (0.26×46).
   double _markerScale() {
     final zoom = _currentZoom ?? widget.configuration?.initialZoom ?? 12.0;
     final safeZoom = zoom.clamp(1.0, 22.0);
     final width = widget.mapWidth ?? 400.0;
-    return ((width / 700.0) * (safeZoom / 14.0)).clamp(0.125, 0.39);
+    // Stronger zoom sensitivity: (zoom/14)^1.4 so zoomed-out maps get noticeably smaller markers
+    final zoomFactor = math.pow(safeZoom / 14.0, 1.4).toDouble();
+    return ((width / 700.0) * zoomFactor).clamp(0.1, 0.26);
   }
 
   void _scheduleMarkerRescale() {

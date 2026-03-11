@@ -64,19 +64,19 @@ class _PinPainter extends CustomPainter {
     paint.color = Colors.white;
     WaypointPinGeometry.drawContentCircle(canvas, w, h, paint);
 
-    // Number in circle (color = body color for contrast against white)
+    // Number in circle (color = body color for contrast against white); smaller/leaner so it fits clearly
     final center = WaypointPinGeometry.circleCenter(w, h);
     final radius = WaypointPinGeometry.circleRadius(w);
     final fontSize = label.length > 1
-        ? (radius * 1.1).clamp(8.0, 16.0)   // smaller for 2-digit numbers
-        : (radius * 1.4).clamp(10.0, 20.0);  // larger for single digit
+        ? (radius * 0.95).clamp(7.0, 14.0)   // smaller for 2-digit numbers
+        : (radius * 1.15).clamp(9.0, 16.0);   // single digit: leaner so icon/number is visible
 
     final textPainter = TextPainter(
       text: TextSpan(
         text: label,
         style: TextStyle(
           fontSize: fontSize,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w600,
           color: color,      // category color on white circle
           height: 1.0,
         ),

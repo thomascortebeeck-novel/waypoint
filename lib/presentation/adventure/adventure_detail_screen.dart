@@ -327,9 +327,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       DraggableScrollableController();
   
   // Snap sizes for mobile itinerary panel (fraction of screen height)
-  static const double _snapMin = 0.12; // map ~full, handle peeking
+  static const double _snapMin = 0.25; // min 25% so header + tabs don't overflow when map ~full
   static const double _snapMid = 0.50; // 50/50
   static const double _snapMax = 0.92; // waypoints ~full, map mostly hidden
+
+  // Track panel drag for swipe-up/down gesture (mobile itinerary)
+  double? _panelDragStartSize;
+  double? _panelDragStartY;
+  double? _panelDragStartScreenHeight;
   
   // Header height for sticky sidebar
   double _headerHeight = 220.0; // Safe default until first measurement
@@ -1412,30 +1417,33 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       return const SizedBox.shrink();
     }
     
-    return Container(
-      decoration: BoxDecoration(
-        color: WaypointColors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: WaypointSpacing.pagePaddingMobile,
-        vertical: 12.0,
-      ),
-      child: SafeArea(
-        top: false,
-        child: Row(
+    return ClipRect(
+      child: Container(
+        decoration: BoxDecoration(
+          color: WaypointColors.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: WaypointSpacing.pagePaddingMobile,
+          vertical: 12.0,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Price display
-            Expanded(
+            // Price display — Flexible so this column can shrink and avoid RenderFlex overflow on small screens
+            Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (widget.mode == AdventureMode.builder)
                     Text(
@@ -1444,6 +1452,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         color: WaypointColors.textSecondary,
                         fontSize: 12,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     )
                   else
                     Text(
@@ -1452,6 +1462,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         color: WaypointColors.textSecondary,
                         fontSize: 12,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   const SizedBox(height: 2),
                   PriceDisplayWidget(
@@ -1504,7 +1516,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   },
                   style: FilledButton.styleFrom(
                     backgroundColor: WaypointColors.primary,
-                    foregroundColor: WaypointColors.onPrimary,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1513,6 +1525,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                     'Start Trip',
                     style: WaypointTypography.bodyMedium.copyWith(
                       fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -1525,7 +1538,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   onPressed: _handleBuyPlan,
                   style: FilledButton.styleFrom(
                     backgroundColor: WaypointColors.primary,
-                    foregroundColor: WaypointColors.onPrimary,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1534,6 +1547,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                     'Buy',
                     style: WaypointTypography.bodyMedium.copyWith(
                       fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -1541,9 +1555,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           ],
         ),
       ),
-    );
+    ));
   }
-  
+
   // ============================================================================
   // VIEWER MODE TABS
   // ============================================================================
@@ -7097,51 +7111,54 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   PreferredSizeWidget _buildUnifiedNavBar(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = WaypointBreakpoints.isMobile(screenWidth);
-    final title = widget.mode == AdventureMode.builder && _formState != null
-        ? (_formState!.nameCtrl.text.isEmpty ? 'New Adventure' : _formState!.nameCtrl.text)
-        : (_adventureData?.displayName ?? 'Loading...');
+    final topPadding = MediaQuery.of(context).padding.top;
+    final barHeight = 56.0 + topPadding;
 
     return PreferredSize(
-      preferredSize: const Size.fromHeight(56),
-      child: Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: context.colors.surface,
-        ),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isMobile ? WaypointSpacing.pagePaddingMobile : WaypointSpacing.pagePaddingDesktop,
+      preferredSize: Size.fromHeight(barHeight),
+      child: SafeArea(
+        top: true,
+        bottom: false,
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: context.colors.surface,
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // ---- Hamburger menu ----
-              if (!_isLoading && _errorMessage == null)
-                IconButton(
-                  icon: Icon(Icons.menu, size: 24, color: context.colors.onSurface),
-                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                  tooltip: 'Menu',
-                )
-              else
-                const SizedBox(width: 48),
-              const SizedBox(width: WaypointSpacing.fieldGap),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? WaypointSpacing.pagePaddingMobile : WaypointSpacing.pagePaddingDesktop,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // ---- Hamburger menu ----
+                if (!_isLoading && _errorMessage == null)
+                  IconButton(
+                    icon: Icon(Icons.menu, size: 24, color: context.colors.onSurface),
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                    tooltip: 'Menu',
+                  )
+                else
+                  const SizedBox(width: 48),
+                const SizedBox(width: WaypointSpacing.fieldGap),
 
-              // ---- Desktop: breadcrumbs only (no logo) | Mobile: spacer (no title in nav bar) ----
-              if (!isMobile) ...[
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => SizedBox(
-                      width: constraints.maxWidth,
-                      child: _buildBreadcrumbs(context),
+                // ---- Desktop: breadcrumbs only (no logo) | Mobile: spacer (no title in nav bar) ----
+                if (!isMobile) ...[
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => SizedBox(
+                        width: constraints.maxWidth,
+                        child: _buildBreadcrumbs(context),
+                      ),
                     ),
                   ),
-                ),
-              ] else
-                const Spacer(),
+                ] else
+                  const Spacer(),
 
-              // ---- Save status (top-right) ----
-              _buildSaveStatus(),
-            ],
+                // ---- Save status (top-right) ----
+                _buildSaveStatus(),
+              ],
+            ),
           ),
         ),
       ),
@@ -7150,30 +7167,37 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
 
   /// Compact app bar for itinerary: hamburger, save status. No title in nav bar.
   PreferredSizeWidget _buildCompactItineraryAppBar(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final barHeight = 56.0 + topPadding;
+
     return PreferredSize(
-      preferredSize: const Size.fromHeight(56),
-      child: Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: context.colors.surface,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: WaypointSpacing.pagePaddingDesktop),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (!_isLoading && _errorMessage == null)
-                IconButton(
-                  icon: Icon(Icons.menu, size: 24, color: context.colors.onSurface),
-                  onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                  tooltip: 'Menu',
-                )
-              else
-                const SizedBox(width: 48),
-              const SizedBox(width: WaypointSpacing.fieldGap),
-              const Spacer(),
-              _buildSaveStatus(),
-            ],
+      preferredSize: Size.fromHeight(barHeight),
+      child: SafeArea(
+        top: true,
+        bottom: false,
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: context.colors.surface,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: WaypointSpacing.pagePaddingDesktop),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (!_isLoading && _errorMessage == null)
+                  IconButton(
+                    icon: Icon(Icons.menu, size: 24, color: context.colors.onSurface),
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                    tooltip: 'Menu',
+                  )
+                else
+                  const SizedBox(width: 48),
+                const SizedBox(width: WaypointSpacing.fieldGap),
+                const Spacer(),
+                _buildSaveStatus(),
+              ],
+            ),
           ),
         ),
       ),
@@ -7788,8 +7812,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       ),
       child: Column(
         children: [
-          _buildDragHandle(),
-          _buildPanelDayTabBar(),
+          _buildPanelHeaderWithDrag(),
           _buildItineraryRouteAndLinksSection(),
           Expanded(
             child: _buildWaypointListContent(
@@ -7808,6 +7831,62 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     return panel;
   }
 
+  /// Header zone (handle + day tabs) that responds to vertical drag for swipe-up/down to resize panel.
+  /// Best practice: whole header is the drag target so users don't have to hit a small handle.
+  Widget _buildPanelHeaderWithDrag() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (DragStartDetails d) {
+        if (!_draggableController.isAttached) return;
+        _panelDragStartSize = _draggableController.size;
+        _panelDragStartY = d.globalPosition.dy;
+        _panelDragStartScreenHeight = MediaQuery.of(context).size.height;
+      },
+      onVerticalDragUpdate: (DragUpdateDetails d) {
+        if (_panelDragStartSize == null ||
+            _panelDragStartY == null ||
+            _panelDragStartScreenHeight == null ||
+            !_draggableController.isAttached) return;
+        // Drag finger up (dy decreases) = grow panel; down = shrink
+        final deltaY = _panelDragStartY! - d.globalPosition.dy;
+        final newSize = (_panelDragStartSize! + deltaY / _panelDragStartScreenHeight!)
+            .clamp(_snapMin, _snapMax);
+        _draggableController.jumpTo(newSize);
+      },
+      onVerticalDragEnd: (DragEndDetails d) {
+        if (_panelDragStartSize == null) return;
+        _panelDragStartSize = null;
+        _panelDragStartY = null;
+        _panelDragStartScreenHeight = null;
+        if (!_draggableController.isAttached) return;
+        final current = _draggableController.size;
+        final nearest = _nearestPanelSnap(current);
+        _draggableController.animateTo(
+          nearest,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+        );
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildDragHandle(),
+          _buildPanelDayTabBar(),
+        ],
+      ),
+    );
+  }
+
+  double _nearestPanelSnap(double size) {
+    final snaps = [_snapMin, _snapMid, _snapMax];
+    double best = snaps.first;
+    for (final s in snaps) {
+      if ((s - size).abs() < (best - size).abs()) best = s;
+    }
+    return best;
+  }
+
+  /// Visual handle + tap-to-cycle. Dragging is handled by parent _buildPanelHeaderWithDrag.
   Widget _buildDragHandle() {
     return GestureDetector(
       onTap: _cyclePanelState,
@@ -7817,7 +7896,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           color: Color(0xFFFDFBF7),
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        // 44pt min touch target (Apple HIG); keeps handle easy to grab for tap-to-cycle
+        padding: const EdgeInsets.symmetric(vertical: 14),
         child: Center(
           child: Container(
             width: 36,
@@ -9494,7 +9574,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           draggable: false,
           onTap: () {},
           markerSize: 28,
-          iconSize: 16,
+          iconSize: 12,
           showInfoWindow: true,
         ));
         allPoints.add(wp.position);

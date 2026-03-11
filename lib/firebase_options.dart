@@ -69,6 +69,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '367031227804',
     projectId: 'lo72dwmjbzy4xz7nodczq859vs6xkf',
     storageBucket: 'lo72dwmjbzy4xz7nodczq859vs6xkf.firebasestorage.app',
-    iosBundleId: 'com.mycompany.CounterApp',
+    iosBundleId: 'com.thomascortebeeck.waypoint',
   );
 }

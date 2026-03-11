@@ -8,8 +8,8 @@ import GoogleMaps
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Replace YOUR_GOOGLE_MAPS_API_KEY with your key from Google Cloud Console, or inject in CI. Restrict by bundle ID.
-    GMSServices.provideAPIKey("YOUR_GOOGLE_MAPS_API_KEY")
+    // Use same key as web (index.html). Restrict in Google Cloud Console by bundle ID com.thomascortebeeck.waypoint.
+    GMSServices.provideAPIKey("AIzaSyAbK1n5nk4DUKsWps05V8c4hv94b2vI-cA")
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

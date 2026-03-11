@@ -332,11 +332,11 @@ class _WaypointItineraryCardState extends State<WaypointItineraryCard> {
                       fit: BoxFit.cover,
                       placeholder: (_, __) => Container(
                         color: config.color.withOpacity(0.15),
-                        child: Icon(config.icon, size: 24, color: config.color),
+                        child: Icon(config.icon, size: 18, color: config.color),
                       ),
                       errorWidget: (_, __, ___) => Container(
                         color: config.color.withOpacity(0.15),
-                        child: Icon(config.icon, size: 24, color: config.color),
+                        child: Icon(config.icon, size: 18, color: config.color),
                       ),
                     ),
                   ),
@@ -371,7 +371,7 @@ class _WaypointItineraryCardState extends State<WaypointItineraryCard> {
     return Container(
       color: config.color.withOpacity(0.15),
       child: Center(
-        child: Icon(config.icon, size: 26, color: config.color),
+        child: Icon(config.icon, size: 18, color: config.color),
       ),
     );
   }

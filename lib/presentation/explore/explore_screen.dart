@@ -124,9 +124,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final _ = GoRouterState.of(context).uri;
     final isDesktop = MediaQuery.of(context).size.width >= 1024;
 
+    final topPadding = isDesktop ? kDesktopNavHeight : MediaQuery.of(context).padding.top;
     return Scaffold(
       body: Padding(
-        padding: EdgeInsets.only(top: isDesktop ? kDesktopNavHeight : 0),
+        padding: EdgeInsets.only(top: topPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -234,6 +235,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
       ),
       floatingActionButton: WaypointFAB(
+        heroTag: 'explore_map_fab',
         icon: Icons.map_outlined,
         label: 'Map View',
         onPressed: () {},

@@ -132,8 +132,8 @@ class MapMarkerService {
     IconData iconData,
     Color color,
   ) {
-    // Icon slightly larger than circle (1.2× radius) for presence; min 8pt so at 2x DPR it stays crisp (no pixelation).
-    final fontSize = (radius * 1.2).clamp(8.0, 26.0);
+    // Icon smaller and leaner so it fits clearly inside the circle (0.75× radius); lighter weight for visibility.
+    final fontSize = (radius * 0.75).clamp(6.0, 16.0);
     final textPainter = TextPainter(
       text: TextSpan(
         text: String.fromCharCode(iconData.codePoint),
@@ -141,7 +141,7 @@ class MapMarkerService {
           fontSize: fontSize,
           fontFamily: iconData.fontFamily ?? 'MaterialIcons',
           fontFamilyFallback: iconData.fontFamilyFallback,
-          fontWeight: FontWeight.w400,
+          fontWeight: FontWeight.w300,
           color: color,
           height: 1.0,
         ),

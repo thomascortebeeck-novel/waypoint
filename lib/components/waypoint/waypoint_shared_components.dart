@@ -3,6 +3,7 @@
 library;
 
 import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme.dart';
@@ -250,15 +251,19 @@ class WaypointFAB extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.heroTag,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onPressed;
+  /// Unique tag to avoid "multiple heroes share the same tag" when multiple FABs exist in the app.
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton.extended(
+      heroTag: heroTag ?? 'waypoint_fab_${label.hashCode}',
       onPressed: onPressed,
       backgroundColor: BrandingLightTokens.appBarGreen,
       foregroundColor: Colors.white,
@@ -277,17 +282,21 @@ class WaypointFAB extends StatelessWidget {
 // WaypointUserAvatarGroup
 // =============================================================================
 
-/// Overlapping initials avatars with consistent brand colors.
+/// Overlapping avatars: profile image if provided, otherwise initials in a colored circle.
+/// [imageUrls] optional; same order as [initials]. Non-null entry = show image, else initials.
 class WaypointUserAvatarGroup extends StatelessWidget {
   const WaypointUserAvatarGroup({
     super.key,
     required this.initials,
+    this.imageUrls,
     this.size = 26,
     this.overlap = 16,
     this.colors,
   });
 
   final List<String> initials;
+  /// Optional profile image URLs; same length/order as [initials]. Show image when set, else initials.
+  final List<String?>? imageUrls;
   final double size;
   final double overlap;
   final List<Color>? colors;
@@ -306,28 +315,49 @@ class WaypointUserAvatarGroup extends StatelessWidget {
       width: size + (initials.length - 1) * overlap,
       child: Stack(
         children: List.generate(initials.length, (i) {
+          final imageUrl = imageUrls != null && i < imageUrls!.length ? imageUrls![i] : null;
+          final useImage = imageUrl != null && imageUrl.trim().isNotEmpty;
+          final initialText = initials[i].length > 2 ? initials[i].substring(0, 2).toUpperCase() : initials[i].toUpperCase();
+          final bgColor = palette[i % palette.length];
           return Positioned(
             left: i * overlap,
             child: Container(
               width: size,
               height: size,
               decoration: BoxDecoration(
-                color: palette[i % palette.length],
+                color: useImage ? Colors.transparent : bgColor,
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                initials[i].length > 2 ? initials[i].substring(0, 2).toUpperCase() : initials[i].toUpperCase(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 8,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              clipBehavior: Clip.antiAlias,
+              child: useImage
+                  ? ClipOval(
+                      child: CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        width: size,
+                        height: size,
+                        placeholder: (_, __) => Container(color: bgColor, child: _initialsChild(initialText)),
+                        errorWidget: (_, __, ___) => Container(color: bgColor, child: _initialsChild(initialText)),
+                      ),
+                    )
+                  : _initialsChild(initialText),
             ),
           );
         }),
+      ),
+    );
+  }
+
+  Widget _initialsChild(String text) {
+    return Center(
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 8,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

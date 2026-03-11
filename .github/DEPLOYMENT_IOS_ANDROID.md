@@ -20,14 +20,14 @@ The app uses **Google Maps** for the map. You must set an API key per platform:
 - **Android:** In `android/app/src/main/AndroidManifest.xml`, replace `YOUR_GOOGLE_MAPS_API_KEY` in the `com.google.android.geo.API_KEY` meta-data with your key. Or use Secrets Gradle Plugin / `local.properties` and inject in CI from secret `GOOGLE_MAPS_API_KEY`.
 - **iOS:** In `ios/Runner/AppDelegate.swift`, replace `YOUR_GOOGLE_MAPS_API_KEY` in `GMSServices.provideAPIKey("...")` with your key. For CI, you can inject via a secret and substitute in the workflow.
 
-Restrict the key in [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/credentials) by package name (`com.mycompany.CounterApp`) and bundle ID, and enable Maps SDK for Android / Maps SDK for iOS.
+Restrict the key in [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/credentials) by package name (`com.thomascortebeeck.waypoint` on Android) and iOS bundle ID `com.thomascortebeeck.waypoint`, and enable Maps SDK for Android / Maps SDK for iOS.
 
 ## Local: iOS (Xcode)
 
 1. On a Mac, clone the repo and open **`ios/Runner.xcworkspace`** in Xcode (not the `.xcodeproj`).
 2. Select the **Runner** target → **Signing & Capabilities** → choose your **Team** (automatic signing).
 3. Connect your iPhone, select it as the run destination, and run (or from project root: `flutter run` with device connected).
-4. If you need **GoogleService-Info.plist** (e.g. for Crashlytics), add it from Firebase Console (iOS app with bundle ID `com.mycompany.CounterApp`) into `ios/Runner/` and add it to the Runner target in Xcode.
+4. If you need **GoogleService-Info.plist** (e.g. for Crashlytics), add it from Firebase Console (iOS app with bundle ID `com.thomascortebeeck.waypoint`) into `ios/Runner/` and add it to the Runner target in Xcode. See `ios/Runner/README-GoogleService-Info.md`.
 
 ## Local: Android
 
@@ -62,7 +62,7 @@ Release AAB is built only when keystore secrets are configured. The workflow use
 
 ## Application ID note
 
-The app uses `applicationId` / bundle ID `com.mycompany.CounterApp`. The capital "C" is valid but unusual for Android; consider renaming to e.g. `com.mycompany.waypoint` in a future cleanup if Play tooling complains.
+The app uses Android `applicationId` and iOS bundle ID `com.thomascortebeeck.waypoint`. For Firebase, use the same bundle ID when registering the iOS app.
 
 ## See also
 

@@ -291,6 +291,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
         ],
       ),
       floatingActionButton: WaypointFAB(
+        heroTag: 'checklist_new_category_fab',
         icon: Icons.add,
         label: 'New Category',
         onPressed: () {},

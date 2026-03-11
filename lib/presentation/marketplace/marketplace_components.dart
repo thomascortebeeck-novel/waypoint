@@ -169,27 +169,30 @@ class _ActivityCircleState extends State<ActivityCircle> {
                 ),
               ),
               SizedBox(height: widget.circleSize > 90 ? 10 : 8),
-              // Icon on top, text underneath
-              Column(
+              // Icon and label in one row
+              Row(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
                     _iconForCategory(widget.activity.category),
                     size: widget.circleSize > 90 ? 22 : 18,
                     color: context.colors.primary,
                   ),
-                  SizedBox(height: widget.circleSize > 90 ? 6 : 4),
-                  Text(
-                    widget.activity.label,
-                    style: (widget.circleSize > 90
-                        ? context.textStyles.labelLarge
-                        : context.textStyles.labelMedium)?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: context.colors.onSurface,
+                  SizedBox(width: widget.circleSize > 90 ? 8 : 6),
+                  Flexible(
+                    child: Text(
+                      widget.activity.label,
+                      style: (widget.circleSize > 90
+                          ? context.textStyles.labelLarge
+                          : context.textStyles.labelMedium)?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: context.colors.onSurface,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),

@@ -267,6 +267,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
               : _buildContent(isOwner, currentUserId ?? '', primary),
       floatingActionButton: isOwner && _trip != null
           ? FloatingActionButton.extended(
+              heroTag: 'trip_members_invite_fab',
               onPressed: _showInviteSheet,
               backgroundColor: primary,
               icon: const Icon(Icons.person_add, color: Colors.white),

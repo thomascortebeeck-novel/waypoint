@@ -59,6 +59,7 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
 
   bool get _isCompact => widget.variant == AdventureCardVariant.compact;
   bool get _isImageOnly => widget.variant == AdventureCardVariant.imageOnly;
+  bool get _isBuilder => widget.variant == AdventureCardVariant.builder;
 
   @override
   void initState() {
@@ -495,17 +496,20 @@ class _AdventureCardState extends State<AdventureCard> with SingleTickerProvider
   }
 
   Widget _buildBottomSection(BuildContext context, bool isDark) {
-    final hPad = _isCompact ? 12.0 : 20.0;
-    final vPad = _isCompact ? 6.0 : 10.0;
-    final descLines = _isCompact ? 1 : 2;
-    final descHeight = _isCompact ? 18.0 : 42.0;
+    final hPad = _isCompact ? 12.0 : (_isBuilder ? 16.0 : 20.0);
+    final vPad = _isCompact ? 6.0 : (_isBuilder ? 8.0 : 10.0);
+    final descLines = _isCompact ? 1 : (_isBuilder ? 2 : 2);
+    final descHeight = _isCompact ? 18.0 : (_isBuilder ? 36.0 : 42.0);
     final descSize = _isCompact ? 12.0 : 14.0;
     // Option A: compact "More by" card omits description and rating to fit 160×220
     final showDescription = !_isCompact && widget.plan.description.isNotEmpty;
     final showRating = !_isCompact;
     return Container(
-      color: isDark ? const Color(0xFF1F2937) : Colors.white,
       padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1F2937) : Colors.white,
+      ),
+      clipBehavior: Clip.hardEdge,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,

@@ -1,5 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,6 +12,7 @@ import 'package:waypoint/presentation/mytrips/my_trips_screen.dart';
 import 'package:waypoint/presentation/mytrips/create_itinerary_screen.dart';
 import 'package:waypoint/presentation/builder/builder_home_screen.dart';
 import 'package:waypoint/presentation/builder/route_builder_screen.dart';
+import 'package:waypoint/presentation/builder/travel_expert_apply_screen.dart';
 import 'package:waypoint/presentation/builder/waypoint_edit_page.dart';
 import 'package:waypoint/presentation/adventure/adventure_detail_screen.dart';
 import 'package:waypoint/presentation/adventure/waypoint_detail_page.dart';
@@ -40,6 +41,7 @@ import 'package:waypoint/presentation/trips/trip_members_screen.dart';
 import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
 import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
 import 'package:waypoint/presentation/marketplace/location_search_results_page.dart';
+import 'package:waypoint/presentation/auth/auth_screen.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/integrations/google_places_service.dart';
 import 'package:waypoint/models/plan_model.dart';
@@ -79,6 +81,8 @@ class AppRoutes {
   static const String tripMembers = '/trip/:tripId/members';
   static const String adminMigration = '/admin/migration';
   static const String locationSearch = '/search/location/:location';
+  /// Login/register screen for iOS/Android when user is not signed in. No bottom nav.
+  static const String login = '/login';
 }
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -87,11 +91,44 @@ final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(d
 /// Height of the transparent desktop top nav bar. Use for top padding on screens without a hero.
 const double kDesktopNavHeight = 64.0;
 
+/// Notifies when auth state changes so the router can re-run redirect (e.g. after login).
+class _AuthRefreshNotifier extends ChangeNotifier {
+  _AuthRefreshNotifier() {
+    FirebaseAuthManager().authStateChanges.listen((_) {
+      notifyListeners();
+    });
+  }
+}
+
+final _authRefreshNotifier = _AuthRefreshNotifier();
+
+/// True on iOS and Android only. On web/desktop we do not gate the shell on auth.
+bool get _isMobilePlatform =>
+    defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android;
+
+bool _isShellRoute(String location) =>
+    location == AppRoutes.marketplace ||
+    location == AppRoutes.explore ||
+    location == AppRoutes.myTrips ||
+    location == AppRoutes.builder ||
+    location == AppRoutes.profile;
+
 class AppRouter {
   static final GoRouter router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: AppRoutes.marketplace,
     debugLogDiagnostics: true,
+    refreshListenable: _authRefreshNotifier,
+    redirect: (context, state) {
+      if (!_isMobilePlatform) return null;
+      final loggedIn = FirebaseAuth.instance.currentUser != null;
+      final location = state.matchedLocation;
+      final isJoinRoute = state.uri.path.startsWith('/join/');
+      if (!loggedIn && _isShellRoute(location)) return AppRoutes.login;
+      if (!loggedIn && isJoinRoute) return null;
+      if (loggedIn && location == AppRoutes.login) return AppRoutes.marketplace;
+      return null;
+    },
     routes: [
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
@@ -141,6 +178,11 @@ class AppRouter {
             preselectedPlace: extra['preselectedPlace'] as PlaceDetails?,
           );
         },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/builder/apply',
+        builder: (context, state) => const TravelExpertApplyScreen(),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
@@ -539,6 +581,11 @@ class AppRouter {
           final location = Uri.decodeComponent(state.pathParameters['location'] ?? '');
           return LocationSearchResultsPage(location: location);
         },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.login,
+        builder: (context, state) => const AuthScreen(),
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
@@ -1277,25 +1324,29 @@ class ModernBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: context.colors.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 20,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
+    return KeyedSubtree(
+      key: const ValueKey<String>('modern_bottom_nav'),
+      child: Container(
+        decoration: BoxDecoration(
+          color: context.colors.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 20,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.none,
+        child: SafeArea(
+          top: false,
           child: SizedBox(
-          height: 72,
-          child: Row(
+            height: 88,
+            child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _NavItem(
+                key: const ValueKey<String>('nav_home'),
                 icon: FontAwesomeIcons.house,
                 selectedIcon: FontAwesomeIcons.house,
                 label: 'Home',
@@ -1303,6 +1354,7 @@ class ModernBottomNav extends StatelessWidget {
                 onTap: () => onDestinationSelected(0),
               ),
               _NavItem(
+                key: const ValueKey<String>('nav_explore'),
                 icon: FontAwesomeIcons.compass,
                 selectedIcon: FontAwesomeIcons.solidCompass,
                 label: 'Explore',
@@ -1310,6 +1362,7 @@ class ModernBottomNav extends StatelessWidget {
                 onTap: () => onDestinationSelected(1),
               ),
               _NavItem(
+                key: const ValueKey<String>('nav_mytrips'),
                 icon: FontAwesomeIcons.map,
                 selectedIcon: FontAwesomeIcons.solidMap,
                 label: 'My Trips',
@@ -1317,10 +1370,12 @@ class ModernBottomNav extends StatelessWidget {
                 onTap: () => onDestinationSelected(2),
               ),
               _BuilderNavItem(
+                key: const ValueKey<String>('nav_builder'),
                 isSelected: currentIndex == 3,
                 onTap: () => onDestinationSelected(3),
               ),
               _NavItem(
+                key: const ValueKey<String>('nav_profile'),
                 icon: FontAwesomeIcons.user,
                 selectedIcon: FontAwesomeIcons.solidUser,
                 label: 'Profile',
@@ -1331,12 +1386,14 @@ class ModernBottomNav extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }
 
 class _NavItem extends StatefulWidget {
   const _NavItem({
+    super.key,
     required this.icon,
     required this.selectedIcon,
     required this.label,
@@ -1420,7 +1477,8 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                   const SizedBox(height: 4),
                   AnimatedDefaultTextStyle(
                     duration: const Duration(milliseconds: 200),
-                    style: context.textStyles.labelSmall!.copyWith(
+                    style: (context.textStyles.labelSmall ?? const TextStyle()).copyWith(
+                      inherit: false,
                       color: isActive
                           ? context.colors.primary
                           : context.colors.onSurface.withValues(alpha: 0.5),
@@ -1440,6 +1498,7 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
 
 class _BuilderNavItem extends StatefulWidget {
   const _BuilderNavItem({
+    super.key,
     required this.isSelected,
     required this.onTap,
   });
@@ -1517,7 +1576,8 @@ class _BuilderNavItemState extends State<_BuilderNavItem> with SingleTickerProvi
                   const SizedBox(height: 4),
                   AnimatedDefaultTextStyle(
                     duration: const Duration(milliseconds: 200),
-                    style: context.textStyles.labelSmall!.copyWith(
+                    style: (context.textStyles.labelSmall ?? const TextStyle()).copyWith(
+                      inherit: false,
                       color: isActive
                           ? context.colors.primary
                           : context.colors.onSurface.withValues(alpha: 0.5),

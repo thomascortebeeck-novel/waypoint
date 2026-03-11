@@ -97,6 +97,10 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
           title: const Text('Creator Profile'),
         ),
         body: const Center(
@@ -108,6 +112,10 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
     if (_errorMessage != null || _creator == null) {
       return Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
+          ),
           title: const Text('Creator Profile'),
         ),
         body: Center(
@@ -141,16 +149,22 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.pop(),
+        ),
         title: const Text('Creator Profile'),
       ),
       body: SingleChildScrollView(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Header Section (read-only, aligned with profile design)
+            // Header Section — centered (image, name, tag, description)
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(24),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   // Avatar
                   CircleAvatar(
@@ -280,15 +294,15 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                 ],
               ),
             ),
-            // Stats
+            // Stats — centered
             if (_stats != null) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: CreatorStatsWidget(stats: _stats!),
+                child: Center(child: CreatorStatsWidget(stats: _stats!)),
               ),
               const SizedBox(height: 24),
             ],
-            // Adventures Section (swimming lane like profile/marketplace)
+            // Adventures Section (horizontal list; cards clipped to prevent overflow)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
@@ -310,17 +324,21 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                         : ListView.separated(
                             scrollDirection: Axis.horizontal,
                             padding: EdgeInsets.zero,
-                            clipBehavior: Clip.none,
+                            clipBehavior: Clip.hardEdge,
                             itemCount: _plans.length,
                             separatorBuilder: (_, __) => const SizedBox(width: 24),
                             itemBuilder: (context, index) {
                               final plan = _plans[index];
                               return SizedBox(
                                 width: 280,
-                                child: AdventureCard(
-                                  plan: plan,
-                                  variant: AdventureCardVariant.standard,
-                                  onTap: () => context.push('/details/${plan.id}'),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: AdventureCard(
+                                    key: ValueKey(plan.id),
+                                    plan: plan,
+                                    variant: AdventureCardVariant.standard,
+                                    onTap: () => context.push('/details/${plan.id}'),
+                                  ),
                                 ),
                               );
                             },

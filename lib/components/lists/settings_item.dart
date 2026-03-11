@@ -252,6 +252,7 @@ class SettingsSection extends StatelessWidget {
             children: items.asMap().entries.map((entry) {
               final isLast = entry.key == items.length - 1;
               return SettingsItem(
+                key: ValueKey(entry.key),
                 title: entry.value.title,
                 subtitle: entry.value.subtitle,
                 leadingIcon: entry.value.leadingIcon,

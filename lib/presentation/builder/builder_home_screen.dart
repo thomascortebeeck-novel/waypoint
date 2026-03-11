@@ -30,6 +30,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 1024;
+    final topPadding = isDesktop ? kDesktopNavHeight : MediaQuery.of(context).padding.top;
 
     return Scaffold(
       body: StreamBuilder(
@@ -39,7 +40,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           if (authSnapshot.connectionState == ConnectionState.waiting) {
             return CustomScrollView(
               slivers: [
-                if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+                SliverToBoxAdapter(child: SizedBox(height: topPadding)),
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
@@ -55,7 +56,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
           if (uid == null) {
             return CustomScrollView(
               slivers: [
-                if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+                SliverToBoxAdapter(child: SizedBox(height: topPadding)),
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
@@ -73,7 +74,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
               if (userSnapshot.connectionState == ConnectionState.waiting) {
                 return CustomScrollView(
                   slivers: [
-                    if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+                    SliverToBoxAdapter(child: SizedBox(height: topPadding)),
                     SliverPadding(
                       padding: EdgeInsets.symmetric(
                         horizontal: isDesktop ? 32 : 16,
@@ -90,7 +91,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
               final isAdmin = user?.isAdmin ?? false;
               return CustomScrollView(
                 slivers: [
-                  if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+                  SliverToBoxAdapter(child: SizedBox(height: topPadding)),
                   SliverPadding(
                     padding: EdgeInsets.symmetric(
                       horizontal: isDesktop ? 32 : 16,
@@ -127,6 +128,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
 
   Widget _buildFAB(BuildContext context, String? uid) {
     return WaypointFAB(
+      heroTag: 'builder_new_adventure_fab',
       icon: Icons.add,
       label: 'New Adventure',
       onPressed: uid == null ? () => context.go('/profile') : () => _createNewDraft(context),
@@ -241,6 +243,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
             (context, index) {
               final plan = plans[index];
               return AdventureCard(
+                key: ValueKey(plan.id),
                 plan: plan,
                 variant: AdventureCardVariant.builder,
                 onTap: () => context.go('/builder/${plan.id}'),
@@ -498,7 +501,7 @@ class _SignedOutState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'This page is restricted to certain users. You need to apply to become a builder for now.',
+              'Create and share trip plans as a travel expert. Sign in first to apply.',
               style: context.textStyles.bodyMedium?.copyWith(
                 color: context.colors.onSurface.withValues(alpha: 0.6),
               ),
@@ -508,8 +511,8 @@ class _SignedOutState extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: () => context.go('/profile'),
-                child: const Text('Sign In to Start'),
+                onPressed: () => context.go('/login'),
+                child: const Text('Sign in to apply'),
               ),
             ),
           ],
@@ -544,7 +547,7 @@ class _RestrictedInfluencerState extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             Text(
-              'Builder access',
+              'Travel expert access',
               style: context.textStyles.titleLarge?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -552,7 +555,7 @@ class _RestrictedInfluencerState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Please apply to become a builder via here.',
+              'Apply to create and sell your own trip plans on our marketplace.',
               style: context.textStyles.bodyMedium?.copyWith(
                 color: context.colors.onSurface.withValues(alpha: 0.6),
               ),
@@ -562,8 +565,8 @@ class _RestrictedInfluencerState extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: () => context.go('/profile'),
-                child: const Text('Apply to become a builder'),
+                onPressed: () => context.push('/builder/apply'),
+                child: const Text('Become a travel expert'),
               ),
             ),
           ],

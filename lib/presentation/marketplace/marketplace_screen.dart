@@ -1002,7 +1002,7 @@ class _YourPlansLane extends StatelessWidget {
           _buildSignedOutState(context)
         else
           SizedBox(
-            height: isDesktop ? 160 : 150,
+            height: isDesktop ? 230 : 220,
             child: StreamBuilder<List<Trip>>(
               stream: tripService.streamTripsForUser(userId),
               builder: (context, snapshot) {

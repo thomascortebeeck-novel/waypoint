@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
+import 'package:waypoint/models/user_model.dart';
+import 'package:waypoint/services/invite_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
@@ -101,19 +103,22 @@ class HorizontalTripCard extends StatelessWidget {
     return plan.heroImageUrl.isNotEmpty ? plan.heroImageUrl : null;
   }
 
-  // ── Member initials (up to 4) from memberIds ─────────────────────────────
-  List<String> get _initials {
-    final ids = trip.memberIds;
-    if (ids.isEmpty) return ['?'];
-    return ids.take(4).map((id) {
-      if (id.length >= 2) return id.substring(0, 2).toUpperCase();
-      return id.toUpperCase();
-    }).toList();
+  /// Initials from user: first letter first name + first letter last name, else from displayName.
+  static String _initialsForUser(UserModel u) {
+    final first = u.firstName?.trim();
+    final last = u.lastName?.trim();
+    if (first != null && first.isNotEmpty && last != null && last.isNotEmpty) {
+      return '${first[0]}${last[0]}'.toUpperCase();
+    }
+    final name = u.displayName.trim();
+    if (name.isEmpty) return '?';
+    if (name.length >= 2) return name.substring(0, 2).toUpperCase();
+    return name.toUpperCase();
   }
 
   /// Fixed height so the card has a definite size when used in a SliverList (avoids "RenderBox was not laid out").
-  /// Tall enough to show participant avatars at the bottom without clipping.
-  static const double cardHeight = 168;
+  /// Fits content without excess spacing below members/status.
+  static const double cardHeight = 200;
 
   @override
   Widget build(BuildContext context) {
@@ -173,9 +178,9 @@ class HorizontalTripCard extends StatelessWidget {
         trip.title?.isNotEmpty == true ? trip.title! : plan.name;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 144),
+        constraints: const BoxConstraints(maxHeight: 176),
         child: SingleChildScrollView(
           clipBehavior: Clip.none,
           child: Column(
@@ -254,12 +259,25 @@ class HorizontalTripCard extends StatelessWidget {
                     ),
                   ],
                 ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  WaypointUserAvatarGroup(
-                      initials: _initials.isEmpty ? ['?'] : _initials),
+                  FutureBuilder<List<UserModel>>(
+                    future: InviteService().getMembersDetails(trip.id),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                        return WaypointUserAvatarGroup(initials: ['?']);
+                      }
+                      final members = snapshot.data!.take(4).toList();
+                      final initials = members.map(_initialsForUser).toList();
+                      final imageUrls = members.map((u) => u.photoUrl).toList();
+                      return WaypointUserAvatarGroup(
+                        initials: initials,
+                        imageUrls: imageUrls,
+                      );
+                    },
+                  ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(

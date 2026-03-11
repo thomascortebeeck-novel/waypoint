@@ -180,16 +180,16 @@ class WaypointTimelineCard extends StatelessWidget {
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: config.color.withValues(alpha: 0.15),
-                  child: Icon(config.icon, size: 26, color: config.color),
+                  child: Icon(config.icon, size: 18, color: config.color),
                 ),
                 errorWidget: (context, url, error) => Container(
                   color: config.color.withValues(alpha: 0.15),
-                  child: Icon(config.icon, size: 26, color: config.color),
+                  child: Icon(config.icon, size: 18, color: config.color),
                 ),
               ),
             )
           : Center(
-              child: Icon(config.icon, size: 26, color: config.color),
+              child: Icon(config.icon, size: 18, color: config.color),
             ),
     );
   }

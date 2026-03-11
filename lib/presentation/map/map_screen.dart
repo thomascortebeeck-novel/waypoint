@@ -654,6 +654,7 @@ class _MapScreenState extends State<MapScreen> {
               children: [
                  // Emergency Button
                  FloatingActionButton(
+                   heroTag: 'map_sos_fab',
                    backgroundColor: context.colors.error,
                    onPressed: () {
                      // Trigger SOS logic

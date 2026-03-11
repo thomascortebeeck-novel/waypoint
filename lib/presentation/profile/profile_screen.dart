@@ -67,11 +67,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 1024;
 
+    final topPadding = isDesktop ? kDesktopNavHeight : MediaQuery.of(context).padding.top;
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          if (isDesktop)
-            SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
+          SliverToBoxAdapter(child: SizedBox(height: topPadding)),
           StreamBuilder(
             stream: auth.authStateChanges,
             builder: (context, snapshot) {
@@ -322,6 +322,7 @@ class _CreatedPlansSection extends StatelessWidget {
                   return SizedBox(
                     width: cardWidth,
                     child: AdventureCard(
+                      key: ValueKey(plan.id),
                       plan: plan,
                       variant: AdventureCardVariant.standard,
                       onTap: () => context.push('/details/${plan.id}'),
@@ -1055,6 +1056,18 @@ class _LogoutButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Full-screen login/register UI. Used as the auth gate on iOS/Android (no bottom nav) and for logged-out state on Profile.
+class WaypointLoginRegisterView extends StatelessWidget {
+  const WaypointLoginRegisterView({super.key, required this.auth, required this.onAuthSuccess});
+  final FirebaseAuthManager auth;
+  final VoidCallback onAuthSuccess;
+
+  @override
+  Widget build(BuildContext context) {
+    return _LoggedOutView(auth: auth, onAuthSuccess: onAuthSuccess);
   }
 }
 
