@@ -53,3 +53,7 @@ lib/config/api_keys.dart
 .env
 .env.local
 .env.*.local
+
+# Firebase / Google config with API keys — download from Firebase Console per app; do not commit
+ios/Runner/GoogleService-Info.plist
+android/app/google-services.json
