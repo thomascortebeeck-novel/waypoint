@@ -96,7 +96,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               }
               return SliverMainAxisGroup(
                 slivers: [
-                  _buildHeader(context, isDesktop),
                   SliverPadding(
                     padding: EdgeInsets.symmetric(
                       horizontal: isDesktop ? 32 : 16,
@@ -124,51 +123,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             },
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context, bool isDesktop) {
-    return SliverAppBar(
-      expandedHeight: isDesktop ? 140 : 120,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: context.colors.surface,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Container(
-          decoration: BoxDecoration(
-            color: context.colors.surface,
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                isDesktop ? 32 : 20,
-                isDesktop ? 24 : 16,
-                isDesktop ? 32 : 20,
-                24,
-              ),
-              child: const SizedBox.shrink(),
-            ),
-          ),
-        ),
-        titlePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        title: LayoutBuilder(
-          builder: (context, constraints) {
-            final isCollapsed = constraints.biggest.height < 80;
-            return AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: isCollapsed ? 1.0 : 0.0,
-              child: Text(
-                'Profile',
-                style: context.textStyles.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            );
-          },
-        ),
       ),
     );
   }
@@ -1216,6 +1170,14 @@ class _WaypointLogoAndTagline extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Text(
+          'Waypoint',
+          style: context.textStyles.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: context.colors.primary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
           'Plan your next adventure.',
           style: context.textStyles.bodyMedium?.copyWith(
             color: context.colors.onSurface.withValues(alpha: 0.65),
@@ -1376,6 +1338,7 @@ class _LoginRegisterCardState extends State<_LoginRegisterCard> {
           mainAxisSize: MainAxisSize.min,
           children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _TabChip(
                 label: 'Login',
@@ -1583,32 +1546,14 @@ class _LoginRegisterCardState extends State<_LoginRegisterCard> {
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _loading ? null : () => _signInWithGoogle(),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    side: BorderSide(color: context.colors.outline.withValues(alpha: 0.6)),
-                  ),
-                  child: Icon(Icons.g_mobiledata, size: 26, color: context.colors.onSurface),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _loading ? null : () => _signInWithApple(),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    side: BorderSide(color: context.colors.outline.withValues(alpha: 0.6)),
-                  ),
-                  child: Icon(Icons.apple, size: 26, color: context.colors.onSurface),
-                ),
-              ),
-            ],
+          OutlinedButton(
+            onPressed: _loading ? null : () => _signInWithGoogle(),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              side: BorderSide(color: context.colors.outline.withValues(alpha: 0.6)),
+            ),
+            child: Icon(Icons.g_mobiledata, size: 26, color: context.colors.onSurface),
           ),
         ],
         ),
@@ -1697,14 +1642,6 @@ class _LoginRegisterCardState extends State<_LoginRegisterCard> {
   Future<void> _signInWithGoogle() async {
     final _ = await widget.auth.signInWithGoogle(context);
     if (mounted && _ != null) widget.onAuthSuccess();
-  }
-
-  Future<void> _signInWithApple() async {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Apple Sign-In is not yet available')),
-      );
-    }
   }
 }
 

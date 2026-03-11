@@ -40,7 +40,6 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
             return CustomScrollView(
               slivers: [
                 if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
-                _buildHeader(context, isDesktop),
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
@@ -57,7 +56,6 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
             return CustomScrollView(
               slivers: [
                 if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
-                _buildHeader(context, isDesktop),
                 SliverPadding(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 32 : 16,
@@ -76,7 +74,6 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
                 return CustomScrollView(
                   slivers: [
                     if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
-                    _buildHeader(context, isDesktop),
                     SliverPadding(
                       padding: EdgeInsets.symmetric(
                         horizontal: isDesktop ? 32 : 16,
@@ -94,7 +91,6 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
               return CustomScrollView(
                 slivers: [
                   if (isDesktop) SliverToBoxAdapter(child: SizedBox(height: kDesktopNavHeight)),
-                  _buildHeader(context, isDesktop),
                   SliverPadding(
                     padding: EdgeInsets.symmetric(
                       horizontal: isDesktop ? 32 : 16,
@@ -125,51 +121,6 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
             },
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context, bool isDesktop) {
-    return SliverAppBar(
-      expandedHeight: isDesktop ? 140 : 120,
-      floating: false,
-      pinned: true,
-      elevation: 0,
-      backgroundColor: context.colors.surface,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Container(
-          decoration: BoxDecoration(
-            color: context.colors.surface,
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                isDesktop ? 32 : 20,
-                isDesktop ? 24 : 16,
-                isDesktop ? 32 : 20,
-                24,
-              ),
-              child: const SizedBox.shrink(),
-            ),
-          ),
-        ),
-        titlePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        title: LayoutBuilder(
-          builder: (context, constraints) {
-            final isCollapsed = constraints.biggest.height < 80;
-            return AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: isCollapsed ? 1.0 : 0.0,
-              child: Text(
-                'Builder',
-                style: context.textStyles.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            );
-          },
-        ),
       ),
     );
   }
