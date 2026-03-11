@@ -33,15 +33,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Create firebase_options.dart from secret
+      - name: Create firebase_options.dart from secret (optional)
         env:
           FIREBASE_OPTIONS_DART: ${{ secrets.FIREBASE_OPTIONS_DART }}
         run: |
-          if [ -z "$FIREBASE_OPTIONS_DART" ]; then
-            echo "::error::FIREBASE_OPTIONS_DART secret is not set. Run 'flutterfire configure' locally, then copy lib/firebase_options.dart content into repo Secrets."
-            exit 1
+          if [ -n "$FIREBASE_OPTIONS_DART" ]; then
+            echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
+          else
+            echo "::warning::FIREBASE_OPTIONS_DART secret not set; using placeholder. Add it for real Firebase config."
           fi
-          echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
 
       - name: Create GoogleService-Info.plist from secret (optional)
         env:
