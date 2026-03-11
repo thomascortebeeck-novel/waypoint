@@ -1,95 +1,11 @@
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:uuid/uuid.dart';
 
-/// Service for detecting and managing waypoint choice groups
-/// Handles auto-grouping suggestions when matching waypoints are detected
+/// Service for managing waypoint choice groups (manual grouping via "Add alternative").
 class WaypointGroupingService {
   static final WaypointGroupingService _instance = WaypointGroupingService._internal();
   factory WaypointGroupingService() => _instance;
   WaypointGroupingService._internal();
-
-  /// Check if a new waypoint should be auto-grouped with existing waypoints
-  /// Returns the existing waypoint that matches, or null if no match
-  RouteWaypoint? shouldAutoGroup(
-    List<RouteWaypoint> existingWaypoints,
-    RouteWaypoint newWaypoint,
-  ) {
-    // Find waypoints at the same order position
-    final waypointsAtOrder = findWaypointsAtOrder(existingWaypoints, newWaypoint.order);
-    
-    if (waypointsAtOrder.isEmpty) {
-      return null;
-    }
-
-    // Check trigger conditions
-    for (final existing in waypointsAtOrder) {
-      // Condition 1: Same order AND same type
-      if (existing.type == newWaypoint.type) {
-        return existing;
-      }
-
-      // Condition 2: Same order AND overlapping time labels
-      if (_hasOverlappingTimeLabels(existing, newWaypoint)) {
-        return existing;
-      }
-    }
-
-    // Condition 3: Waypoint added to position where same type exists
-    // (This is already covered by condition 1, but we check all waypoints at order)
-    for (final existing in waypointsAtOrder) {
-      if (existing.type == newWaypoint.type) {
-        return existing;
-      }
-    }
-
-    return null;
-  }
-
-  /// Check if two waypoints have overlapping time labels
-  bool _hasOverlappingTimeLabels(RouteWaypoint a, RouteWaypoint b) {
-    // Check meal times (both lunch, both dinner, etc.)
-    if (a.mealTime != null && b.mealTime != null && a.mealTime == b.mealTime) {
-      return true;
-    }
-
-    // Check activity times (both morning, both afternoon, etc.)
-    if (a.activityTime != null && b.activityTime != null && a.activityTime == b.activityTime) {
-      return true;
-    }
-
-    // Check suggested times (within 1 hour)
-    if (a.suggestedStartTime != null && b.suggestedStartTime != null) {
-      final timeA = _parseTime(a.suggestedStartTime!);
-      final timeB = _parseTime(b.suggestedStartTime!);
-      if (timeA != null && timeB != null) {
-        final diff = timeA.difference(timeB).abs();
-        if (diff.inHours < 1) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /// Parse time string (HH:MM) to DateTime (today)
-  DateTime? _parseTime(String timeStr) {
-    try {
-      final parts = timeStr.split(':');
-      if (parts.length != 2) return null;
-      final hour = int.parse(parts[0]);
-      final minute = int.parse(parts[1]);
-      final now = DateTime.now();
-      return DateTime(now.year, now.month, now.day, hour, minute);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /// Find existing waypoints at the same order position
-  List<RouteWaypoint> findWaypointsAtOrder(List<RouteWaypoint> waypoints, int order) {
-    return waypoints.where((wp) => wp.order == order).toList();
-  }
 
   /// Generate auto choice label from type and time
   /// Returns null if no label can be generated

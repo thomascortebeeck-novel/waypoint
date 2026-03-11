@@ -2802,72 +2802,11 @@ Future<void> _recalculateTravelForWaypoint(RouteWaypoint waypoint, String newMod
   }
 }
 
-/// Handle new waypoint addition with auto-grouping detection
+/// Handle new waypoint addition
 Future<void> _handleNewWaypoint(RouteWaypoint newWaypoint) async {
   // Assign sequential order number
   final nextOrder = _poiWaypoints.isEmpty ? 1 : (_poiWaypoints.map((w) => w.order ?? 0).reduce((a, b) => a > b ? a : b) + 1);
-  var waypointWithOrder = newWaypoint.copyWith(order: nextOrder);
-
-  // Check for auto-grouping
-  final groupingService = WaypointGroupingService();
-  final existingMatch = groupingService.shouldAutoGroup(_poiWaypoints, waypointWithOrder);
-
-  if (existingMatch != null) {
-    // Show auto-grouping prompt
-    final shouldGroup = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Group as Choice?'),
-        content: Text(
-          'This looks like an alternative to "${existingMatch.name}". '
-          'Group as choice?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('No, keep separate'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Yes'),
-          ),
-      ],
-    ),
-    );
-
-    if (shouldGroup == true && mounted) {
-      // Group as choice
-      final choiceGroupId = existingMatch.choiceGroupId ?? const Uuid().v4();
-      final choiceLabel = existingMatch.choiceLabel ?? 
-          groupingService.generateAutoChoiceLabel(
-            waypointWithOrder.type,
-            waypointWithOrder.suggestedStartTime,
-            waypointWithOrder.mealTime,
-            waypointWithOrder.activityTime,
-          );
-
-      // Update existing waypoint if it doesn't have choiceGroupId yet
-      if (existingMatch.choiceGroupId == null) {
-        final existingIndex = _poiWaypoints.indexWhere((w) => w.id == existingMatch.id);
-        if (existingIndex >= 0) {
-          _poiWaypoints[existingIndex] = existingMatch.copyWith(
-            choiceGroupId: choiceGroupId,
-            choiceLabel: choiceLabel,
-          );
-        }
-      }
-
-      // Set choice group for new waypoint
-      waypointWithOrder = waypointWithOrder.copyWith(
-        order: existingMatch.order,
-        choiceGroupId: choiceGroupId,
-        choiceLabel: choiceLabel,
-      );
-    } else if (shouldGroup == false && mounted) {
-      // Keep separate - order is already set to nextOrder
-      // No changes needed
-    }
-  }
+  final waypointWithOrder = newWaypoint.copyWith(order: nextOrder);
 
   // Add waypoint - ensure it has a timeSlotCategory
   if (mounted) {
