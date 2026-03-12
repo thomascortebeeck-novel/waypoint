@@ -17,7 +17,7 @@ const STRIPE_ACCOUNTS = "stripeAccounts";
 const CONFIG_STRIPE = "config/stripe";
 
 function getStripe(secret: string): Stripe {
-  return new Stripe(secret, {apiVersion: "2025-02-24.acacia"});
+  return new Stripe(secret, {apiVersion: "2025-02-24.acacia" as Stripe.LatestApiVersion});
 }
 
 /** Read config/stripe.useLiveKeys from Firestore (default false). */
