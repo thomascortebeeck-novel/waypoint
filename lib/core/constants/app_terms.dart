@@ -27,6 +27,7 @@ const String kTripRoleOwner = 'owner';
 const String kTripRoleNavigator = 'navigator';
 const String kTripRolePackingLead = 'packing_lead';
 const String kTripRoleTreasurer = 'treasurer';
+const String kTripRoleFootprinter = 'footprinter';
 const String kTripRoleMember = 'member';
 
 const List<String> kTripRoleOptions = [
@@ -34,6 +35,7 @@ const List<String> kTripRoleOptions = [
   kTripRoleNavigator,
   kTripRolePackingLead,
   kTripRoleTreasurer,
+  kTripRoleFootprinter,
 ];
 
 /// Display label for a role value.
@@ -47,6 +49,8 @@ String tripRoleDisplayLabel(String role) {
       return 'Quartermaster';
     case kTripRoleTreasurer:
       return 'Treasurer';
+    case kTripRoleFootprinter:
+      return 'Footprinter';
     case kTripRoleMember:
     default:
       return 'Insider';

@@ -203,7 +203,7 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  // Role chips (ADMIN / CREATOR)
+                  // Role chips (ADMIN / Explorer)
                   Wrap(
                     alignment: WrapAlignment.center,
                     spacing: 8,
@@ -232,7 +232,7 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                             borderRadius: BorderRadius.circular(AppRadius.full),
                           ),
                           child: Text(
-                            'CREATOR',
+                            'Explorer',
                             style: context.textStyles.labelSmall?.copyWith(
                               color: context.colors.primary,
                               fontWeight: FontWeight.w700,

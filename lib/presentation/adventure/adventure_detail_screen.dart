@@ -1312,7 +1312,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               return const Center(child: CircularProgressIndicator());
             }
             final itineraryContent = _buildItineraryTab();
-            return _wrapWithPurchaseBlur(itineraryContent, 'Unlock to see full itinerary');
+            return _wrapWithPurchaseBlur(itineraryContent, 'Unlock to see full navigation');
           }
           
           return Stack(
@@ -2287,7 +2287,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   title: const Text('Everyone (Public)'),
                   subtitle: Text(canCreatePublic 
                       ? 'Everyone can see this plan'
-                      : 'Only verified creators can create public plans'),
+                      : 'Only verified Explorers can create public plans'),
                   value: PlanPrivacyMode.public,
                   groupValue: _formState!.privacyMode,
                   onChanged: canCreatePublic ? (value) {
@@ -2300,7 +2300,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                   Padding(
                     padding: const EdgeInsets.only(left: 16, top: 8),
                     child: Text(
-                      'Only verified creators can create public plans',
+                      'Only verified Explorers can create public plans',
                       style: WaypointTypography.bodySmall.copyWith(
                         color: Colors.red,
                       ),
@@ -2990,9 +2990,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             
             const SizedBox(height: 16),
             
-            // Checklist (packing + documents + vaccines)
+            // Expedition List (packing + documents + vaccines)
             SectionCard(
-              title: 'Checklist',
+              title: 'Expedition List',
               icon: Icons.checklist,
               isEditable: true,
               children: [
@@ -3782,7 +3782,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             
             const SizedBox(height: 16),
             
-            // Local Tips Content
+            // Insights content
             ListenableBuilder(
               listenable: version,
               builder: (context, _) {
@@ -3803,7 +3803,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Fill in local tips information',
+          'Fill in insights information',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Colors.grey.shade600,
           ),
@@ -6737,7 +6737,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       badge: hasPacking ? '$totalItems items' : null,
       isComplete: hasPacking || hasPrepare,
       onEdit: () {
-        // Switch to Checklist navigation item
+        // Switch to Expedition List navigation item
         _onNavigationItemSelected(NavigationItem.checklist);
       },
       child: (hasPacking || hasPrepare)
@@ -6814,11 +6814,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     
     return _ReviewSummaryCard(
       icon: Icons.lightbulb_outline,
-      title: 'Local Tips',
+      title: 'Insights',
       badge: hasLocalTips && foodCount > 0 ? '$foodCount specialties' : null,
       isComplete: hasLocalTips,
       onEdit: () {
-        // Switch to Local Tips navigation item
+        // Switch to Insights navigation item
         _onNavigationItemSelected(NavigationItem.localTips);
       },
       child: hasLocalTips
@@ -6863,7 +6863,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Text(
-                'No local tips added yet',
+                'No insights added yet',
                 style: WaypointTypography.bodyMedium.copyWith(
                   color: Colors.grey.shade600,
                 ),
@@ -6895,7 +6895,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       badge: hasDays ? '$daysCount days, $totalWaypoints waypoints' : null,
       isComplete: hasDays,
       onEdit: () {
-        // Switch to Itinerary navigation item
+        // Switch to Navigation navigation item
         _onNavigationItemSelected(NavigationItem.itinerary);
       },
       child: hasDays
@@ -7291,14 +7291,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           return _buildTripPrepareTab();
         } else {
           final content = _buildPrepareTab();
-          return _wrapWithPurchaseBlur(content, 'Unlock to see checklist & prepare guide');
+          return _wrapWithPurchaseBlur(content, 'Unlock to see expedition list & prepare guide');
         }
       case NavigationItem.localTips:
         if (widget.mode == AdventureMode.builder) {
           return _buildBuilderLocalTipsTab();
         } else {
           final content = _buildLocalTipsTab();
-          return _wrapWithPurchaseBlur(content, 'Unlock to see local tips');
+          return _wrapWithPurchaseBlur(content, 'Unlock to see insights');
         }
       case NavigationItem.comments:
         return _buildCommentsTab();
@@ -9584,7 +9584,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'About the creator',
+                'About the Explorer',
                 style: WaypointTypography.bodySmall.copyWith(
                   fontWeight: FontWeight.w700,
                   color: context.colors.onSurfaceVariant,
@@ -9626,7 +9626,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Adventure Creator • ${planCount > 0 ? planCount : otherPlans.length} Plans',
+                          'Explorer • ${planCount > 0 ? planCount : otherPlans.length} Plans',
                           style: WaypointTypography.bodySmall.copyWith(
                             color: context.colors.onSurfaceVariant,
                           ),
@@ -10008,7 +10008,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Itinerary',
+              'Navigation',
               style: WaypointTypography.titleMedium.copyWith(
                 fontWeight: FontWeight.w700,
                 color: context.colors.onSurface,
@@ -10461,7 +10461,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 onChanged: _onVersionChanged,
               ),
             
-            // Local tips content
+            // Insights content
           if (_adventureData!.localTips != null) ...[
             // Food Specialties (limited preview: first 2, name only)
             if (_adventureData!.localTips!.foodSpecialties.isNotEmpty)
@@ -10539,7 +10539,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           ],
           
           // Unlock banner for non-purchased plans
-          if (_hasPurchased == false) _buildUnlockBanner(customMessage: 'Unlock to see all local tips'),
+          if (_hasPurchased == false) _buildUnlockBanner(customMessage: 'Unlock to see all insights'),
     ]);
   }
   

@@ -340,7 +340,7 @@ class _CreatedPlansSection extends StatelessWidget {
 }
 
 class _CreatorStudioCard extends StatelessWidget {
-  /// Use light-theme green in both themes so Creator Studio stays consistent.
+  /// Use light-theme green in both themes so Explorer Studio stays consistent.
   static const Color _creatorStudioGreen = Color(0xFF228B22); // BrandingLightTokens.primary
 
   @override
@@ -368,7 +368,7 @@ class _CreatorStudioCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Creator Studio',
+                'Explorer Studio',
                 style: context.textStyles.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: Colors.white,

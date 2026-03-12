@@ -102,7 +102,7 @@ class BuilderBreadcrumb extends StatelessWidget {
         'General Info',
         'Versions',
         'Prepare',
-        'Local Tips',
+        'Insights',
         'Days',
         'Overview',
       ];

@@ -670,7 +670,7 @@ class _UspStepsSectionState extends State<UspStepsSection>
     ),
     (
       title: 'Your guide in your pocket',
-      body: 'Follow your daily itinerary and navigate with local tips. Everything you need, right in one app. No guide needed.',
+      body: 'Follow your daily navigation and explore with insights. Everything you need, right in one app. No guide needed.',
     ),
   ];
 

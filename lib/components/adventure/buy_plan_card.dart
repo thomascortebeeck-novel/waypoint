@@ -257,7 +257,7 @@ class _BuyPlanCardState extends State<BuyPlanCard> {
     }
     
     items.add('GPX tracks for navigation');
-    items.add('Local tips & cultural information');
+    items.add('Insights & cultural information');
     items.add('Packing lists & gear recommendations');
     
     return Column(

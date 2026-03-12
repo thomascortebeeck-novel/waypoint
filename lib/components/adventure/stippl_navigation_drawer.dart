@@ -180,12 +180,12 @@ class StipplNavigationDrawer extends StatelessWidget {
       ),
       _NavigationItemData(
         item: NavigationItem.itinerary,
-        label: 'Itinerary',
+        label: 'Navigation',
         icon: Icons.route_outlined,
       ),
       _NavigationItemData(
         item: NavigationItem.checklist,
-        label: 'Checklist',
+        label: 'Expedition List',
         icon: Icons.checklist_outlined,
       ),
       _NavigationItemData(
@@ -202,7 +202,7 @@ class StipplNavigationDrawer extends StatelessWidget {
         ),
       _NavigationItemData(
         item: NavigationItem.localTips,
-        label: 'Local Tips',
+        label: 'Insights',
         icon: Icons.lightbulb_outline,
       ),
       _NavigationItemData(

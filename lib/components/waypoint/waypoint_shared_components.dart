@@ -244,7 +244,7 @@ class WaypointCreamCard extends StatelessWidget {
 // WaypointFAB
 // =============================================================================
 
-/// Green extended FAB; same style on My Trips ("New Itinerary") + Checklist ("New Category").
+/// Green extended FAB; same style on My Trips ("New Itinerary") + Expedition List ("New Category").
 class WaypointFAB extends StatelessWidget {
   const WaypointFAB({
     super.key,

@@ -258,7 +258,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     }
     if (_userId == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Checklist')),
+        appBar: AppBar(title: const Text('Expedition List')),
         body: const Center(child: Text('Please sign in')),
       );
     }
@@ -269,7 +269,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () => context.go('/mytrips'),
           ),
-          title: const Text('Checklist'),
+          title: const Text('Expedition List'),
         ),
         body: const Center(child: Text('Failed to load trip')),
       );
