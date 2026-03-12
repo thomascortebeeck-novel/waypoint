@@ -580,6 +580,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Icons.people_outline,
             'Join ${widget.plan.salesCount + 50000}+ adventurers',
           ),
+          _buildTrustSignal(
+            Icons.volunteer_activism_outlined,
+            '1% of our profit goes to a good cause',
+          ),
         ],
       ),
     );
@@ -907,6 +911,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           
           if (_isFree) const SizedBox(height: 20),
+          
+          // 1% for good cause note
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.volunteer_activism_outlined, size: 18, color: Colors.grey.shade600),
+              const SizedBox(width: 8),
+              Text(
+                '1% of our profit is donated to a good cause.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           
           // CTA Button
           if (!mobile)

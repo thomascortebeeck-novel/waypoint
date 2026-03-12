@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/utils/app_urls.dart';
 
@@ -99,6 +100,12 @@ class Trip {
 
   /// Check if a user is a member of the trip
   bool isMember(String userId) => memberIds.contains(userId);
+
+  /// Check if a user has the navigator role on this trip
+  bool isNavigator(String userId) => memberRoles?[userId] == kTripRoleNavigator;
+
+  /// Check if a user can edit transport between waypoints (owner or navigator)
+  bool canEditTransport(String userId) => isOwner(userId) || isNavigator(userId);
 
   /// Check if more members can be added based on plan's max group size
   bool canAddMembers(Plan? plan) {

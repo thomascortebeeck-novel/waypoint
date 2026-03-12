@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:waypoint/models/user_model.dart';
 
@@ -22,6 +23,14 @@ class UserService {
       final doc = await _firestore.collection(_collection).doc(userId).get();
       if (!doc.exists) return null;
       return UserModel.fromJson(doc.data()!);
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        // Expected when not signed in or rules deny read; avoid noisy log
+        if (kDebugMode) debugPrint('UserService: permission-denied reading user (e.g. not signed in)');
+        return null;
+      }
+      debugPrint('Error getting user: $e');
+      return null;
     } catch (e) {
       debugPrint('Error getting user: $e');
       return null;

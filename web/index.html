@@ -95,17 +95,19 @@
     }
   </style>
   
-  <!-- Google Maps JavaScript API -->
-  <!-- 
-    IMPORTANT: Replace YOUR_GOOGLE_MAPS_API_KEY with your actual Google Maps API key.
-    Get your key from: https://console.cloud.google.com/google/maps-apis/credentials
-    
-    The same API key used for Places API can be used here, but make sure to:
-    1. Enable "Maps JavaScript API" in Google Cloud Console
-    2. Restrict the key to your domain (e.g., localhost:*, yourdomain.com/*)
-    3. Enable only the APIs you need (Maps JavaScript API, Places API, etc.)
-  -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=places,geometry,marker&loading=async" async defer></script>
+  <!-- Google Maps JavaScript API: only load when key is set (CI substitutes YOUR_GOOGLE_MAPS_API_KEY in build; local dev skips to avoid InvalidKey) -->
+  <script>
+    (function() {
+      var key = 'YOUR_GOOGLE_MAPS_API_KEY';
+      if (key && key !== 'YOUR_GOOGLE_MAPS_API_KEY') {
+        var s = document.createElement('script');
+        s.src = 'https://maps.googleapis.com/maps/api/js?key=' + key + '&libraries=places,geometry,marker&loading=async';
+        s.async = true;
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
   
   <!-- Suppress non-critical and verbose logs in console -->
   <script>

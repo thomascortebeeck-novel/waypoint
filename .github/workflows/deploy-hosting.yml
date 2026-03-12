@@ -34,8 +34,12 @@ jobs:
         run: |
           if [ -n "$FIREBASE_OPTIONS_DART" ]; then
             echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
+            if grep -q "REPLACE_VIA_FIREBASE_OPTIONS_DART" lib/firebase_options.dart; then
+              echo "::error::FIREBASE_OPTIONS_DART secret contains placeholder. The deployed site would fail to load. Use real Firebase config: run 'flutterfire configure' locally, then paste the contents of lib/firebase_options.dart into the repo secret (or leave the secret unset to use the config committed in the repo)."
+              exit 1
+            fi
           else
-            echo "::warning::FIREBASE_OPTIONS_DART secret not set; using placeholder. Add it for real Firebase config on deployed web."
+            echo "::warning::FIREBASE_OPTIONS_DART secret not set; using committed lib/firebase_options.dart. Ensure it has real web config for production."
           fi
 
       - name: Build web
@@ -59,6 +63,10 @@ jobs:
           fi
           sed -i "s/YOUR_GOOGLE_MAPS_API_KEY/$MAPS_KEY/g" build/web/index.html
           echo "Google Maps API key substituted in build/web/index.html."
+          if grep -q "YOUR_GOOGLE_MAPS_API_KEY" build/web/index.html; then
+            echo "::error::Substitution failed: index.html still contains YOUR_GOOGLE_MAPS_API_KEY. Check GOOGLE_MAPS_API_KEY / GOOGLE_PLACES_API_KEY secret."
+            exit 1
+          fi
 
       - name: Verify build output
         run: |

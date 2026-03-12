@@ -336,7 +336,7 @@ class PromoCard extends StatelessWidget {
   static const String _kUpgradePromoImageUrl =
       'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=800';
 
-  /// AllTrails-style "Upgrade your adventures": image above text on mobile, image beside text on desktop.
+  /// Upgrade promo with social cause: 1% profit to a good cause; image above text on mobile, beside on desktop.
   Widget _buildUpgradePromo(BuildContext context, bool isDesktop) {
     const radius = 20.0;
     final content = _buildUpgradePromoContent(context, isDesktop);
@@ -450,7 +450,7 @@ class PromoCard extends StatelessWidget {
         ),
         SizedBox(height: isDesktop ? 16 : 12),
         Text(
-          'Upgrade your\nadventures',
+          'Adventures that\ngive back',
           style: context.textStyles.headlineSmall?.copyWith(
             fontWeight: FontWeight.w700,
             color: context.colors.onSurface,
@@ -459,7 +459,7 @@ class PromoCard extends StatelessWidget {
         ),
         SizedBox(height: isDesktop ? 12 : 10),
         Text(
-          'Whether you want to explore offline or create your own route, choose the membership that helps you make the most of every minute outdoors.',
+          'We give 1% of our profit to a good cause. Upgrade to explore offline, create your own routes, and make the most of every minute outdoors—while supporting people and planet.',
           style: context.textStyles.bodyMedium?.copyWith(
             color: context.colors.onSurface.withValues(alpha: 0.8),
             height: 1.45,

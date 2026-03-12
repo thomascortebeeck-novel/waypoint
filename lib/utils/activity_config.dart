@@ -125,3 +125,21 @@ bool requiresSingleLocation(ActivityCategory? category) {
   return config?.maxLocations == 1;
 }
 
+/// True when the activity uses a continuous route (e.g. trail/GPX) and does not use
+/// between-waypoint transport. For these, transport mode between waypoints is hidden
+/// and cannot be set (ski/hike/bike/climbing).
+bool isContinuousRouteActivity(ActivityCategory? category) {
+  if (category == null) return false;
+  switch (category) {
+    case ActivityCategory.hiking:
+    case ActivityCategory.cycling:
+    case ActivityCategory.skis:
+    case ActivityCategory.climbing:
+      return true;
+    case ActivityCategory.cityTrips:
+    case ActivityCategory.tours:
+    case ActivityCategory.roadTripping:
+      return false;
+  }
+}
+

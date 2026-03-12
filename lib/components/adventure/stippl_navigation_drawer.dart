@@ -9,6 +9,7 @@ enum NavigationItem {
   overview,
   itinerary,
   checklist,
+  footprint,
   treasure,
   localTips,
   comments,
@@ -186,6 +187,11 @@ class StipplNavigationDrawer extends StatelessWidget {
         item: NavigationItem.checklist,
         label: 'Checklist',
         icon: Icons.checklist_outlined,
+      ),
+      _NavigationItemData(
+        item: NavigationItem.footprint,
+        label: 'Footprint',
+        icon: Icons.eco_outlined,
       ),
       // Treasure (expenses) only in trip mode
       if (!isPlanMode)

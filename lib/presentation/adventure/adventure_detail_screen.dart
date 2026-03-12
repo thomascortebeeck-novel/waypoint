@@ -49,6 +49,7 @@ import 'package:waypoint/models/route_waypoint.dart' show
 import 'package:waypoint/models/waypoint_edit_result.dart';
 import 'package:waypoint/models/route_info_model.dart';
 import 'package:waypoint/models/gpx_route_model.dart';
+import 'package:waypoint/utils/activity_config.dart' show isContinuousRouteActivity;
 import 'package:waypoint/utils/activity_utils.dart';
 import 'package:waypoint/utils/logger.dart';
 import 'package:intl/intl.dart';
@@ -92,6 +93,7 @@ import 'package:waypoint/data/checklist_suggestions.dart';
 import 'package:waypoint/components/common/empty_state_widget.dart';
 import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/layout/waypoint_breakpoints.dart';
+import 'package:waypoint/features/footprint/footprint_tab.dart';
 import 'package:waypoint/presentation/adventure/tabs/comments_tab.dart';
 import 'package:waypoint/services/comment_service.dart';
 import 'package:waypoint/models/adventure_context_model.dart';
@@ -270,6 +272,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   // Purchase status and trip ownership
   bool? _hasPurchased; // null = not checked yet, true/false = checked
   bool? _isTripOwner; // null = not trip mode, true/false = trip owner status
+  bool? _isNavigator; // null = not trip mode, true/false = navigator role (can edit transport)
   
   // Version selection (persistent across tabs)
   int _selectedVersionIndex = 0;
@@ -842,10 +845,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           throw Exception('Plan not found');
         }
         
-        // Check if current user is trip owner
+        // Check if current user is trip owner or navigator
         final currentUser = FirebaseAuth.instance.currentUser;
         final isTripOwner = currentUser != null && trip.isOwner(currentUser.uid);
-        
+        final isNavigator = currentUser != null && trip.isNavigator(currentUser.uid);
+
         // Check purchase status (owner always has access)
         bool hasPurchased;
         if (isTripOwner) {
@@ -908,6 +912,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           );
           _waypointOverridesMap = overridesMap;
           _isTripOwner = isTripOwner;
+          _isNavigator = isNavigator;
           _hasPurchased = hasPurchased;
         });
         // Inline-edit controller for trip title (owner only)
@@ -984,6 +989,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           _errorMessage = 'Failed to load adventure: ${e.toString()}';
           _hasPurchased = null; // Reset on error
           _isTripOwner = null;
+          _isNavigator = null;
         });
         _deferLoadingComplete();
       }
@@ -5679,17 +5685,12 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     required RouteWaypoint to,
     required Map<String, TripWaypointOverride> overridesByWaypointId,
     required bool isTripOwner,
+    required bool isNavigator,
     required int dayNum,
   }) {
-    // Hide for activity categories that use a continuous route
-    final hideForCategory = _formState?.activityCategory != null
-        ? {
-            ActivityCategory.hiking,
-            ActivityCategory.cycling,
-            ActivityCategory.skis,
-            ActivityCategory.climbing,
-          }.contains(_formState!.activityCategory)
-        : false;
+    // Hide for activity categories that use a continuous route (ski/hike/bike/climbing)
+    final activityCategory = _formState?.activityCategory ?? _plan?.activityCategory;
+    final hideForCategory = isContinuousRouteActivity(activityCategory);
 
     // Also hide when the day has a GPX route (continuous track)
     bool hasGpxRoute = false;
@@ -5739,7 +5740,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     const connectorColor = Color(0xFFD2B48C);
 
     final bool canEdit =
-        (isTripOwner && widget.tripId != null) ||
+        ((isTripOwner || isNavigator) && widget.tripId != null) ||
         widget.mode == AdventureMode.builder;
 
     // Stack keeps the connector line continuous behind the row; icon circle is the only tap target.
@@ -7301,11 +7302,50 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         }
       case NavigationItem.comments:
         return _buildCommentsTab();
+      case NavigationItem.footprint:
+        return _buildFootprintTab();
       case NavigationItem.treasure:
         return _buildTreasureTab();
       case NavigationItem.review:
         return _buildBuilderReviewTab();
     }
+  }
+
+  Widget _buildFootprintTab() {
+    if (_adventureData?.plan == null || _adventureData?.selectedVersion == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.eco_outlined,
+                size: 64,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No plan data to show footprint',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final memberCount = _adventureData!.trip?.memberIds.length ?? 1;
+    final personCount = memberCount < 1 ? 1 : memberCount;
+    final data = FootprintTabData(
+      plan: _adventureData!.plan!,
+      version: _adventureData!.selectedVersion!,
+      daySelections: _adventureData!.daySelections,
+      personCount: personCount,
+    );
+    return FootprintTab(data: data);
   }
 
   /// Wraps content with blur overlay and unlock message when plan not purchased (viewer only).
@@ -8296,6 +8336,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           to: toWp,
           overridesByWaypointId: overridesByWaypointId,
           isTripOwner: isTripOwner,
+          isNavigator: widget.mode == AdventureMode.trip && (_isNavigator == true),
           dayNum: dayNum,
         );
         if (transportRow != null) children.add(transportRow);

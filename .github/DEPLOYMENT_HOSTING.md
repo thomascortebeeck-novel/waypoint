@@ -18,6 +18,7 @@ The **Deploy Firebase Hosting** workflow (`.github/workflows/deploy-hosting.yml`
 | `FIREBASE_PROJECT_ID`      | Your Firebase project ID (e.g. from `.firebaserc`).                                     |
 | `FIREBASE_SERVICE_ACCOUNT` | JSON key of a service account with permission to deploy Hosting (same as for Functions). |
 | `GOOGLE_MAPS_API_KEY`      | **Required for the web map to load.** Google Maps JavaScript API key. Enable "Maps JavaScript API" in [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/credentials), restrict the key to your domain (e.g. `waypoint.tours`, `*.web.app`), then add the key as this repo secret. You can use `GOOGLE_PLACES_API_KEY` instead if that secret is already set. |
+| `FIREBASE_OPTIONS_DART`    | Optional. If set, the workflow overwrites `lib/firebase_options.dart` with this value. **Must be full real config** (no `REPLACE_VIA_FIREBASE_OPTIONS_DART`), or the live site will show "App initialization failed". If unset, the committed `lib/firebase_options.dart` is used. |
 
 Without `GOOGLE_MAPS_API_KEY` (or `GOOGLE_PLACES_API_KEY`), the deploy will **fail** and the published site would show blank maps.
 
@@ -84,6 +85,24 @@ This means the browser cannot agree on TLS with the server. Firebase Hosting man
 
 5. **Quick check**
    - If **https://&lt;your-project&gt;.web.app** works but **https://www.waypoint.tours** does not, the problem is DNS or custom-domain setup for www, not your app code.
+
+### Site shows "App initialization failed" or blank (deploy succeeded, domains connected)
+
+If the deploy and custom domains are fine but the live site shows a blank page or **"App initialization failed"**, the cause is usually **API/config injected at build time**:
+
+1. **Firebase config (FIREBASE_OPTIONS_DART)**  
+   The workflow overwrites `lib/firebase_options.dart` when the secret is set. If the secret still contains **placeholder** text (`REPLACE_VIA_FIREBASE_OPTIONS_DART`), the deployed app gets invalid Firebase config and `Firebase.initializeApp()` can throw, so the app shows the error screen instead of the real UI.  
+   **Fix:** In GitHub → Settings → Secrets and variables → Actions, either:
+   - **Remove** the `FIREBASE_OPTIONS_DART` secret so the workflow uses the committed `lib/firebase_options.dart` (must have real web config), or  
+   - **Update** the secret with the full contents of a real `lib/firebase_options.dart` (e.g. from `flutterfire configure`), including a valid web `apiKey`, not the placeholder string.  
+   After fixing, push a commit or re-run the Deploy Firebase Hosting workflow.
+
+2. **Google Maps API key**  
+   The key is substituted into `build/web/index.html` from `GOOGLE_MAPS_API_KEY` (or `GOOGLE_PLACES_API_KEY`). If the key is invalid, or **HTTP referrer restrictions** do not include `https://waypoint.tours` and `https://www.waypoint.tours`, the Maps script can fail on your domain and the app may break when a map is used.  
+   **Fix:** In [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/credentials), edit the key used for the web app. Under "Application restrictions", add your production domains (e.g. `waypoint.tours`, `www.waypoint.tours`, `*.web.app`, `*.firebaseapp.com`). Ensure "Maps JavaScript API" (and "Places API" if used) are enabled for the project.
+
+3. **Verify**  
+   After the next deploy, open the live site in an incognito window. If you still see an error, open DevTools (F12) → Console and note any red errors (e.g. Firebase invalid API key, Maps API key invalid).
 
 ## Local web development
 
