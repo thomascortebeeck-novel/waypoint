@@ -3,7 +3,7 @@
   "description": "Cloud Functions for Waypoint (FCM push: check-in, vote resolved)",
   "main": "lib/index.js",
   "engines": {
-    "node": ">=18"
+    "node": "20"
   },
   "scripts": {
     "build": "tsc"
