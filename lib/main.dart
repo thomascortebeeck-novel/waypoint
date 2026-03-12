@@ -14,6 +14,7 @@ import 'package:waypoint/services/map_marker_service.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/providers/theme_provider.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:waypoint/services/fcm_service.dart';
 import 'package:waypoint/services/stripe_config_service.dart';
 
 /// Configure global image cache for better performance
@@ -154,7 +155,7 @@ Future<void> main() async {
     // PlatformDispatcher hook for uncaught async errors (safe to reassign on hot restart)
     PlatformDispatcher.instance.onError = (error, stack) {
       final errorString = error.toString();
-      final stackString = stack?.toString() ?? '';
+      final stackString = stack.toString();
       
       // Filter out AssetManifest.json / asset load errors from uncaught promises
       final isAssetManifestError = 
@@ -197,6 +198,15 @@ Future<void> main() async {
       } else {
         rethrow;
       }
+    }
+
+    // FCM: init and token registration for push notifications (no-op on web if not configured)
+    try {
+      await FcmService.instance.init();
+      FcmService.instance.listenTokenRefresh();
+      Log.i('bootstrap', 'FCM service initialized');
+    } catch (e) {
+      Log.i('bootstrap', 'FCM init skipped or failed: $e');
     }
 
     // Stripe: key from config (config/stripe.useLiveKeys) with SharedPreferences cache; test/live via STRIPE_PK_TEST and STRIPE_PK_LIVE. Takes effect after app restart when admin toggles.

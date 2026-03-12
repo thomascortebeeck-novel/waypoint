@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import 'package:waypoint/components/map/waypoint_map_detail_sheet.dart';
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
@@ -36,7 +37,9 @@ class WaypointMapCard extends StatefulWidget {
   final double? height;
   final TripDaySelection? daySelection;
   final bool isOwner;
-  
+  /// When set, waypoint detail sheet can show Save (favorite plan). Omit when plan context is unknown.
+  final String? planId;
+
   const WaypointMapCard({
     super.key,
     required this.day,
@@ -48,6 +51,7 @@ class WaypointMapCard extends StatefulWidget {
     this.height,
     this.daySelection,
     this.isOwner = true,
+    this.planId,
   });
 
   @override
@@ -471,7 +475,8 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
           annotations.add(
             MapAnnotation.fromWaypoint(
               wp,
-              onTap: () => _showWaypointDetails(wp),
+              showInfoWindow: false,
+              onTap: () => WaypointMapDetailSheet.show(context, waypoint: wp, planId: widget.planId),
             ),
           );
         }
@@ -546,72 +551,4 @@ class _WaypointMapCardState extends State<WaypointMapCard> {
     );
   }
 
-  void _showWaypointDetails(RouteWaypoint waypoint) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: getWaypointColor(waypoint.type),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    getWaypointIcon(waypoint.type),
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        waypoint.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        getWaypointLabel(waypoint.type),
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (waypoint.description != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                waypoint.description!,
-                style: const TextStyle(fontSize: 15),
-              ),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              '${waypoint.position.latitude.toStringAsFixed(5)}, ${waypoint.position.longitude.toStringAsFixed(5)}',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

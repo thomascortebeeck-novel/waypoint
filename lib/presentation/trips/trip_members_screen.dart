@@ -10,6 +10,7 @@ import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/services/invite_service.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
+import 'package:waypoint/services/waypoint_vote_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/core/constants/level_names.dart';
@@ -31,6 +32,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
   final TripService _tripService = TripService();
   final InviteService _inviteService = InviteService();
   final PlanService _planService = PlanService();
+  final WaypointVoteService _voteService = WaypointVoteService();
 
   Trip? _trip;
   Plan? _plan;
@@ -340,6 +342,10 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           // Share options row
           _buildShareOptions(),
           const SizedBox(height: 28),
+          if (isOwner) ...[
+            _buildWaypointChoiceSection(),
+            const SizedBox(height: 20),
+          ],
           // Participants section
           _buildParticipantsHeader(),
           const SizedBox(height: 12),
@@ -452,6 +458,54 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildWaypointChoiceSection() {
+    final isVote = _trip?.isWaypointVoteMode ?? false;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Waypoint choices',
+          style: context.textStyles.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: context.colors.onSurface,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'owner', label: Text('Owner decides'), icon: Icon(Icons.person_outline, size: 18)),
+            ButtonSegment(value: 'vote', label: Text('Members vote'), icon: Icon(Icons.how_to_vote_outlined, size: 18)),
+          ],
+          selected: {isVote ? 'vote' : 'owner'},
+          onSelectionChanged: (Set<String> selected) async {
+            final mode = selected.first;
+            if (_trip == null) return;
+            try {
+              if (mode == 'vote') {
+                final hasState = await _voteService.hasVoteState(_trip!.id);
+                if (!hasState && _plan != null) {
+                  final version = _plan!.versions.firstWhere(
+                  (v) => v.id == _trip!.versionId,
+                  orElse: () => _plan!.versions.first,
+                );
+                  await _voteService.createVoteState(tripId: _trip!.id, version: version);
+                }
+              }
+              await _tripService.updateWaypointDecisionMode(tripId: _trip!.id, mode: mode);
+              await _loadData();
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Could not update: $e'), behavior: SnackBarBehavior.floating),
+                );
+              }
+            }
+          },
+        ),
+      ],
     );
   }
 

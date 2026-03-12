@@ -45,6 +45,12 @@ service cloud.firestore {
              request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.member_ids;
     }
     
+    // Helper to check if user is trip owner
+    function isTripOwner(tripId) {
+      return isSignedIn() && 
+             get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid;
+    }
+    
     // ============================================
     // USERS COLLECTION
     // ============================================
@@ -409,6 +415,13 @@ service cloud.firestore {
         allow read: if isTripMember(tripId) || isAdmin();
         allow create, update: if isTripMember(tripId) || isAdmin();
         allow delete: if isTripMember(tripId) || isAdmin();
+      }
+      
+      // ============================================
+      // EXPENSES SUBCOLLECTION (Treasure / Tricount-style)
+      // ============================================
+      match /expenses/{expenseId} {
+        allow read, write: if isTripMember(tripId) || isAdmin();
       }
     }
   }

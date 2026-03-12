@@ -199,10 +199,10 @@ class _LoggedInView extends StatelessWidget {
             label: 'ADMIN',
             children: [
               _SettingsTile(
-                icon: FontAwesomeIcons.database,
-                title: 'Database Migration',
-                subtitle: 'Manage system data and schema',
-                onTap: () => context.push('/admin/migration'),
+                icon: FontAwesomeIcons.shieldHalved,
+                title: 'Admin',
+                subtitle: 'Dashboard, push notifications, migration',
+                onTap: () => context.push(AppRoutes.admin),
               ),
               _StripeModeTile(),
             ],
@@ -1604,10 +1604,6 @@ class _LoginRegisterCardState extends State<_LoginRegisterCard> {
       if (_mode == _AuthMode.signIn) {
         await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
         if (!mounted) return;
-        if (!widget.auth.isEmailVerified) {
-          _showEmailVerificationDialog();
-          return;
-        }
         widget.onAuthSuccess();
       } else {
         await widget.auth.createAccountWithEmail(
@@ -1620,8 +1616,7 @@ class _LoginRegisterCardState extends State<_LoginRegisterCard> {
           marketingOptIn: _marketingOptIn,
         );
         if (!mounted) return;
-        _showEmailVerificationDialog();
-        return;
+        widget.onAuthSuccess();
       }
     } on AuthException catch (e) {
       errorMessage = e.message;
@@ -1653,20 +1648,6 @@ class _LoginRegisterCardState extends State<_LoginRegisterCard> {
     showDialog(
       context: context,
       builder: (ctx) => _ForgotPasswordDialog(auth: widget.auth, initialEmail: _emailCtrl.text),
-    );
-  }
-
-  void _showEmailVerificationDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _EmailVerificationDialog(
-        auth: widget.auth,
-        onVerified: () {
-          Navigator.of(ctx).pop();
-          widget.onAuthSuccess();
-        },
-      ),
     );
   }
 
@@ -2004,20 +1985,12 @@ class _EmailAuthFormState extends State<_EmailAuthForm> {
     
     try {
       if (_mode == _AuthMode.signIn) {
-        final user = await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
-        
-        if (!mounted) return;
-        
-        // Check email verification status
-        if (!widget.auth.isEmailVerified) {
-          _showEmailVerificationDialog();
-          return;
-        }
+        await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
         
         if (!mounted) return;
         widget.onAuthSuccess();
       } else {
-        final user = await widget.auth.createAccountWithEmail(
+        await widget.auth.createAccountWithEmail(
           context,
           _emailCtrl.text.trim(),
           _passwordCtrl.text,
@@ -2028,10 +2001,7 @@ class _EmailAuthFormState extends State<_EmailAuthForm> {
         );
         
         if (!mounted) return;
-        
-        // Show email verification dialog after signup
-        _showEmailVerificationDialog();
-        return;
+        widget.onAuthSuccess();
       }
     } on AuthException catch (e) {
       errorMessage = e.message;
@@ -2069,19 +2039,6 @@ class _EmailAuthFormState extends State<_EmailAuthForm> {
     );
   }
 
-  void _showEmailVerificationDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _EmailVerificationDialog(
-        auth: widget.auth,
-        onVerified: () {
-          Navigator.of(ctx).pop();
-          widget.onAuthSuccess();
-        },
-      ),
-    );
-  }
 }
 
 class _EmailAuthSheetState extends State<_EmailAuthSheet> {
@@ -2313,21 +2270,13 @@ class _EmailAuthSheetState extends State<_EmailAuthSheet> {
     
     try {
       if (_mode == _AuthMode.signIn) {
-        final user = await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
-        
-        if (!mounted) return;
-        
-        // Check email verification status
-        if (!widget.auth.isEmailVerified) {
-          _showEmailVerificationDialog();
-          return;
-        }
+        await widget.auth.signInWithEmail(context, _emailCtrl.text.trim(), _passwordCtrl.text);
         
         if (!mounted) return;
         Navigator.of(context).pop();
         widget.onAuthSuccess();
       } else {
-        final user = await widget.auth.createAccountWithEmail(
+        await widget.auth.createAccountWithEmail(
           context,
           _emailCtrl.text.trim(),
           _passwordCtrl.text,
@@ -2338,10 +2287,8 @@ class _EmailAuthSheetState extends State<_EmailAuthSheet> {
         );
         
         if (!mounted) return;
-        
-        // Show email verification dialog after signup
-        _showEmailVerificationDialog();
-        return;
+        Navigator.of(context).pop();
+        widget.onAuthSuccess();
       }
     } on AuthException catch (e) {
       errorMessage = e.message;
@@ -2383,20 +2330,6 @@ class _EmailAuthSheetState extends State<_EmailAuthSheet> {
     );
   }
 
-  void _showEmailVerificationDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => _EmailVerificationDialog(
-        auth: widget.auth,
-        onVerified: () {
-          Navigator.of(ctx).pop();
-          Navigator.of(context).pop();
-          widget.onAuthSuccess();
-        },
-      ),
-    );
-  }
 }
 
 /// Password requirements visual indicator
@@ -2662,150 +2595,6 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
       }
     } catch (e) {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-}
-
-/// Email verification dialog
-class _EmailVerificationDialog extends StatefulWidget {
-  final FirebaseAuthManager auth;
-  final VoidCallback onVerified;
-
-  const _EmailVerificationDialog({
-    required this.auth,
-    required this.onVerified,
-  });
-
-  @override
-  State<_EmailVerificationDialog> createState() => _EmailVerificationDialogState();
-}
-
-class _EmailVerificationDialogState extends State<_EmailVerificationDialog> {
-  bool _checking = false;
-  bool _resending = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final email = widget.auth.currentFirebaseUser?.email ?? '';
-
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: context.colors.primaryContainer,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: Icon(
-              Icons.mark_email_unread,
-              color: context.colors.primary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Verify Your Email',
-              style: context.textStyles.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.email_outlined,
-            color: context.colors.primary,
-            size: 64,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'We\'ve sent a verification email to:',
-            style: context.textStyles.bodyMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            email,
-            style: context.textStyles.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Please check your inbox and click the verification link, then tap "I\'ve Verified" below.',
-            style: context.textStyles.bodySmall?.copyWith(
-              color: context.colors.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          TextButton.icon(
-            onPressed: _resending ? null : _resendVerification,
-            icon: _resending
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh, size: 16),
-            label: Text(_resending ? 'Sending...' : 'Resend verification email'),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            widget.auth.signOut();
-            Navigator.of(context).pop();
-          },
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _checking ? null : _checkVerification,
-          child: _checking
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Text('I\'ve Verified'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _checkVerification() async {
-    setState(() => _checking = true);
-    try {
-      final verified = await widget.auth.reloadUserAndCheckVerification();
-      if (verified) {
-        widget.onVerified();
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Email not verified yet. Please check your inbox.'),
-              backgroundColor: context.colors.error,
-            ),
-          );
-        }
-      }
-    } finally {
-      if (mounted) setState(() => _checking = false);
-    }
-  }
-
-  Future<void> _resendVerification() async {
-    setState(() => _resending = true);
-    try {
-      await widget.auth.resendEmailVerification(context);
-    } finally {
-      if (mounted) setState(() => _resending = false);
     }
   }
 }

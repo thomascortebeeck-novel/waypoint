@@ -10,9 +10,13 @@ import 'package:waypoint/models/route_waypoint.dart';
 class MapMarkerService {
   static final Map<String, BitmapDescriptor> _cache = {};
 
+  /// Minimum DPR used for rasterization so markers stay crisp on high-DPI displays.
+  static const double _minDevicePixelRatio = 3.0;
+
   /// Returns a BitmapDescriptor for the plectrum pin (46×58 logical px at scale 1.0).
-  /// Uses [getCategoryConfig] for color and icon; [devicePixelRatio] for crisp raster.
-  /// [displayScale] scales the logical size (e.g. for responsive markers on Google Maps); default 1.0.
+  /// Uses [getCategoryConfig] for color and icon; [devicePixelRatio] is clamped to at least
+  /// [_minDevicePixelRatio] inside this service for crisp raster. [displayScale] scales the
+  /// logical size (e.g. for responsive markers on Google Maps); default 1.0.
   /// Anchor is bottom tip (0.5, 1.0) — set on Marker.
   static Future<BitmapDescriptor> markerForType(
     String waypointType, {
@@ -21,15 +25,18 @@ class MapMarkerService {
     int? orderNumber,
     double displayScale = 1.0,
   }) async {
+    final effectiveDpr = devicePixelRatio > _minDevicePixelRatio
+        ? devicePixelRatio
+        : _minDevicePixelRatio;
     final cacheKey =
-        '$waypointType-$devicePixelRatio-$isSelected-$orderNumber-$displayScale';
+        '$waypointType-$effectiveDpr-$isSelected-$orderNumber-$displayScale';
     if (_cache.containsKey(cacheKey)) return _cache[cacheKey]!;
 
     final wt = _waypointTypeFromString(waypointType);
     final config = getCategoryConfig(wt);
     final bytes = await _paintMarker(
       fillColor: config.color,
-      devicePixelRatio: devicePixelRatio,
+      devicePixelRatio: effectiveDpr,
       isSelected: isSelected,
       icon: config.icon,
       label: orderNumber?.toString(),
@@ -42,18 +49,21 @@ class MapMarkerService {
 
   static void clearCache() => _cache.clear();
 
-  /// Returns PNG bytes for the plectrum pin (e.g. for Mapbox web).
-  /// Generate at devicePixelRatio × logical size; display at 46×58 logical.
+  /// Returns PNG bytes for the plectrum pin.
+  /// [devicePixelRatio] is clamped to at least [_minDevicePixelRatio] inside this service.
   static Future<Uint8List> getMarkerImageBytes(
     String waypointType, {
     double devicePixelRatio = 2.0,
     bool isSelected = false,
   }) async {
+    final effectiveDpr = devicePixelRatio > _minDevicePixelRatio
+        ? devicePixelRatio
+        : _minDevicePixelRatio;
     final wt = _waypointTypeFromString(waypointType);
     final config = getCategoryConfig(wt);
     return _paintMarker(
       fillColor: config.color,
-      devicePixelRatio: devicePixelRatio,
+      devicePixelRatio: effectiveDpr,
       isSelected: isSelected,
       icon: config.icon,
       label: null,

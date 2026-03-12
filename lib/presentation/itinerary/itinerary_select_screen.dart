@@ -8,6 +8,7 @@ import 'package:waypoint/models/trip_selection_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
+import 'package:waypoint/services/waypoint_vote_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/itinerary/itinerary_bottom_bar.dart';
 import 'package:waypoint/components/components.dart';
@@ -30,13 +31,15 @@ class ItinerarySelectScreen extends StatefulWidget {
 class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
   final _plans = PlanService();
   final _trips = TripService();
-  
+  final _voteService = WaypointVoteService();
+
   Plan? _plan;
   Trip? _trip;
   PlanVersion? _version;
   List<TripDaySelection> _selections = [];
   bool _loading = true;
   bool _saving = false;
+  bool _votingOpen = false;
 
   @override
   void initState() {
@@ -82,13 +85,20 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
         debugPrint('[ItinerarySelect] After init: ${selections.length} selections');
       }
 
-      setState(() {
-        _plan = plan;
-        _trip = trip;
-        _version = version;
-        _selections = selections;
-        _loading = false;
-      });
+      var votingOpen = false;
+      if (trip.isWaypointVoteMode) {
+        votingOpen = await _voteService.isVotingOpen(trip.id);
+      }
+      if (mounted) {
+        setState(() {
+          _plan = plan;
+          _trip = trip;
+          _version = version;
+          _selections = selections;
+          _votingOpen = votingOpen;
+          _loading = false;
+        });
+      }
       debugPrint('[ItinerarySelect] Load complete');
     } catch (e, stackTrace) {
       debugPrint('[ItinerarySelect] Error loading data: $e');
@@ -179,22 +189,63 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
             ),
             const SizedBox(height: 24),
 
+            // Vote mode banner
+            if (_trip!.isWaypointVoteMode) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _votingOpen
+                      ? context.colors.primaryContainer.withValues(alpha: 0.4)
+                      : context.colors.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: context.colors.outline.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _votingOpen ? Icons.how_to_vote_outlined : Icons.check_circle_outline,
+                      color: context.colors.primary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _votingOpen
+                            ? 'Crew is voting on waypoints. Tap below to vote.'
+                            : 'Selections from crew vote (read-only).',
+                        style: context.textStyles.bodyMedium?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    if (_votingOpen)
+                      FilledButton(
+                        onPressed: () => context.push('/trip/${widget.tripId}/vote'),
+                        child: const Text('Vote'),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
             // All waypoints organized by day
             ..._version!.days.asMap().entries.map((entry) {
               final dayIndex = entry.key;
               final day = entry.value;
-              final selection = dayIndex < _selections.length 
-                  ? _selections[dayIndex] 
+              final selection = dayIndex < _selections.length
+                  ? _selections[dayIndex]
                   : null;
+              final isReadOnly = _trip!.isWaypointVoteMode;
 
               return _DaySection(
                 day: day,
                 selection: selection,
-                onSelectAccommodation: (acc) => _selectAccommodation(dayIndex, acc),
-                onSelectRestaurant: (rest, mealType) => _selectRestaurant(dayIndex, rest, mealType),
-                onToggleActivity: (act) => _toggleActivity(dayIndex, act),
-                onToggleServicePoint: (sp) => _toggleServicePoint(dayIndex, sp),
-                onToggleBooking: (waypointName, type, isBooked) => 
+                onSelectAccommodation: isReadOnly ? (_) {} : (acc) => _selectAccommodation(dayIndex, acc),
+                onSelectRestaurant: isReadOnly ? (_, __) {} : (rest, mealType) => _selectRestaurant(dayIndex, rest, mealType),
+                onToggleActivity: isReadOnly ? (_) {} : (act) => _toggleActivity(dayIndex, act),
+                onToggleServicePoint: isReadOnly ? (_) {} : (sp) => _toggleServicePoint(dayIndex, sp),
+                onToggleBooking: isReadOnly ? (_, __, ___) {} : (waypointName, type, isBooked) =>
                     _toggleBookingStatus(dayIndex, waypointName, type, isBooked),
               );
             }),
@@ -206,8 +257,8 @@ class _ItinerarySelectScreenState extends State<ItinerarySelectScreen> {
       bottomNavigationBar: ItineraryBottomBar(
         onBack: () => context.go('/trip/${widget.tripId}'),
         backLabel: 'Back to Overview',
-        onNext: _saving ? null : _confirmSelections,
-        nextEnabled: !_saving && _hasAnySelections,
+        onNext: (_trip!.isWaypointVoteMode || _saving) ? null : _confirmSelections,
+        nextEnabled: !_trip!.isWaypointVoteMode && !_saving && _hasAnySelections,
         nextLabel: _saving ? 'Saving...' : 'Confirm Selections',
         nextIcon: Icons.check,
       ),

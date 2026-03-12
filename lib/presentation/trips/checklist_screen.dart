@@ -1,10 +1,13 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/models/shared_packing_item_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/trip_selection_model.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/services/shared_packing_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/components/waypoint/waypoint_shared_components.dart';
@@ -27,6 +30,7 @@ class ChecklistScreen extends StatefulWidget {
 class _ChecklistScreenState extends State<ChecklistScreen> {
   final _plans = PlanService();
   final _trips = TripService();
+  final _sharedPacking = SharedPackingService();
 
   Trip? _trip;
   Plan? _plan;
@@ -36,6 +40,11 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   String? _userId;
   final Map<String, bool> _expandedCategories = {};
   final Map<String, bool> _expandedItems = {};
+  /// Optimistic toggle state for shared items (itemId -> checked); cleared when stream updates or on revert.
+  final Map<String, bool> _pendingSharedToggles = {};
+  bool _sharedSectionExpanded = true;
+  /// Single live stream so add/edit/delete by others updates in real time (not recreated on rebuild).
+  Stream<List<SharedPackingItem>>? _sharedPackingStream;
 
   static const _quickAddCategories = ['Vaccines', 'Electronics', 'Toiletries', 'Diversions', 'Documents'];
 
@@ -43,6 +52,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   void initState() {
     super.initState();
     _userId = FirebaseAuth.instance.currentUser?.uid;
+    _sharedPackingStream = _sharedPacking.streamSharedPackingItems(widget.tripId);
     _load();
   }
 
@@ -60,7 +70,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
       final plan = await _plans.getPlanById(trip.planId);
       final version = plan?.versions.firstWhere(
         (v) => v.id == trip.versionId,
-        orElse: () => plan!.versions.first,
+        orElse: () => plan.versions.first,
       );
       var packing = await _trips.getMemberPacking(widget.tripId, _userId!);
       if (packing == null && version != null) {
@@ -148,6 +158,88 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     }
   }
 
+  Future<void> _toggleSharedItem(SharedPackingItem item) async {
+    final newChecked = !(_pendingSharedToggles[item.id] ?? item.checked);
+    setState(() => _pendingSharedToggles[item.id] = newChecked);
+    try {
+      await _sharedPacking.toggleSharedItem(
+        tripId: widget.tripId,
+        itemId: item.id,
+        checked: newChecked,
+      );
+      if (mounted) setState(() => _pendingSharedToggles.remove(item.id));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _pendingSharedToggles[item.id] = item.checked);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeSharedItem(SharedPackingItem item) async {
+    try {
+      await _sharedPacking.removeSharedItem(tripId: widget.tripId, itemId: item.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAddSharedItemDialog() async {
+    final controller = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add shared item'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Item name',
+            hintText: 'e.g. First aid kit',
+          ),
+          autofocus: true,
+          onSubmitted: (_) => Navigator.of(ctx).pop(true),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isEmpty) return;
+              Navigator.of(ctx).pop(true);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (result != true || _userId == null) return;
+    final label = controller.text.trim();
+    if (label.isEmpty) return;
+    try {
+      await _sharedPacking.addSharedItem(
+        tripId: widget.tripId,
+        label: label,
+        userId: _userId!,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Item added'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not add: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
   static IconData _iconForCategoryName(String name) {
     final lower = name.toLowerCase();
     if (lower.contains('food') || lower.contains('drink')) return Icons.restaurant_rounded;
@@ -202,6 +294,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 20)),
+          SliverToBoxAdapter(child: _buildSharedCrewItemsSection()),
+          const SliverToBoxAdapter(child: SizedBox(height: 16)),
           SliverToBoxAdapter(child: _buildQuickAdd()),
           const SliverToBoxAdapter(child: SizedBox(height: 16)),
           if (categories.isEmpty)
@@ -367,6 +461,61 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSharedCrewItemsSection() {
+    final stream = _sharedPackingStream;
+    if (stream == null) return const SizedBox.shrink();
+    return StreamBuilder<List<SharedPackingItem>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final items = snapshot.data ?? [];
+        final hasItems = items.isNotEmpty;
+        return WaypointPackingCategoryPanel(
+          title: 'Shared $kCrewLabel items',
+          icon: Icons.group_work_rounded,
+          isExpanded: _sharedSectionExpanded,
+          onToggle: () => setState(() => _sharedSectionExpanded = !_sharedSectionExpanded),
+          onDelete: null,
+          footer: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: OutlinedButton.icon(
+              onPressed: _showAddSharedItemDialog,
+              icon: Icon(Icons.add, size: 16, color: context.colors.primary),
+              label: Text(
+                'Add item',
+                style: TextStyle(
+                  color: context.colors.primary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: context.colors.outline),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                backgroundColor: context.colors.surface,
+              ),
+            ),
+          ),
+          children: hasItems
+              ? items.map((item) {
+                  final isChecked = _pendingSharedToggles[item.id] ?? item.checked;
+                  return WaypointPackingListItem(
+                    name: item.label,
+                    qty: 1,
+                    isChecked: isChecked,
+                    onToggle: () => _toggleSharedItem(item),
+                    isEssential: false,
+                    isExpanded: false,
+                    onTap: null,
+                    onDelete: () => _removeSharedItem(item),
+                  );
+                }).toList()
+              : [],
+        );
+      },
     );
   }
 

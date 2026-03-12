@@ -1,27 +1,13 @@
 {
   "name": "waypoint-functions",
-  "version": "1.0.0",
-  "private": true,
+  "description": "Cloud Functions for Waypoint (FCM push: check-in, vote resolved)",
+  "main": "index.js",
+  "type": "module",
   "engines": {
-    "node": "22"
-  },
-  "main": "lib/index.js",
-  "scripts": {
-    "build": "tsc",
-    "serve": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions",
-    "lint": "echo 'No lint configured'"
+    "node": ">=18"
   },
   "dependencies": {
-    "axios": "^1.6.7",
     "firebase-admin": "^12.0.0",
-    "firebase-functions": "^7.0.3",
-    "pngjs": "^7.0.0",
-    "stripe": "^17.4.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.4.0"
+    "firebase-functions": "^6.0.0"
   }
 }

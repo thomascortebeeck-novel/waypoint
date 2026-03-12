@@ -964,6 +964,29 @@ class TripService {
     }
   }
 
+  /// Update waypoint decision mode: 'owner' (owner chooses) or 'vote' (members vote).
+  Future<void> updateWaypointDecisionMode({
+    required String tripId,
+    required String mode,
+    DateTime? waypointVoteEndsAt,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'waypoint_decision_mode': mode,
+        'updated_at': Timestamp.now(),
+      };
+      if (waypointVoteEndsAt != null) {
+        data['waypoint_vote_ends_at'] = Timestamp.fromDate(waypointVoteEndsAt);
+      } else {
+        data['waypoint_vote_ends_at'] = FieldValue.delete();
+      }
+      await _firestore.collection(_collection).doc(tripId).update(data);
+    } catch (e) {
+      debugPrint('Error updating waypoint decision mode: $e');
+      rethrow;
+    }
+  }
+
   // ============================================================================
   // DAY SELECTIONS OPERATIONS (Creator's waypoint choices)
   // ============================================================================

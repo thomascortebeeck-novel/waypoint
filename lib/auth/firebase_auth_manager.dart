@@ -35,7 +35,7 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
       builder: (ctx) => AlertDialog(
         title: const Text('Firebase config needed'),
         content: const Text(
-          'Sign-in needs your Firebase config in this project. You do not need to upload anything online. From the project root in a terminal run:\n\nflutterfire configure\n\nThen restart the app. This downloads your existing Firebase project config into lib/firebase_options.dart.',
+          'Sign-in needs your Firebase config in this project. From the project root run:\n\ndart run flutterfire_cli:flutterfire configure\n\nThen restart the app. This writes your Firebase project config to lib/firebase_options.dart.',
         ),
         actions: [
           TextButton(
@@ -96,9 +96,6 @@ class FirebaseAuthManager extends AuthManager with EmailSignInManager, GoogleSig
       );
       
       if (credential.user != null) {
-        // Send email verification
-        await credential.user!.sendEmailVerification();
-        
         // Update display name in Firebase Auth
         final displayName = '$firstName $lastName'.trim();
         await credential.user!.updateDisplayName(displayName);

@@ -103,6 +103,8 @@ import 'package:waypoint/presentation/adventure/widgets/image_gallery.dart';
 import 'package:waypoint/presentation/mytrips/widgets/image_upload_dialog.dart';
 import 'package:waypoint/presentation/adventure/widgets/price_widgets.dart';
 import 'package:waypoint/presentation/reviews/trip_review_prompt.dart';
+import 'package:waypoint/presentation/trips/treasure_tab.dart';
+import 'package:waypoint/presentation/trips/add_edit_expense_screen.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'dart:io';
 
@@ -1115,6 +1117,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     final useCompactBar = _currentNavigationItem == NavigationItem.itinerary;
     final showItineraryBottomBar = _currentNavigationItem == NavigationItem.itinerary &&
         widget.mode == AdventureMode.builder;
+    final showTreasureFab = _currentNavigationItem == NavigationItem.treasure &&
+        widget.mode == AdventureMode.trip &&
+        widget.tripId != null;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1123,8 +1128,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       appBar: useCompactBar ? _buildCompactItineraryAppBar(context) : _buildUnifiedNavBar(context),
       floatingActionButton: showItineraryBottomBar
           ? _buildItineraryFab(context)
-          : null,
-      floatingActionButtonLocation: showItineraryBottomBar
+          : showTreasureFab
+              ? _buildTreasureFab(context)
+              : null,
+      floatingActionButtonLocation: (showItineraryBottomBar || showTreasureFab)
           ? FloatingActionButtonLocation.endFloat
           : null,
       // CRITICAL: Only create drawer after both _drawerReady AND _drawerHitTestReady are true.
@@ -1765,6 +1772,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTreasureTab() {
+    if (_adventureData == null || widget.tripId == null) return const SizedBox.shrink();
+    return TreasureTab(
+      tripId: widget.tripId!,
+      tripTitle: _adventureData!.displayName,
     );
   }
   
@@ -5335,6 +5350,33 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
 
+  Widget _buildTreasureFab(BuildContext context) {
+    return FloatingActionButton(
+      heroTag: 'treasure_add_expense_fab',
+      onPressed: () async {
+        if (widget.tripId == null) return;
+        final result = await Navigator.of(context).push<dynamic>(
+          MaterialPageRoute(
+            builder: (context) => AddEditExpenseScreen(
+              tripId: widget.tripId!,
+              members: null,
+              existing: null,
+            ),
+          ),
+        );
+        if (mounted && result != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Expense added'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+      child: const Icon(Icons.add, size: 24),
+    );
+  }
+
   /// Legacy full-width bar (replaced by FAB); kept for reference.
   Widget _buildItineraryBottomBar(BuildContext context) {
     final theme = Theme.of(context);
@@ -7259,6 +7301,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         }
       case NavigationItem.comments:
         return _buildCommentsTab();
+      case NavigationItem.treasure:
+        return _buildTreasureTab();
       case NavigationItem.review:
         return _buildBuilderReviewTab();
     }

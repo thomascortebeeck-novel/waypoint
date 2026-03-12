@@ -39,6 +39,10 @@ class Trip {
   // Customization status for waypoint selection flow
   final TripCustomizationStatus customizationStatus;
   final DateTime? customizationCompletedAt;
+  /// Waypoint decision: 'owner' (owner chooses) | 'vote' (members vote). Default owner.
+  final String? waypointDecisionMode;
+  /// When set, voting ends at this time (optional deadline).
+  final DateTime? waypointVoteEndsAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -61,9 +65,13 @@ class Trip {
     this.memberRoles,
     this.customizationStatus = TripCustomizationStatus.draft,
     this.customizationCompletedAt,
+    this.waypointDecisionMode,
+    this.waypointVoteEndsAt,
     required this.createdAt,
     required this.updatedAt,
   }) : inviteCode = inviteCode ?? generateInviteCode();
+
+  bool get isWaypointVoteMode => waypointDecisionMode == 'vote';
 
   /// Check if the trip is ready for invites (customization complete)
   bool get isReadyForInvites => customizationStatus == TripCustomizationStatus.ready;
@@ -127,6 +135,8 @@ class Trip {
           orElse: () => TripCustomizationStatus.draft,
         ),
         customizationCompletedAt: (json['customization_completed_at'] as Timestamp?)?.toDate(),
+        waypointDecisionMode: json['waypoint_decision_mode'] as String?,
+        waypointVoteEndsAt: (json['waypoint_vote_ends_at'] as Timestamp?)?.toDate(),
         createdAt: (json['created_at'] as Timestamp).toDate(),
         updatedAt: (json['updated_at'] as Timestamp).toDate(),
       );
@@ -150,6 +160,8 @@ class Trip {
         if (memberRoles != null) 'member_roles': memberRoles,
         'customization_status': customizationStatus.name,
         if (customizationCompletedAt != null) 'customization_completed_at': Timestamp.fromDate(customizationCompletedAt!),
+        if (waypointDecisionMode != null) 'waypoint_decision_mode': waypointDecisionMode,
+        if (waypointVoteEndsAt != null) 'waypoint_vote_ends_at': Timestamp.fromDate(waypointVoteEndsAt!),
         'created_at': Timestamp.fromDate(createdAt),
         'updated_at': Timestamp.fromDate(updatedAt),
       };
@@ -173,6 +185,8 @@ class Trip {
     Map<String, String>? memberRoles,
     TripCustomizationStatus? customizationStatus,
     DateTime? customizationCompletedAt,
+    String? waypointDecisionMode,
+    DateTime? waypointVoteEndsAt,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => Trip(
@@ -194,6 +208,8 @@ class Trip {
         memberRoles: memberRoles ?? this.memberRoles,
         customizationStatus: customizationStatus ?? this.customizationStatus,
         customizationCompletedAt: customizationCompletedAt ?? this.customizationCompletedAt,
+        waypointDecisionMode: waypointDecisionMode ?? this.waypointDecisionMode,
+        waypointVoteEndsAt: waypointVoteEndsAt ?? this.waypointVoteEndsAt,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
