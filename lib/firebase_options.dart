@@ -51,30 +51,31 @@ class DefaultFirebaseOptions {
     }
   }
 
-  /// Placeholder — replace in CI from FIREBASE_OPTIONS_DART or run `flutterfire configure` locally.
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'REPLACE_VIA_FIREBASE_OPTIONS_DART',
-    appId: '1:0:web:0',
-    messagingSenderId: '0',
-    projectId: 'your-project-id',
-    authDomain: 'your-project-id.firebaseapp.com',
-    storageBucket: 'your-project-id.firebasestorage.app',
+    apiKey: 'AIzaSyCPKS522n1bXPAdE9lVHecudziwll32Wl8',
+    appId: '1:367031227804:web:0fc7dc8c51679700fa6459',
+    messagingSenderId: '367031227804',
+    projectId: 'lo72dwmjbzy4xz7nodczq859vs6xkf',
+    authDomain: 'lo72dwmjbzy4xz7nodczq859vs6xkf.firebaseapp.com',
+    storageBucket: 'lo72dwmjbzy4xz7nodczq859vs6xkf.firebasestorage.app',
   );
 
+  /// Placeholder — replace in CI from FIREBASE_OPTIONS_DART or run `flutterfire configure` locally.
+
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'REPLACE_VIA_FIREBASE_OPTIONS_DART',
-    appId: '1:0:android:0',
-    messagingSenderId: '0',
-    projectId: 'your-project-id',
-    storageBucket: 'your-project-id.firebasestorage.app',
+    apiKey: 'AIzaSyBbA-EG6rvrBhgw5nK7vtDMIuu8RyEnwx0',
+    appId: '1:367031227804:android:7d1e3c56e76de746fa6459',
+    messagingSenderId: '367031227804',
+    projectId: 'lo72dwmjbzy4xz7nodczq859vs6xkf',
+    storageBucket: 'lo72dwmjbzy4xz7nodczq859vs6xkf.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'REPLACE_VIA_FIREBASE_OPTIONS_DART',
-    appId: '1:0:ios:0',
-    messagingSenderId: '0',
-    projectId: 'your-project-id',
-    storageBucket: 'your-project-id.firebasestorage.app',
+    apiKey: 'AIzaSyDSE69rV2PcsGJ80b2R7AICD8UXcJ_nH0o',
+    appId: '1:367031227804:ios:7ec3daeceb8d174bfa6459',
+    messagingSenderId: '367031227804',
+    projectId: 'lo72dwmjbzy4xz7nodczq859vs6xkf',
+    storageBucket: 'lo72dwmjbzy4xz7nodczq859vs6xkf.firebasestorage.app',
     iosBundleId: 'com.thomascortebeeck.waypoint',
   );
 
