@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/models/route_waypoint.dart';
+import 'package:waypoint/utils/url_launcher_helper.dart';
 import 'package:waypoint/theme.dart';
 
 /// Unified waypoint card component used across the app
@@ -354,7 +355,7 @@ class UnifiedWaypointCard extends StatelessWidget {
                 children: [
                   // Square 1:1 image on the left - clickable to open website
                   GestureDetector(
-                    onTap: waypoint.website != null ? () => _launchUrl(waypoint.website!) : null,
+                    onTap: waypoint.website != null ? () => _launchUrl(context, waypoint.website!) : null,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: SizedBox(
@@ -380,7 +381,7 @@ class UnifiedWaypointCard extends StatelessWidget {
                         
                         // Title - clickable to open website
                         GestureDetector(
-                          onTap: waypoint.website != null ? () => _launchUrl(waypoint.website!) : null,
+                          onTap: waypoint.website != null ? () => _launchUrl(context, waypoint.website!) : null,
                           child: Text(
                             waypoint.name,
                             style: const TextStyle(
@@ -789,15 +790,13 @@ class UnifiedWaypointCard extends StatelessWidget {
     }
   }
 
-  void _launchUrl(String url) async {
+  void _launchUrl(BuildContext context, String url) async {
     // Ensure URL has a scheme
     String formattedUrl = url;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       formattedUrl = 'https://$url';
     }
     final uri = Uri.parse(formattedUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await UrlLauncherHelper.launchUrlSafe(context, uri);
   }
 }

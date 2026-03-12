@@ -5,7 +5,7 @@ import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart' as ll;
-import 'package:url_launcher/url_launcher.dart';
+import 'package:waypoint/utils/url_launcher_helper.dart';
 import 'package:waypoint/integrations/mapbox_config.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/route_waypoint.dart';
@@ -273,8 +273,8 @@ class _ItineraryDayScreenState extends State<ItineraryDayScreen> {
                     onTapLink: (text, href, title) async {
                       if (href != null) {
                         final uri = Uri.tryParse(href);
-                        if (uri != null && await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        if (uri != null) {
+                          await UrlLauncherHelper.launchUrlSafe(context, uri);
                         }
                       }
                     },

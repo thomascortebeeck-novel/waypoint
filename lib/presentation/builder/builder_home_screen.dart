@@ -2,8 +2,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
+import 'package:waypoint/utils/url_launcher_helper.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
@@ -208,9 +208,7 @@ class _BuilderHomeScreenState extends State<BuilderHomeScreen> {
       final url = result.data?['url'] as String?;
       if (url != null && url.isNotEmpty && mounted) {
         final uri = Uri.parse(url);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
+        await UrlLauncherHelper.launchUrlSafe(context, uri);
       }
     } catch (e) {
       debugPrint('Connect onboarding error: $e');

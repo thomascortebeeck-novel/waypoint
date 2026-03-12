@@ -12,7 +12,7 @@ alwaysApply: true
 
 ## 2. Run the app and check error logs
 
-- **Always** at the end of your edits, run the app (e.g. `flutter run` or `flutter run -d chrome` from the project root) so it builds and starts. Watch the terminal output for compile errors, runtime errors, or assertion failures (e.g. `isn't defined for the type`, `type 'Null' is not a subtype of`, layout or render errors).
+- **Always** at the end of your edits, run the app (e.g. `flutter run` or `flutter run -d chrome` from the project root) so it builds and starts. Do not use `--web-browser-flag "--disable-web-security"`; Chrome will show an unsupported-flag warning. Watch the terminal output for compile errors, runtime errors, or assertion failures (e.g. `isn't defined for the type`, `type 'Null' is not a subtype of`, layout or render errors).
 - If the app is already running in another terminal, run **hot reload** or **hot restart** (e.g. press `r` / `R` in the `flutter run` session, or run the appropriate command) and check that terminal for errors.
 - Fix any errors reported in the logs before considering the task done. If you cannot run the app in this environment, tell the user to run or hot reload and share any terminal/console errors so you can fix them.
 

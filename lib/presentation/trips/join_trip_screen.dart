@@ -16,7 +16,7 @@ import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/utils/app_urls.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:waypoint/utils/url_launcher_helper.dart';
 
 /// Screen for joining a trip via invite code
 class JoinTripScreen extends StatefulWidget {
@@ -176,9 +176,7 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
         returnToJoin: true,
       );
       final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
+      await UrlLauncherHelper.launchUrlSafe(context, uri);
       return;
     }
 

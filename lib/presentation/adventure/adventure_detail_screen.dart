@@ -36,6 +36,7 @@ import 'package:waypoint/services/storage_service.dart';
 import 'package:waypoint/services/user_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/components/builder/route_info_section.dart' show RouteInfoSection, isGpxSupportedActivity;
+import 'package:waypoint/components/map/waypoint_map_detail_sheet.dart';
 import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
@@ -4926,8 +4927,13 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     final filteredWaypoints = isGpxRoute
         ? waypoints.where((wp) => wp.type != WaypointType.routePoint).toList()
         : waypoints;
+    final planId = widget.planId ?? _plan?.id;
     final annotations = filteredWaypoints
-        .map((wp) => MapAnnotation.fromWaypoint(wp, onTap: () {}))
+        .map((wp) => MapAnnotation.fromWaypoint(
+              wp,
+              showInfoWindow: false,
+              onTap: () => WaypointMapDetailSheet.show(context, waypoint: wp, planId: planId),
+            ))
         .toList();
     
     // Create polylines
@@ -8229,6 +8235,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           showConnectingLine: groups.isNotEmpty,
         ),
       );
+      if (groups.isNotEmpty) {
+        children.add(const SizedBox(height: 8));
+      }
     }
     for (int i = 0; i < groups.length; i++) {
       final (primary, alternatives) = groups[i];
@@ -8493,8 +8502,13 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     final filteredWaypoints = isGpxRoute
         ? waypoints.where((wp) => wp.type != WaypointType.routePoint).toList()
         : waypoints;
+    final planIdForMap = widget.planId ?? _plan?.id;
     final annotations = filteredWaypoints
-        .map((wp) => MapAnnotation.fromWaypoint(wp, onTap: () {}))
+        .map((wp) => MapAnnotation.fromWaypoint(
+              wp,
+              showInfoWindow: false,
+              onTap: () => WaypointMapDetailSheet.show(context, waypoint: wp, planId: planIdForMap),
+            ))
         .toList();
     
     // Create polylines
@@ -9614,6 +9628,12 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     return SectionCard(
       title: 'Travel Logistics',
       icon: Icons.luggage,
+      padding: const EdgeInsets.fromLTRB(
+        WaypointSpacing.subsectionGap,
+        WaypointSpacing.subsectionGap,
+        WaypointSpacing.subsectionGap,
+        WaypointSpacing.gapSm,
+      ),
       children: options
           .map((opt) => _buildTransportationOptionReadOnly(context, opt))
           .toList(),
@@ -9746,6 +9766,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           .toList();
       waypoints.sort((a, b) => (a.order ?? 0).compareTo(b.order ?? 0));
 
+      final planId = _plan?.id;
       for (final wp in waypoints) {
         annotations.add(MapAnnotation(
           id: 'day_${day.dayNum}_${wp.id}',
@@ -9756,10 +9777,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           orderNumber: wp.order,
           label: wp.name,
           draggable: false,
-          onTap: () {},
+          onTap: () => WaypointMapDetailSheet.show(context, waypoint: wp, planId: planId),
           markerSize: 26,
           iconSize: 14,
-          showInfoWindow: true,
+          showInfoWindow: false,
         ));
         allPoints.add(wp.position);
       }

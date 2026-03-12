@@ -118,7 +118,7 @@ class HorizontalTripCard extends StatelessWidget {
 
   /// Fixed height so the card has a definite size when used in a SliverList (avoids "RenderBox was not laid out").
   /// Fits content without excess spacing below members/status.
-  static const double cardHeight = 200;
+  static const double cardHeight = 174;
 
   @override
   Widget build(BuildContext context) {

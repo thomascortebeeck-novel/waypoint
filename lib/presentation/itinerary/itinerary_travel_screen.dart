@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:waypoint/utils/url_launcher_helper.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/services/plan_service.dart';
@@ -181,8 +181,8 @@ class TransportationOptionCard extends StatelessWidget {
                     onTapLink: (text, href, title) async {
                       if (href != null) {
                         final uri = Uri.tryParse(href);
-                        if (uri != null && await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        if (uri != null) {
+                          await UrlLauncherHelper.launchUrlSafe(context, uri);
                         }
                       }
                     },

@@ -162,6 +162,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const SizedBox(height: 24),
                 _CenteredSection(
                   child: _SwimmingLane(
                     title: 'Featured Travel Experts',

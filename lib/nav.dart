@@ -2,8 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/utils/app_urls.dart';
+import 'package:waypoint/utils/url_launcher_helper.dart';
 import 'package:go_router/go_router.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:waypoint/auth/firebase_auth_manager.dart';
@@ -38,8 +38,9 @@ import 'package:waypoint/presentation/mytrips/onboarding/onboarding_date_screen.
 import 'package:waypoint/presentation/mytrips/onboarding/onboarding_image_screen.dart';
 import 'package:waypoint/presentation/trips/join_trip_screen.dart';
 import 'package:waypoint/presentation/trips/trip_members_screen.dart';
+import 'package:waypoint/presentation/trips/waypoint_vote_screen.dart';
 import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
-import 'package:waypoint/presentation/admin/admin_migration_screen.dart';
+import 'package:waypoint/presentation/admin/admin_screen.dart';
 import 'package:waypoint/presentation/marketplace/location_search_results_page.dart';
 import 'package:waypoint/presentation/auth/auth_screen.dart';
 import 'package:waypoint/services/plan_service.dart';
@@ -79,6 +80,7 @@ class AppRoutes {
   // Trip sharing routes
   static const String joinTrip = '/join/:inviteCode';
   static const String tripMembers = '/trip/:tripId/members';
+  static const String admin = '/admin';
   static const String adminMigration = '/admin/migration';
   static const String locationSearch = '/search/location/:location';
   /// Login/register screen for iOS/Android when user is not signed in. No bottom nav.
@@ -226,9 +228,7 @@ class AppRouter {
           if (!kIsWeb && planId.isNotEmpty) {
             SchedulerBinding.instance.addPostFrameCallback((_) async {
               final uri = Uri.parse(AppUrls.getCheckoutWebUrl(planId));
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
+              await UrlLauncherHelper.launchUrlSafe(context, uri);
               if (context.mounted) context.go('/');
             });
             return const Scaffold(
@@ -520,8 +520,22 @@ class AppRouter {
       ),
       GoRoute(
         parentNavigatorKey: _rootNavigatorKey,
+        path: '/trip/:tripId/vote',
+        builder: (context, state) {
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return WaypointVoteScreen(tripId: tripId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.admin,
+        builder: (context, state) => const AdminScreen(),
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
         path: AppRoutes.adminMigration,
-        builder: (context, state) => const AdminMigrationScreen(),
+        redirect: (context, state) => AppRoutes.admin,
+        builder: (context, state) => const AdminScreen(), // Shown only if redirect is skipped
       ),
       // Onboarding routes without nav bar
       GoRoute(

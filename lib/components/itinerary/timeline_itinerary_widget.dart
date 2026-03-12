@@ -1,7 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:latlong2/latlong.dart' as ll;
+import 'package:waypoint/utils/url_launcher_helper.dart';
 import 'package:waypoint/models/route_waypoint.dart';
 import 'package:waypoint/services/travel_calculator_service.dart';
 import 'package:waypoint/theme.dart';
@@ -383,7 +382,7 @@ class _WaypointCardContentState extends State<_WaypointCardContent> {
                           // Website button
                           if (widget.waypoint.website != null)
                             OutlinedButton.icon(
-                              onPressed: () => _launchUrl(widget.waypoint.website!),
+                              onPressed: () => _launchUrl(context, widget.waypoint.website!),
                               icon: const Icon(Icons.open_in_new, size: 18),
                               label: const Text('Website'),
                             ),
@@ -537,16 +536,12 @@ class _WaypointCardContentState extends State<_WaypointCardContent> {
     final lat = waypoint.position.latitude;
     final lng = waypoint.position.longitude;
     final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    }
+    await UrlLauncherHelper.launchUrlSafe(context, url);
   }
 
-  Future<void> _launchUrl(String url) async {
+  Future<void> _launchUrl(BuildContext context, String url) async {
     final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await UrlLauncherHelper.launchUrlSafe(context, uri);
   }
 }
 
