@@ -616,7 +616,7 @@ class _EditableProfileHeaderState extends State<_EditableProfileHeader> {
                     borderRadius: BorderRadius.circular(AppRadius.full),
                   ),
                   child: Text(
-                    'CREATOR',
+                    'Explorer',
                     style: context.textStyles.labelSmall?.copyWith(
                       color: context.colors.primary,
                       fontWeight: FontWeight.w700,

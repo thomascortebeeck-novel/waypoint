@@ -26,12 +26,14 @@ String backedCountLabel(int salesCount) {
 const String kTripRoleOwner = 'owner';
 const String kTripRoleNavigator = 'navigator';
 const String kTripRolePackingLead = 'packing_lead';
+const String kTripRoleTreasurer = 'treasurer';
 const String kTripRoleMember = 'member';
 
 const List<String> kTripRoleOptions = [
   kTripRoleMember,
   kTripRoleNavigator,
   kTripRolePackingLead,
+  kTripRoleTreasurer,
 ];
 
 /// Display label for a role value.
@@ -42,9 +44,11 @@ String tripRoleDisplayLabel(String role) {
     case kTripRoleNavigator:
       return 'Navigator';
     case kTripRolePackingLead:
-      return 'Packing lead';
+      return 'Quartermaster';
+    case kTripRoleTreasurer:
+      return 'Treasurer';
     case kTripRoleMember:
     default:
-      return 'Member';
+      return 'Insider';
   }
 }

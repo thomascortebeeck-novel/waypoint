@@ -89,7 +89,6 @@ class Co2DonutChart extends StatelessWidget {
               centerSpaceRadius: size / 4,
               pieTouchData: PieTouchData(enabled: false),
             ),
-            duration: const Duration(milliseconds: 300),
           ),
           Column(
             mainAxisSize: MainAxisSize.min,

@@ -34,7 +34,8 @@ jobs:
         run: |
           if [ -n "$FIREBASE_OPTIONS_DART" ]; then
             echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
-            if grep -q "REPLACE_VIA_FIREBASE_OPTIONS_DART" lib/firebase_options.dart; then
+            # Fail only if a FirebaseOptions apiKey is set to the placeholder (not when the string appears in isPlaceholder getter).
+            if grep -q "apiKey: 'REPLACE_VIA_FIREBASE_OPTIONS_DART'" lib/firebase_options.dart; then
               echo "::error::FIREBASE_OPTIONS_DART secret contains placeholder. The deployed site would fail to load. Use real Firebase config: run 'flutterfire configure' locally, then paste the contents of lib/firebase_options.dart into the repo secret (or leave the secret unset to use the config committed in the repo)."
               exit 1
             fi
