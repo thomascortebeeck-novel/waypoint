@@ -44,6 +44,8 @@ class WaypointTimelineItem extends StatelessWidget {
   final VoidCallback? onPromoteToStandalone;
   /// Trip owner: this waypoint is promoted (show transport hint).
   final bool isPromoted;
+  /// Optional widget below the card (e.g. check-in button in trip mode).
+  final Widget? trailing;
 
   const WaypointTimelineItem({
     super.key,
@@ -69,80 +71,91 @@ class WaypointTimelineItem extends StatelessWidget {
     this.onToggleAddOn,
     this.onPromoteToStandalone,
     this.isPromoted = false,
+    this.trailing,
   });
 
   @override
   Widget build(BuildContext context) {
     final config = getCategoryConfig(waypoint.type);
     final circleColor = config.color;
-    final theme = Theme.of(context);
     final connectorColor = const Color(0xFFD2B48C);
 
-    return IntrinsicHeight(
+    return Column(
       key: ValueKey(waypoint.id),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: kTimelineColumnWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                WaypointPinBadge(
-                  orderIndex: order,
-                  color: circleColor,
-                ),
-                if (showConnectingLine)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: CustomPaint(
-                        painter: DashedLinePainter(color: connectorColor),
-                      ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: kTimelineColumnWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    WaypointPinBadge(
+                      orderIndex: order,
+                      color: circleColor,
                     ),
-                  ),
-              ],
-            ),
+                    if (showConnectingLine)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: CustomPaint(
+                            painter: DashedLinePainter(color: connectorColor),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: useItineraryCard
+                    ? WaypointItineraryCard(
+                        waypoint: waypoint,
+                        order: order,
+                        isBuilder: isBuilder,
+                        canEditTime: canEditTime,
+                        timeOverride: timeOverride,
+                        onTap: onTap,
+                        onGetDirections: onGetDirections,
+                        onTimeChanged: onTimeChanged,
+                        onMoveUp: onMoveUp,
+                        onMoveDown: onMoveDown,
+                        onEdit: onEdit,
+                        onDelete: onDelete,
+                        onAddAlternative: onAddAlternative,
+                        onRemoveAlternative: onRemoveAlternative,
+                        isSelectedInPickOne: isSelectedInPickOne,
+                        onSelectInPickOne: onSelectInPickOne,
+                        isAddOnDisabled: isAddOnDisabled,
+                        onToggleAddOn: onToggleAddOn,
+                        onPromoteToStandalone: onPromoteToStandalone,
+                        isPromoted: isPromoted,
+                      )
+                    : WaypointTimelineCard(
+                        waypoint: waypoint,
+                        order: order,
+                        isBuilder: isBuilder,
+                        onTap: onTap,
+                        onGetDirections: onGetDirections,
+                        onMoveUp: onMoveUp,
+                        onMoveDown: onMoveDown,
+                        onEdit: onEdit,
+                        onDelete: onDelete,
+                      ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: useItineraryCard
-                ? WaypointItineraryCard(
-                    waypoint: waypoint,
-                    order: order,
-                    isBuilder: isBuilder,
-                    canEditTime: canEditTime,
-                    timeOverride: timeOverride,
-                    onTap: onTap,
-                    onGetDirections: onGetDirections,
-                    onTimeChanged: onTimeChanged,
-                    onMoveUp: onMoveUp,
-                    onMoveDown: onMoveDown,
-                    onEdit: onEdit,
-                    onDelete: onDelete,
-                    onAddAlternative: onAddAlternative,
-                    onRemoveAlternative: onRemoveAlternative,
-                    isSelectedInPickOne: isSelectedInPickOne,
-                    onSelectInPickOne: onSelectInPickOne,
-                    isAddOnDisabled: isAddOnDisabled,
-                    onToggleAddOn: onToggleAddOn,
-                    onPromoteToStandalone: onPromoteToStandalone,
-                    isPromoted: isPromoted,
-                  )
-                : WaypointTimelineCard(
-                    waypoint: waypoint,
-                    order: order,
-                    isBuilder: isBuilder,
-                    onTap: onTap,
-                    onGetDirections: onGetDirections,
-                    onMoveUp: onMoveUp,
-                    onMoveDown: onMoveDown,
-                    onEdit: onEdit,
-                    onDelete: onDelete,
-                  ),
+        ),
+        if (trailing != null)
+          Padding(
+            padding: const EdgeInsets.only(left: kTimelineColumnWidth + 12, top: 4),
+            child: trailing,
           ),
-        ],
-      ),
+      ],
     );
   }
 }

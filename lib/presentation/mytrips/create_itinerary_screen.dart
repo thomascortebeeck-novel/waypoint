@@ -145,7 +145,7 @@ class _CreateItineraryScreenState extends State<CreateItineraryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Purchase or get invited to an adventure plan to create your personalized itinerary',
+              'Back a plan or get invited to an adventure to create your personalized itinerary',
               style: context.textStyles.bodyMedium?.copyWith(
                 color: context.colors.onSurface.withValues(alpha: 0.6),
               ),

@@ -11,6 +11,8 @@ import 'package:waypoint/services/invite_service.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
+import 'package:waypoint/core/constants/level_names.dart';
 import 'package:waypoint/presentation/trips/invite_share_sheet.dart';
 
 /// Screen for managing trip members and inviting adventurers.
@@ -367,7 +369,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Invite Adventurers',
+            'Invite your ${kCrewLabel.toLowerCase()}',
             style: context.textStyles.titleLarge?.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -375,7 +377,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Share this code with your group to start planning together.',
+            'Share this code with your $kCrewLabel to start planning together.',
             style: context.textStyles.bodyMedium?.copyWith(
               color: Colors.white.withValues(alpha: 0.95),
             ),
@@ -493,25 +495,10 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
     return Row(
       children: [
         Text(
-          'Participants',
+          '$kCrewLabel (${_members.length})',
           style: context.textStyles.titleMedium?.copyWith(
             fontWeight: FontWeight.w700,
             color: context.colors.onSurface,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '${_members.length}',
-            style: context.textStyles.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).colorScheme.primary,
-            ),
           ),
         ),
       ],
@@ -616,9 +603,28 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                           const SizedBox(width: 8),
                         ],
                         Text(
-                          isMemberOwner ? 'Owner' : 'Member',
+                          isMemberOwner
+                              ? tripRoleDisplayLabel(kTripRoleOwner)
+                              : tripRoleDisplayLabel(
+                                  _trip?.memberRoles?[member.id] ?? kTripRoleMember,
+                                ),
                           style: context.textStyles.labelSmall?.copyWith(
                             color: BrandColors.secondaryDark,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: context.colors.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            getUserLevelName(member.completedTripCount),
+                            style: context.textStyles.labelSmall?.copyWith(
+                              color: context.colors.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -660,12 +666,41 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
   }
 
   void _showMemberMenu(UserModel member) {
+    final currentRole = _trip?.memberRoles?[member.id] ?? kTripRoleMember;
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ...kTripRoleOptions.map((role) => ListTile(
+                  leading: Icon(
+                    role == currentRole ? Icons.check_circle : Icons.circle_outlined,
+                    size: 22,
+                    color: role == currentRole
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                  ),
+                  title: Text(tripRoleDisplayLabel(role)),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await _tripService.updateMemberRole(
+                        tripId: widget.tripId,
+                        memberId: member.id,
+                        role: role,
+                      );
+                      if (mounted) _loadData();
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Could not update role: $e')),
+                        );
+                      }
+                    }
+                  },
+                )),
+            const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.person_remove_outlined),
               title: const Text('Remove from trip'),

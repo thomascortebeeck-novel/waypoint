@@ -34,6 +34,8 @@ class Trip {
   // Invite fields for group travel
   final String inviteCode;
   final bool inviteEnabled;
+  /// Optional role per member (memberId -> role). Owner is implicit. E.g. navigator, packing_lead, member.
+  final Map<String, String>? memberRoles;
   // Customization status for waypoint selection flow
   final TripCustomizationStatus customizationStatus;
   final DateTime? customizationCompletedAt;
@@ -56,6 +58,7 @@ class Trip {
     this.isActive = true,
     String? inviteCode,
     this.inviteEnabled = true,
+    this.memberRoles,
     this.customizationStatus = TripCustomizationStatus.draft,
     this.customizationCompletedAt,
     required this.createdAt,
@@ -118,6 +121,7 @@ class Trip {
         isActive: json['is_active'] as bool? ?? true,
         inviteCode: json['invite_code'] as String? ?? generateInviteCode(),
         inviteEnabled: json['invite_enabled'] as bool? ?? true,
+        memberRoles: (json['member_roles'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v as String)),
         customizationStatus: TripCustomizationStatus.values.firstWhere(
           (e) => e.name == json['customization_status'],
           orElse: () => TripCustomizationStatus.draft,
@@ -143,6 +147,7 @@ class Trip {
         'is_active': isActive,
         'invite_code': inviteCode,
         'invite_enabled': inviteEnabled,
+        if (memberRoles != null) 'member_roles': memberRoles,
         'customization_status': customizationStatus.name,
         if (customizationCompletedAt != null) 'customization_completed_at': Timestamp.fromDate(customizationCompletedAt!),
         'created_at': Timestamp.fromDate(createdAt),
@@ -165,6 +170,7 @@ class Trip {
     bool? isActive,
     String? inviteCode,
     bool? inviteEnabled,
+    Map<String, String>? memberRoles,
     TripCustomizationStatus? customizationStatus,
     DateTime? customizationCompletedAt,
     DateTime? createdAt,
@@ -185,6 +191,7 @@ class Trip {
         isActive: isActive ?? this.isActive,
         inviteCode: inviteCode ?? this.inviteCode,
         inviteEnabled: inviteEnabled ?? this.inviteEnabled,
+        memberRoles: memberRoles ?? this.memberRoles,
         customizationStatus: customizationStatus ?? this.customizationStatus,
         customizationCompletedAt: customizationCompletedAt ?? this.customizationCompletedAt,
         createdAt: createdAt ?? this.createdAt,

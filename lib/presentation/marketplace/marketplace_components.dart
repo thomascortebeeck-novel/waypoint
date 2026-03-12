@@ -661,7 +661,7 @@ class _UspStepsSectionState extends State<UspStepsSection>
     with TickerProviderStateMixin {
   static const _steps = [
     (
-      title: 'Buy a plan from your favorite travel expert',
+      title: 'Back a plan from your favorite travel expert',
       body: 'Browse tours created by real travel creators and filter by location, activity, or budget. Find the right expert for your next adventure.',
     ),
     (

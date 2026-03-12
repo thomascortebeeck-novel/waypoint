@@ -82,6 +82,8 @@ import 'package:waypoint/components/adventure/action_buttons_row.dart';
 import 'package:waypoint/components/waypoint/waypoint_timeline_list.dart' show WaypointTimelineList, WaypointTimelineItem, DashedLinePainter, kTimelineConnectorLeft, kTimelineColumnWidth;
 import 'package:waypoint/components/waypoint/waypoint_itinerary_card.dart';
 import 'package:waypoint/components/waypoint/trail_itinerary_card.dart';
+import 'package:waypoint/components/waypoint/check_in_button.dart';
+import 'package:waypoint/services/check_in_service.dart';
 import 'package:waypoint/components/waypoint/waypoint_pin_badge.dart';
 import 'package:waypoint/components/common/price_display_widget.dart';
 import 'package:waypoint/utils/app_urls.dart';
@@ -1550,7 +1552,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                     ),
                   ),
                   child: Text(
-                    'Buy',
+                    backPlanButtonLabel(_plan?.creatorName),
                     style: WaypointTypography.bodyMedium.copyWith(
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
@@ -8119,6 +8121,23 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     );
   }
 
+  /// When in trip mode and today is [dayNum], returns a check-in trailing widget for [waypoint].
+  Widget? _checkInTrailing(RouteWaypoint waypoint, int dayNum) {
+    if (widget.mode != AdventureMode.trip || _trip == null || widget.tripId == null) return null;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+    if (!CheckInService.isTodayTripDay(_trip!.startDate, dayNum)) return null;
+    return CheckInButton(
+      tripId: widget.tripId!,
+      dayNum: dayNum,
+      waypointId: waypoint.id,
+      waypointName: waypoint.name,
+      waypointLatLng: waypoint.position,
+      userId: uid,
+      tripStartDate: _trip!.startDate,
+    );
+  }
+
   /// Shared waypoint list for desktop and mobile panel. Pass [scrollController] from
   /// DraggableScrollableSheet on mobile so list scroll and panel drag don't fight.
   /// Uses primary+alternatives grouping: each primary can have 0+ alternatives in a collapsible section.
@@ -8250,6 +8269,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             onEdit: isBuilder && version != null ? () => _editWaypoint(dayNum, primary, version) : null,
             onDelete: isBuilder && version != null ? () => _deleteWaypoint(dayNum, primary, version) : null,
             onAddAlternative: isBuilder && version != null ? () => _onAddAlternativeTapped(dayNum, primary, version) : null,
+            trailing: _checkInTrailing(primary, dayNum),
           ),
         );
       } else {
@@ -8326,6 +8346,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           onAddAlternative: isBuilder && version != null ? () => _onAddAlternativeTapped(dayNum, primary, version!) : null,
           isSelectedInPickOne: isTripOwner && hasPickOne && primarySelected,
           onSelectInPickOne: isTripOwner && hasPickOne ? () => _selectAlternative(dayNum, primary, primary) : null,
+          trailing: _checkInTrailing(primary, dayNum),
         ),
         if (alternatives.isNotEmpty)
           Padding(
@@ -8342,26 +8363,38 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 final altTimeOverride = timeOverrideFor(alt);
                 final altSelected = selectedId == alt.id;
                 final isAddOn = alt.alternativeMode == AlternativeMode.addOn;
+                final checkInTrailing = _checkInTrailing(alt, dayNum);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: WaypointItineraryCard(
-                    waypoint: alt,
-                    order: primary.order,
-                    isBuilder: isBuilder,
-                    canEditTime: canEditTime,
-                    timeOverride: (altTimeOverride?.isNotEmpty ?? false) ? altTimeOverride : null,
-                    onTap: () => _openWaypointDetail(dayNum, alt, version),
-                    onGetDirections: () => _launchDirectionsToWaypoint(alt),
-                    onTimeChanged: canEditTime ? (String? time) => _onWaypointTimeChanged(dayNum, alt, time) : null,
-                    onEdit: isBuilder && version != null ? () => _editWaypoint(dayNum, alt, version!) : null,
-                    onDelete: isBuilder && version != null ? () => _deleteWaypoint(dayNum, alt, version!) : null,
-                    onRemoveAlternative: isBuilder && version != null ? () => _removeAlternative(dayNum, alt, version!) : null,
-                    isSelectedInPickOne: isTripOwner && alt.alternativeMode == AlternativeMode.pickOne && altSelected,
-                    onSelectInPickOne: isTripOwner && alt.alternativeMode == AlternativeMode.pickOne ? () => _selectAlternative(dayNum, primary, alt) : null,
-                    isAddOnDisabled: isTripOwner && isAddOn ? (altOverride?.isDisabled ?? false) : false,
-                    onToggleAddOn: isTripOwner && isAddOn ? () => _setAddOnDisabled(dayNum, alt, !(altOverride?.isDisabled ?? false)) : null,
-                    onPromoteToStandalone: isTripOwner ? () => _showPromoteConfirmThenPromote(dayNum, alt, primary) : null,
-                    isPromoted: altOverride?.isPromoted ?? false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      WaypointItineraryCard(
+                        waypoint: alt,
+                        order: primary.order,
+                        isBuilder: isBuilder,
+                        canEditTime: canEditTime,
+                        timeOverride: (altTimeOverride?.isNotEmpty ?? false) ? altTimeOverride : null,
+                        onTap: () => _openWaypointDetail(dayNum, alt, version),
+                        onGetDirections: () => _launchDirectionsToWaypoint(alt),
+                        onTimeChanged: canEditTime ? (String? time) => _onWaypointTimeChanged(dayNum, alt, time) : null,
+                        onEdit: isBuilder && version != null ? () => _editWaypoint(dayNum, alt, version!) : null,
+                        onDelete: isBuilder && version != null ? () => _deleteWaypoint(dayNum, alt, version!) : null,
+                        onRemoveAlternative: isBuilder && version != null ? () => _removeAlternative(dayNum, alt, version!) : null,
+                        isSelectedInPickOne: isTripOwner && alt.alternativeMode == AlternativeMode.pickOne && altSelected,
+                        onSelectInPickOne: isTripOwner && alt.alternativeMode == AlternativeMode.pickOne ? () => _selectAlternative(dayNum, primary, alt) : null,
+                        isAddOnDisabled: isTripOwner && isAddOn ? (altOverride?.isDisabled ?? false) : false,
+                        onToggleAddOn: isTripOwner && isAddOn ? () => _setAddOnDisabled(dayNum, alt, !(altOverride?.isDisabled ?? false)) : null,
+                        onPromoteToStandalone: isTripOwner ? () => _showPromoteConfirmThenPromote(dayNum, alt, primary) : null,
+                        isPromoted: altOverride?.isPromoted ?? false,
+                      ),
+                      if (checkInTrailing != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: checkInTrailing,
+                        ),
+                    ],
                   ),
                 );
               }).toList(),

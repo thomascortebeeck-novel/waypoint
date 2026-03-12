@@ -29,6 +29,10 @@ class UserModel {
   final bool? chargesEnabled;
   final DateTime createdAt;
   final DateTime updatedAt;
+  /// Number of trips the user has completed (owner or member). Firestore: completed_trip_count.
+  final int completedTripCount;
+  /// Total plans sold across all plans by this user (creators). Denormalized. Firestore: total_plans_sold.
+  final int totalPlansSold;
 
   UserModel({
     required this.id,
@@ -55,6 +59,8 @@ class UserModel {
     this.chargesEnabled,
     required this.createdAt,
     required this.updatedAt,
+    this.completedTripCount = 0,
+    this.totalPlansSold = 0,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -85,6 +91,8 @@ class UserModel {
       chargesEnabled: json['charges_enabled'] as bool?,
       createdAt: (json['created_at'] as Timestamp).toDate(),
       updatedAt: (json['updated_at'] as Timestamp).toDate(),
+      completedTripCount: (json['completed_trip_count'] as int?) ?? 0,
+      totalPlansSold: (json['total_plans_sold'] as int?) ?? 0,
     );
   }
 
@@ -114,6 +122,8 @@ class UserModel {
       if (chargesEnabled != null) 'charges_enabled': chargesEnabled,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
+      'completed_trip_count': completedTripCount,
+      'total_plans_sold': totalPlansSold,
     };
   }
 
@@ -142,6 +152,8 @@ class UserModel {
     bool? chargesEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
+    int? completedTripCount,
+    int? totalPlansSold,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -168,6 +180,8 @@ class UserModel {
       chargesEnabled: chargesEnabled ?? this.chargesEnabled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      completedTripCount: completedTripCount ?? this.completedTripCount,
+      totalPlansSold: totalPlansSold ?? this.totalPlansSold,
     );
   }
 }

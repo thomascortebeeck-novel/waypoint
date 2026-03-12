@@ -12,6 +12,7 @@ import 'package:waypoint/components/creator/follow_button.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
 import 'package:waypoint/theme/waypoint_colors.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/core/constants/level_names.dart';
 import 'package:waypoint/theme/waypoint_spacing.dart';
 
 /// Creator profile screen displaying creator info, stats, and adventures
@@ -238,6 +239,20 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
                             ),
                           ),
                         ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: WaypointColors.textSecondary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                        ),
+                        child: Text(
+                          getCreatorLevelName(_creator!.totalPlansSold),
+                          style: context.textStyles.labelSmall?.copyWith(
+                            color: WaypointColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   // Location

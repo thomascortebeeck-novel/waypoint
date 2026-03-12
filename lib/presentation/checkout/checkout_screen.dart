@@ -5,6 +5,7 @@ import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 import 'package:waypoint/models/plan_model.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/theme.dart';
 
 /// Modern, professional checkout screen with two-column layout
@@ -306,7 +307,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '(${widget.plan.salesCount} purchases)',
+                      backedCountLabel(widget.plan.salesCount),
                       style: const TextStyle(
                         fontSize: 14,
                         color: Colors.grey,
@@ -969,7 +970,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    _isFree ? 'Get Free Access' : 'Complete Purchase',
+                    _isFree ? 'Get Free Access' : backPlanButtonLabel(widget.plan.creatorName),
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -1049,7 +1050,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           ),
                         )
                       : Text(
-                          _isFree ? 'Get Free Access' : 'Purchase',
+                          _isFree ? 'Get Free Access' : backPlanButtonLabel(widget.plan.creatorName),
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,

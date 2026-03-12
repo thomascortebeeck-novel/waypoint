@@ -19,6 +19,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:waypoint/models/plan_model.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/stripe_config_service.dart';
+import 'package:waypoint/core/constants/level_names.dart';
 import 'package:waypoint/presentation/widgets/adventure_card.dart';
 
 /// Profile screen where users can sign in/up and manage their account
@@ -694,6 +695,23 @@ class _EditableProfileHeaderState extends State<_EditableProfileHeader> {
                 style: context.textStyles.bodyMedium?.copyWith(
                   color: context.colors.primary,
                   fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          if (user != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: context.colors.primaryContainer.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(AppRadius.full),
+              ),
+              child: Text(
+                getUserLevelName(user.completedTripCount),
+                style: context.textStyles.labelSmall?.copyWith(
+                  color: context.colors.primary,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),

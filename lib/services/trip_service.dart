@@ -433,15 +433,66 @@ class TripService {
     }
   }
 
-  /// Update trip status
+  /// Update trip status. When status becomes 'completed', increments completed_trip_count for owner and all members.
   Future<void> updateTripStatus({required String tripId, required String status}) async {
     try {
-      await _firestore.collection(_collection).doc(tripId).update({
+      final tripRef = _firestore.collection(_collection).doc(tripId);
+      final tripSnap = await tripRef.get();
+      final oldStatus = tripSnap.data()?['status'] as String?;
+
+      await tripRef.update({
         'status': status,
         'updated_at': Timestamp.now(),
       });
+
+      // When transitioning to completed, increment completed_trip_count for owner and each member.
+      if (status == 'completed' && oldStatus != 'completed') {
+        final trip = tripSnap.exists ? Trip.fromJson(tripSnap.data()!) : null;
+        if (trip != null) {
+          final userIds = [trip.ownerId, ...trip.memberIds].toSet().toList();
+          final batch = _firestore.batch();
+          for (final uid in userIds) {
+            final userRef = _firestore.collection('users').doc(uid);
+            batch.update(userRef, {
+              'completed_trip_count': FieldValue.increment(1),
+              'updated_at': Timestamp.now(),
+            });
+          }
+          await batch.commit();
+        }
+      }
     } catch (e) {
       debugPrint('Error updating trip status: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a member's role. Only the trip owner may call; [memberId] must be in [memberIds].
+  Future<void> updateMemberRole({
+    required String tripId,
+    required String memberId,
+    required String role,
+  }) async {
+    try {
+      final trip = await getTripById(tripId);
+      if (trip == null) throw Exception('Trip not found');
+      if (!trip.memberIds.contains(memberId)) throw Exception('User is not a member of this trip');
+      final current = Map<String, String>.from(trip.memberRoles ?? {});
+      if (role.isEmpty || role == 'member') {
+        current.remove(memberId);
+      } else {
+        current[memberId] = role;
+      }
+      final ref = _firestore.collection(_collection).doc(tripId);
+      final updateData = <String, dynamic>{'updated_at': Timestamp.now()};
+      if (current.isEmpty) {
+        updateData['member_roles'] = FieldValue.delete();
+      } else {
+        updateData['member_roles'] = current;
+      }
+      await ref.update(updateData);
+    } catch (e) {
+      debugPrint('Error updating member role: $e');
       rethrow;
     }
   }

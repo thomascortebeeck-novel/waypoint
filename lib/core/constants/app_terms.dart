@@ -18,3 +18,33 @@ String backedCountLabel(int salesCount) {
   if (salesCount == 1) return '1 person has backed this';
   return '$salesCount people have backed this';
 }
+
+// ---------------------------------------------------------------------------
+// Trip member roles (for member_roles map on Trip)
+// ---------------------------------------------------------------------------
+
+const String kTripRoleOwner = 'owner';
+const String kTripRoleNavigator = 'navigator';
+const String kTripRolePackingLead = 'packing_lead';
+const String kTripRoleMember = 'member';
+
+const List<String> kTripRoleOptions = [
+  kTripRoleMember,
+  kTripRoleNavigator,
+  kTripRolePackingLead,
+];
+
+/// Display label for a role value.
+String tripRoleDisplayLabel(String role) {
+  switch (role) {
+    case kTripRoleOwner:
+      return 'Owner';
+    case kTripRoleNavigator:
+      return 'Navigator';
+    case kTripRolePackingLead:
+      return 'Packing lead';
+    case kTripRoleMember:
+    default:
+      return 'Member';
+  }
+}

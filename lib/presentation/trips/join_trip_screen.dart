@@ -14,6 +14,7 @@ import 'package:waypoint/services/user_service.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/theme.dart';
+import 'package:waypoint/core/constants/app_terms.dart';
 import 'package:waypoint/utils/app_urls.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -460,7 +461,7 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'Purchase this plan to join the trip. You\'ll be automatically redirected after checkout.',
+                    'Back this plan to join the trip. You\'ll be automatically redirected after checkout.',
                     style: context.textStyles.bodyMedium?.copyWith(
                       color: Colors.blue.shade900,
                     ),
@@ -496,7 +497,7 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
           const SizedBox(height: 12),
           
           Text(
-            'You need to purchase "${plan.name}" to join this trip.',
+            'You need to back "${plan.name}" to join this trip.',
             style: context.textStyles.bodyLarge?.copyWith(
               color: context.colors.onSurfaceVariant,
             ),
@@ -517,7 +518,7 @@ class _JoinTripScreenState extends State<JoinTripScreen> {
               label: Text(
                 plan.basePrice == 0
                     ? 'Get Free Plan'
-                    : 'Purchase for €${plan.basePrice.toStringAsFixed(2)}',
+                    : '${backPlanButtonLabel(plan.creatorName)} — €${plan.basePrice.toStringAsFixed(2)}',
               ),
             ),
           ),

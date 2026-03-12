@@ -81,6 +81,16 @@ class OrderService {
           'sales_count': currentSalesCount + 1,
         });
 
+        // Increment creator's total_plans_sold (denormalized for level badges)
+        final creatorId = planDoc.data()?['creator_id'] as String?;
+        if (creatorId != null && creatorId.isNotEmpty) {
+          final creatorRef = _firestore.collection('users').doc(creatorId);
+          transaction.update(creatorRef, {
+            'total_plans_sold': FieldValue.increment(1),
+            'updated_at': Timestamp.now(),
+          });
+        }
+
         // Add to user's purchased plans subcollection
         // Note: Purchase grants access to ALL versions of the plan
         final purchasedPlan = PurchasedPlanModel(
