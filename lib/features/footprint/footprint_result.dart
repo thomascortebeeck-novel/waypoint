@@ -53,6 +53,14 @@ FootprintTransportMode footprintTransportFromString(String? mode) {
   return FootprintTransportMode.car;
 }
 
+/// Suggested transport mode from plan version (first option). Used to compare with chosen mode for Footprinter points.
+FootprintTransportMode suggestedTransportModeForVersion(PlanVersion version) {
+  if (version.transportationOptions.isEmpty) return FootprintTransportMode.car;
+  final first = version.transportationOptions.first.types;
+  if (first.isEmpty) return FootprintTransportMode.car;
+  return footprintTransportFromPlan(first.first);
+}
+
 /// One transport leg between two waypoints.
 class FootprintLeg {
   final String fromWaypoint;

@@ -120,8 +120,12 @@ class _WaypointDetailPageState extends State<WaypointDetailPage>
 
   bool get _canEditOverview =>
       widget.tripId != null && widget.isTripOwner;
-  bool get _canUploadDocuments =>
-      widget.tripId != null; // owner and participants
+  /// Only trip owner or Quartermaster may upload waypoint documents.
+  bool get _canUploadDocuments {
+    if (widget.tripId == null || widget.trip == null) return false;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return widget.isTripOwner || widget.trip!.isQuartermaster(uid);
+  }
 
   /// True when the user can edit (plan builder or trip owner). Used for Edit button and inline name edit.
   bool get _isOwner => widget.isBuilder || widget.isTripOwner;

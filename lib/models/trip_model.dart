@@ -104,6 +104,25 @@ class Trip {
   /// Check if a user has the navigator role on this trip
   bool isNavigator(String userId) => memberRoles?[userId] == kTripRoleNavigator;
 
+  /// Check if a user has the quartermaster role (includes legacy packing_lead)
+  bool isQuartermaster(String userId) {
+    final r = memberRoles?[userId];
+    return r == kTripRoleQuartermaster || r == kTripRolePackingLeadLegacy;
+  }
+
+  /// Check if a user has the treasurer role on this trip
+  bool isTreasurer(String userId) => memberRoles?[userId] == kTripRoleTreasurer;
+
+  /// Check if a user has the footprinter role on this trip
+  bool isFootprinter(String userId) => memberRoles?[userId] == kTripRoleFootprinter;
+
+  /// Check if a user has the insider role on this trip
+  bool isInsider(String userId) => memberRoles?[userId] == kTripRoleInsider;
+
+  /// Check if a user has a "special" role (dashboard entry): Quartermaster, Navigator, Treasurer, Insider, Footprinter
+  bool hasSpecialRole(String userId) =>
+      isQuartermaster(userId) || isNavigator(userId) || isTreasurer(userId) || isInsider(userId) || isFootprinter(userId);
+
   /// Check if a user can edit transport between waypoints (owner or navigator)
   bool canEditTransport(String userId) => isOwner(userId) || isNavigator(userId);
 

@@ -2,7 +2,8 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Allow authenticated users to read and write their own trip images
+    // Trip files (images, waypoint_docs). Write: only the authenticated user's segment (userId).
+    // App restricts waypoint_doc uploads to trip owner or Quartermaster; Storage cannot read Firestore roles.
     match /trips/{userId}/{tripId}/{allPaths=**} {
       allow read: if true; // Public read access for sharing
       allow write: if request.auth != null && request.auth.uid == userId;

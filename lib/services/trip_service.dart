@@ -1165,6 +1165,21 @@ class TripService {
     }
   }
 
+  /// Count all waypoint documents for a trip (for Quartermaster dashboard).
+  Future<int> getWaypointDocumentsCount(String tripId) async {
+    try {
+      final snap = await _firestore
+          .collection(_collection)
+          .doc(tripId)
+          .collection(_waypointDocsCollection)
+          .get();
+      return snap.docs.length;
+    } catch (e) {
+      debugPrint('Error counting waypoint documents: $e');
+      return 0;
+    }
+  }
+
   /// Add document metadata after file has been uploaded to Storage. Caller must upload first and pass [downloadUrl].
   Future<void> addWaypointDocument({
     required String tripId,

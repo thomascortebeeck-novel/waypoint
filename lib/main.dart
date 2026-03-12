@@ -16,6 +16,8 @@ import 'package:waypoint/providers/theme_provider.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:waypoint/services/fcm_service.dart';
 import 'package:waypoint/services/stripe_config_service.dart';
+import 'package:waypoint/utils/google_maps_loader_stub.dart'
+    if (dart.library.html) 'package:waypoint/utils/google_maps_loader_web.dart' as google_maps_loader;
 
 /// Configure global image cache for better performance
 void _configureImageCache() {
@@ -182,6 +184,10 @@ Future<void> main() async {
     try {
       await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
       Log.i('bootstrap', 'Firebase initialized (fresh)');
+      // Web: inject Google Maps script so the map displays (index.html key is placeholder for CI only)
+      if (kIsWeb) {
+        google_maps_loader.ensureGoogleMapsScriptLoaded(DefaultFirebaseOptions.web.apiKey);
+      }
     } catch (e) {
       if (e.toString().contains('duplicate-app')) {
         Log.i('bootstrap', 'Firebase already initialized (hot restart)');

@@ -338,6 +338,9 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
         children: [
           // Invite Adventurers card (brand green)
           _buildInviteCard(primary),
+          const SizedBox(height: 16),
+          // Role dashboard entry (if user has a special role) or empty state
+          _buildRoleDashboardEntry(currentUserId),
           const SizedBox(height: 20),
           // Share options row
           _buildShareOptions(),
@@ -353,6 +356,62 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           const SizedBox(height: 16),
           _buildInfoBox(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRoleDashboardEntry(String currentUserId) {
+    if (_trip == null) return const SizedBox.shrink();
+    final hasSpecial = _trip!.hasSpecialRole(currentUserId);
+    if (hasSpecial) {
+      final role = _trip!.memberRoles?[currentUserId] ?? kTripRoleMember;
+      final roleLabel = tripRoleDisplayLabel(role);
+      return Material(
+        color: context.colors.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: () => context.push('/trip/${widget.tripId}/role'),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.dashboard_outlined, color: context.colors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'View my role',
+                        style: context.textStyles.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: context.colors.onSurface,
+                        ),
+                      ),
+                      Text(
+                        '$roleLabel dashboard',
+                        style: context.textStyles.bodySmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: context.colors.onSurfaceVariant),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Text(
+        'You don\'t have a role yet — the trip leader can assign one.',
+        style: context.textStyles.bodySmall?.copyWith(
+          color: context.colors.onSurfaceVariant,
+        ),
       ),
     );
   }
@@ -687,10 +746,14 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                 ),
               ),
               if (isOwner && !isSelf && !isMemberOwner)
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
+                FilledButton.tonal(
                   onPressed: () => _showMemberMenu(member),
-                  tooltip: 'Options',
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Add role'),
                 ),
             ],
           ),
@@ -719,6 +782,13 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
     return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 
+  /// True if [role] is already assigned to another member (not [excludeMemberId]).
+  bool _isRoleAssignedToOther(String role, String excludeMemberId) {
+    final roles = _trip?.memberRoles;
+    if (roles == null) return false;
+    return roles.entries.any((e) => e.key != excludeMemberId && e.value == role);
+  }
+
   void _showMemberMenu(UserModel member) {
     final currentRole = _trip?.memberRoles?[member.id] ?? kTripRoleMember;
     showModalBottomSheet(
@@ -727,7 +797,9 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ...kTripRoleOptions.map((role) => ListTile(
+            ...kTripRoleOptions.map((role) {
+                  final isAssignedToOther = _isRoleAssignedToOther(role, member.id);
+                  return ListTile(
                   leading: Icon(
                     role == currentRole ? Icons.check_circle : Icons.circle_outlined,
                     size: 22,
@@ -736,15 +808,34 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                         : null,
                   ),
                   title: Text(tripRoleDisplayLabel(role)),
-                  onTap: () async {
+                  subtitle: Text(
+                    tripRoleDescription(role),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  enabled: !isAssignedToOther,
+                  onTap: isAssignedToOther ? null : () async {
                     Navigator.pop(context);
+                    final previousRoles = Map<String, String>.from(_trip?.memberRoles ?? {});
                     try {
                       await _tripService.updateMemberRole(
                         tripId: widget.tripId,
                         memberId: member.id,
                         role: role,
                       );
-                      if (mounted) _loadData();
+                      if (mounted) {
+                        final updated = Map<String, String>.from(previousRoles);
+                        if (role.isEmpty || role == kTripRoleMember) {
+                          updated.remove(member.id);
+                        } else {
+                          updated[member.id] = role;
+                        }
+                        setState(() {
+                          _trip = _trip?.copyWith(memberRoles: updated);
+                        });
+                        _loadData();
+                      }
                     } catch (e) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -753,7 +844,8 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                       }
                     }
                   },
-                )),
+                );
+                }),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.person_remove_outlined),

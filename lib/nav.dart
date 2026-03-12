@@ -38,6 +38,7 @@ import 'package:waypoint/presentation/mytrips/onboarding/onboarding_date_screen.
 import 'package:waypoint/presentation/mytrips/onboarding/onboarding_image_screen.dart';
 import 'package:waypoint/presentation/trips/join_trip_screen.dart';
 import 'package:waypoint/presentation/trips/trip_members_screen.dart';
+import 'package:waypoint/presentation/trips/role_dashboard_screen.dart';
 import 'package:waypoint/presentation/trips/waypoint_vote_screen.dart';
 import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
 import 'package:waypoint/presentation/admin/admin_screen.dart';
@@ -516,6 +517,14 @@ class AppRouter {
         builder: (context, state) {
           final tripId = state.pathParameters['tripId'] ?? '';
           return TripMembersScreen(tripId: tripId);
+        },
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: '/trip/:tripId/role',
+        builder: (context, state) {
+          final tripId = state.pathParameters['tripId'] ?? '';
+          return RoleDashboardScreen(tripId: tripId);
         },
       ),
       GoRoute(

@@ -51,6 +51,12 @@ service cloud.firestore {
              get(/databases/$(database)/documents/trips/$(tripId)).data.owner_id == request.auth.uid;
     }
     
+    // Helper: user has role in trip (member_roles map: navigator, quartermaster, treasurer, insider, footprinter)
+    function hasTripRole(tripId, role) {
+      let trip = get(/databases/$(database)/documents/trips/$(tripId)).data;
+      return isSignedIn() && trip.member_roles != null && trip.member_roles[request.auth.uid] == role;
+    }
+    
     // ============================================
     // USERS COLLECTION
     // ============================================
@@ -297,13 +303,10 @@ service cloud.firestore {
       allow create: if isSignedIn() && 
                       request.auth.uid == request.resource.data.owner_id;
       
-      // Owner and members can update trip data
-      // Users who purchased the plan can join trips with invites enabled (add themselves to member_ids)
+      // Only trip owner may update trip data (including member_roles)
+      // Exception: joining via invite (user adds themselves to member_ids)
       // Admins can update any trip
-      allow update: if (isSignedIn() && request.auth.uid in resource.data.member_ids) || 
-                      isAdmin() ||
-                      // Allow joining via invite: user must have purchased the plan, 
-                      // invites must be enabled, and user must be adding themselves to members
+      allow update: if isTripOwner(tripId) || isAdmin() ||
                       (isSignedIn() && 
                        resource.data.invite_enabled == true &&
                        hasPurchasedPlan(resource.data.plan_id) &&
@@ -365,6 +368,16 @@ service cloud.firestore {
       }
       
       // ============================================
+      // WAYPOINT VOTES (Owner creates vote state; members read and submit votes)
+      // ============================================
+      match /waypoint_votes/{slotKey} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow create: if isTripOwner(tripId) || isAdmin();
+        allow update: if isTripMember(tripId) || isAdmin();
+        allow delete: if isTripOwner(tripId) || isAdmin();
+      }
+      
+      // ============================================
       // DAY SELECTIONS SUBCOLLECTION (Waypoint choices)
       // ============================================
       match /selections/{selectionId} {
@@ -400,21 +413,22 @@ service cloud.firestore {
       }
       
       // ============================================
-      // WAYPOINT OVERRIDES (date, time, status, price per waypoint)
+      // WAYPOINT OVERRIDES (date, time, status, transport – only owner or Navigator may write)
       // ============================================
       match /waypoint_overrides/{overrideId} {
         allow read: if isTripMember(tripId) || isAdmin();
-        allow create, update: if isTripMember(tripId) || isAdmin();
-        allow delete: if isTripMember(tripId) || isAdmin();
+        allow create, update, delete: if isTripOwner(tripId) || hasTripRole(tripId, 'navigator') || isAdmin();
       }
       
       // ============================================
-      // WAYPOINT DOCUMENTS (uploaded confirmations, etc.)
+      // WAYPOINT DOCUMENTS (uploaded confirmations – only owner or Quartermaster may write)
       // ============================================
       match /waypoint_docs/{docId} {
         allow read: if isTripMember(tripId) || isAdmin();
-        allow create, update: if isTripMember(tripId) || isAdmin();
-        allow delete: if isTripMember(tripId) || isAdmin();
+        allow create, update, delete: if isTripOwner(tripId) ||
+                                        hasTripRole(tripId, 'quartermaster') ||
+                                        hasTripRole(tripId, 'packing_lead') ||
+                                        isAdmin();
       }
       
       // ============================================
@@ -422,6 +436,56 @@ service cloud.firestore {
       // ============================================
       match /expenses/{expenseId} {
         allow read, write: if isTripMember(tripId) || isAdmin();
+      }
+      
+      // ============================================
+      // NAVIGATOR ANALYTICS (get-directions count, etc.)
+      // ============================================
+      match /navigator_analytics/{docId} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow create, update: if isTripOwner(tripId) || hasTripRole(tripId, 'navigator') || isAdmin();
+        allow delete: if isTripOwner(tripId) || isAdmin();
+      }
+      
+      // ============================================
+      // MOOD VOTES (daily mood – user writes own; owner/Insider read all)
+      // ============================================
+      match /mood_votes/{userId} {
+        allow read: if isTripOwner(tripId) || hasTripRole(tripId, 'insider') || isAdmin();
+        allow create, update: if isTripMember(tripId) && request.auth.uid == userId;
+        allow delete: if request.auth.uid == userId;
+      }
+      
+      // ============================================
+      // MOOD OPT-OUT (per user, per trip)
+      // ============================================
+      match /mood_opt_out/{userId} {
+        allow read, write: if isTripMember(tripId) && request.auth.uid == userId;
+      }
+      
+      // ============================================
+      // TRIP INSIGHTS (Insider/owner write; all members read)
+      // ============================================
+      match /insights/{insightId} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow create, update, delete: if isTripOwner(tripId) || hasTripRole(tripId, 'insider') || isAdmin();
+      }
+      
+      // ============================================
+      // FOOTPRINTER POINTS (Navigator/owner write; members read)
+      // ============================================
+      match /footprinter_points/{docId} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow create, update: if isTripOwner(tripId) || hasTripRole(tripId, 'navigator') || isAdmin();
+        allow delete: if isTripOwner(tripId) || isAdmin();
+      }
+      
+      // ============================================
+      // TRIP SETTINGS (e.g. mood popup – owner write)
+      // ============================================
+      match /settings/{settingsId} {
+        allow read: if isTripMember(tripId) || isAdmin();
+        allow write: if isTripOwner(tripId) || isAdmin();
       }
     }
   }

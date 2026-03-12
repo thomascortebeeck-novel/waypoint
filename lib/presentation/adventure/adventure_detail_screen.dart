@@ -15,6 +15,7 @@ import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/travel_calculator_service.dart';
 import 'package:waypoint/integrations/google_directions_service.dart' show TravelMode;
 import 'package:waypoint/services/trip_service.dart';
+import 'package:waypoint/services/trip_analytics_service.dart';
 import 'package:waypoint/services/order_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -94,6 +95,7 @@ import 'package:waypoint/components/common/empty_state_widget.dart';
 import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/layout/waypoint_breakpoints.dart';
 import 'package:waypoint/features/footprint/footprint_tab.dart';
+import 'package:waypoint/features/footprint/footprint_result.dart' show suggestedTransportModeForVersion, footprintTransportFromString;
 import 'package:waypoint/presentation/adventure/tabs/comments_tab.dart';
 import 'package:waypoint/services/comment_service.dart';
 import 'package:waypoint/models/adventure_context_model.dart';
@@ -107,6 +109,10 @@ import 'package:waypoint/presentation/adventure/widgets/price_widgets.dart';
 import 'package:waypoint/presentation/reviews/trip_review_prompt.dart';
 import 'package:waypoint/presentation/trips/treasure_tab.dart';
 import 'package:waypoint/presentation/trips/add_edit_expense_screen.dart';
+import 'package:waypoint/models/trip_insight_model.dart';
+import 'package:waypoint/services/trip_insight_service.dart';
+import 'package:waypoint/services/mood_service.dart';
+import 'package:waypoint/models/mood_vote_model.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'dart:io';
 
@@ -376,6 +382,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   final Map<String, String> _waypointTimeOverrides = {};
   /// Loaded trip waypoint overrides (key = docId 'dayNum_waypointId'). Merged into list for time/date/status.
   Map<String, TripWaypointOverride> _waypointOverridesMap = {};
+  /// Only show mood pop-up once per screen session.
+  bool _moodDialogChecked = false;
 
   /// Safely call setState, deferring to post-frame if we're currently in a frame.
   /// This prevents DrawerController hit-test errors when setState is called
@@ -919,6 +927,10 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
         _tripTitleController?.dispose();
         _tripTitleController = TextEditingController(text: trip.title ?? '');
         if (mounted) setState(() {});
+        // Once per session: maybe show daily mood pop-up (trip mode only)
+        if (mounted && widget.mode == AdventureMode.trip && widget.tripId != null) {
+          Future.microtask(() => _maybeShowMoodDialog());
+        }
         // Cache creator data for trip mode ("About the Creator" + "More by" cards)
         if (plan.creatorId.isNotEmpty) {
           _creatorUserFuture = _userService.getUserById(plan.creatorId);
@@ -5168,6 +5180,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           final uri = Uri.parse(url);
           if (await canLaunchUrl(uri)) {
             await launchUrl(uri, mode: LaunchMode.externalApplication);
+            if (widget.tripId != null) {
+              TripAnalyticsService().recordGetDirections(widget.tripId!);
+            }
           }
         } catch (e) {
           // Silently fail - URL launch errors are not critical
@@ -5527,6 +5542,9 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
       final uri = Uri.parse(url);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (widget.tripId != null) {
+          TripAnalyticsService().recordGetDirections(widget.tripId!);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -5928,6 +5946,15 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
     setState(() {
       _waypointOverridesMap[TripWaypointOverride.docId(planDay, to.id)] = override;
     });
+    // If Navigator chose a lower-CO2 mode than plan suggested, award Footprinter points
+    final version = _adventureData?.selectedVersion;
+    if (version != null && widget.tripId != null) {
+      final suggested = suggestedTransportModeForVersion(version);
+      final chosen = footprintTransportFromString(result.name);
+      if (chosen.kgCo2PerKm < suggested.kgCo2PerKm) {
+        TripAnalyticsService().incrementFootprinterPoints(widget.tripId!);
+      }
+    }
   }
 
   String _transportModeLabel(String mode) {
@@ -10540,7 +10567,296 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           
           // Unlock banner for non-purchased plans
           if (_hasPurchased == false) _buildUnlockBanner(customMessage: 'Unlock to see all insights'),
+          // Trip-specific insights (Insider/owner can add/edit) when in trip mode
+          if (widget.mode == AdventureMode.trip && widget.tripId != null && _trip != null)
+            _buildTripInsightsSection(),
     ]);
+  }
+
+  Widget _buildTripInsightsSection() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final canEdit = uid != null && (_trip!.isOwner(uid) || _trip!.isInsider(uid));
+    return SectionCard(
+      title: 'Trip insights',
+      icon: Icons.lightbulb_outline,
+      children: [
+        StreamBuilder<List<TripInsight>>(
+          stream: TripInsightService().streamTripInsights(widget.tripId!),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final insights = snapshot.data!;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (insights.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'No trip-specific insights yet.${canEdit ? " Add one below." : ""}',
+                      style: WaypointTypography.bodyMedium?.copyWith(
+                        color: WaypointColors.textSecondary,
+                      ),
+                    ),
+                  )
+                else
+                  ...insights.map((insight) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      insight.title,
+                                      style: WaypointTypography.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (insight.body.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        insight.body,
+                                        style: WaypointTypography.bodyMedium?.copyWith(
+                                          color: WaypointColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              if (canEdit)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit_outlined, size: 20),
+                                      onPressed: () => _showAddEditInsightDialog(insight: insight),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, size: 20),
+                                      onPressed: () => _deleteTripInsight(insight),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                if (canEdit)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showAddEditInsightDialog(),
+                      icon: const Icon(Icons.add, size: 20),
+                      label: const Text('Add insight'),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showAddEditInsightDialog({TripInsight? insight}) async {
+    final titleCtrl = TextEditingController(text: insight?.title ?? '');
+    final bodyCtrl = TextEditingController(text: insight?.body ?? '');
+    final isEdit = insight != null;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isEdit ? 'Edit insight' : 'Add insight'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  hintText: 'e.g. Best coffee in town',
+                ),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: bodyCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Details',
+                  hintText: 'Optional description',
+                ),
+                maxLines: 4,
+                textCapitalization: TextCapitalization.sentences,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(isEdit ? 'Save' : 'Add'),
+          ),
+        ],
+      ),
+    );
+    if (result != true || !mounted || widget.tripId == null) return;
+    final title = titleCtrl.text.trim();
+    if (title.isEmpty) return;
+    final body = bodyCtrl.text.trim();
+    final service = TripInsightService();
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    try {
+      if (isEdit) {
+        await service.updateTripInsight(
+          tripId: widget.tripId!,
+          insightId: insight!.id,
+          title: title,
+          body: body,
+        );
+      } else {
+        await service.addTripInsight(
+          tripId: widget.tripId!,
+          title: title,
+          body: body,
+          createdBy: currentUid,
+        );
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(isEdit ? 'Insight updated' : 'Insight added')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteTripInsight(TripInsight insight) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete insight?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted || widget.tripId == null) return;
+    try {
+      await TripInsightService().deleteTripInsight(tripId: widget.tripId!, insightId: insight.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Insight deleted')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _maybeShowMoodDialog() async {
+    if (_moodDialogChecked) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || widget.tripId == null) return;
+    final moodService = MoodService();
+    final optedOut = await moodService.isMoodOptedOut(widget.tripId!, uid);
+    if (optedOut) return;
+    final voted = await moodService.hasVotedToday(widget.tripId!, uid);
+    if (voted) return;
+    final settings = await moodService.getTripSettings(widget.tripId!);
+    if (!settings.moodPopupEnabled) return;
+    final now = DateTime.now();
+    if (now.hour < settings.moodPopupHour) return;
+    _moodDialogChecked = true;
+    if (!mounted) return;
+    _showMoodDialog();
+  }
+
+  void _showMoodDialog() {
+    bool dontAskAgain = false;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('How was your day?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: ['great', 'good', 'ok', 'low', 'bad'].map((mood) {
+                    return ChoiceChip(
+                      label: Text(mood),
+                      selected: false,
+                      onSelected: (_) async {
+                        final tripId = widget.tripId;
+                        if (tripId == null) return;
+                        await MoodService().recordMood(tripId: tripId, userId: FirebaseAuth.instance.currentUser!.uid, mood: mood);
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  value: dontAskAgain,
+                  onChanged: (v) => setDialogState(() => dontAskAgain = v ?? false),
+                  title: const Text('Don\'t ask again'),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  if (dontAskAgain && widget.tripId != null) {
+                    await MoodService().setMoodOptOut(widget.tripId!, FirebaseAuth.instance.currentUser!.uid, optedOut: true);
+                  }
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                },
+                child: const Text('Skip'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
   
   Widget _buildCommentsTab() {

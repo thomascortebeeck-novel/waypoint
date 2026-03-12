@@ -25,15 +25,20 @@ String backedCountLabel(int salesCount) {
 
 const String kTripRoleOwner = 'owner';
 const String kTripRoleNavigator = 'navigator';
-const String kTripRolePackingLead = 'packing_lead';
+const String kTripRoleQuartermaster = 'quartermaster';
 const String kTripRoleTreasurer = 'treasurer';
 const String kTripRoleFootprinter = 'footprinter';
+const String kTripRoleInsider = 'insider';
 const String kTripRoleMember = 'member';
+
+/// Legacy value: treat as Quartermaster for backward compatibility.
+const String kTripRolePackingLeadLegacy = 'packing_lead';
 
 const List<String> kTripRoleOptions = [
   kTripRoleMember,
+  kTripRoleInsider,
   kTripRoleNavigator,
-  kTripRolePackingLead,
+  kTripRoleQuartermaster,
   kTripRoleTreasurer,
   kTripRoleFootprinter,
 ];
@@ -45,14 +50,39 @@ String tripRoleDisplayLabel(String role) {
       return 'Owner';
     case kTripRoleNavigator:
       return 'Navigator';
-    case kTripRolePackingLead:
+    case kTripRoleQuartermaster:
+    case kTripRolePackingLeadLegacy:
       return 'Quartermaster';
     case kTripRoleTreasurer:
       return 'Treasurer';
     case kTripRoleFootprinter:
       return 'Footprinter';
+    case kTripRoleInsider:
+      return 'Insider';
     case kTripRoleMember:
     default:
-      return 'Insider';
+      return 'Member';
+  }
+}
+
+/// Short description for role picker / members page.
+String tripRoleDescription(String role) {
+  switch (role) {
+    case kTripRoleOwner:
+      return 'Trip leader; can assign roles and manage the trip.';
+    case kTripRoleNavigator:
+      return 'Responsible for navigation and timing; can edit transport between waypoints.';
+    case kTripRoleQuartermaster:
+    case kTripRolePackingLeadLegacy:
+      return 'Responsible for waypoint bookings, ensuring the Expedition list is completed before the trip, and waypoint documents (e.g. confirmations).';
+    case kTripRoleTreasurer:
+      return 'Responsible for tracking trip expenses in Treasure.';
+    case kTripRoleFootprinter:
+      return 'Responsible for the trip\'s footprint; sees daily footprint and earns points when the Navigator chooses lower-footprint transport.';
+    case kTripRoleInsider:
+      return 'Can add and edit Insights (local tips) for the trip; sees daily mood summaries.';
+    case kTripRoleMember:
+    default:
+      return 'Crew member with no special role.';
   }
 }
