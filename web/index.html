@@ -118,8 +118,12 @@
       } else {
         fetch('/maps_key_local.txt').then(function(r) { return r.ok ? r.text() : ''; }).catch(function() { return ''; }).then(function(t) {
           var key = (t && t.trim()) ? t.trim() : '';
-          if (key) loadWithKey(key);
-          else console.log('[Waypoint Maps] For local map: add web/maps_key_local.txt with your Google Maps API key (one line), or run with GOOGLE_MAPS_API_KEY set. See .github/DEPLOYMENT_HOSTING.md');
+          if (key && key.length >= 20 && key.length <= 100 && key.indexOf('<') === -1 && (key.indexOf('AIza') === 0 || /^[A-Za-z0-9_-]+$/.test(key))) {
+            loadWithKey(key);
+          } else {
+            if (key && (key.indexOf('<') !== -1 || key.length > 100)) console.warn('[Waypoint Maps] maps_key_local.txt returned invalid content (maybe 404 returned index.html). Create web/maps_key_local.txt with your API key on one line.');
+            else console.log('[Waypoint Maps] For local map: add web/maps_key_local.txt with your Google Maps API key (one line), or run with GOOGLE_MAPS_API_KEY set.');
+          }
         });
       }
     })();

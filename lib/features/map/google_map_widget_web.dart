@@ -10,6 +10,7 @@ import 'package:waypoint/features/map/adaptive_map_widget.dart';
 import 'package:waypoint/features/map/map_configuration.dart';
 import 'package:waypoint/features/map/waypoint_map_controller.dart';
 import 'package:waypoint/services/map_marker_service.dart';
+import 'package:waypoint/utils/google_maps_loader_web.dart' as google_maps_loader;
 import 'package:waypoint/utils/logger.dart';
 
 /// Google Maps widget for web platform
@@ -65,12 +66,16 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
   /// element is in the DOM. Avoids "IntersectionObserver: parameter 1 is not of type 'Element'".
   bool _mapHostReady = false;
 
-  /// Markers kept small: max ~18px (0.39×46). Higher zoom = larger; lower zoom = smaller. Reference 700px width.
+  /// True once the Google Maps JavaScript API (window.google.maps) is loaded.
+  /// Avoids "Cannot read properties of undefined (reading 'maps')" when script loads async (e.g. from index.html).
+  bool _mapsApiReady = false;
+
+  /// Markers kept small: max ~13px (0.28×46). Higher zoom = larger; lower zoom = smaller. Reference 700px width.
   double _markerScale() {
     final zoom = _currentZoom ?? widget.configuration?.initialZoom ?? 12.0;
     final safeZoom = zoom.clamp(1.0, 22.0);
     final width = widget.mapWidth ?? 400.0;
-    return ((width / 700.0) * (safeZoom / 14.0)).clamp(0.125, 0.39);
+    return ((width / 700.0) * (safeZoom / 14.0)).clamp(0.125, 0.28);
   }
 
   void _scheduleMarkerRescale() {
@@ -89,9 +94,15 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
     // Defer building the actual GoogleMap until the host element can be attached to the DOM.
     // This avoids IntersectionObserver.observe() receiving a non-Element when the
     // platform view is created before layout completes.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_mapHostReady) {
-        setState(() => _mapHostReady = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || _mapHostReady) return;
+      setState(() => _mapHostReady = true);
+      // Wait for the Maps API to be ready (script may load async from index.html / maps_key_local.txt).
+      try {
+        await google_maps_loader.waitForGoogleMapsReady();
+        if (mounted) setState(() => _mapsApiReady = true);
+      } catch (_) {
+        if (mounted) setState(() => _mapsApiReady = true); // still try to build so user sees error state
       }
     });
     // Don't call _updateMarkers() here - MediaQuery isn't available yet
@@ -315,7 +326,7 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_mapHostReady) {
+    if (!_mapHostReady || !_mapsApiReady) {
       return Container(
         color: Colors.grey.shade200,
         child: Center(
