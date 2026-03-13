@@ -1058,23 +1058,28 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           constraints: const BoxConstraints(maxWidth: 1240),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 16),
-                _buildTitleSection(context),     // title + stars
-                if (widget.mode == AdventureMode.trip) ...[
-                  const SizedBox(height: 8),
-                  _buildTripDatesRow(context),
-                ],
-                const SizedBox(height: 4),      // tight gap to location line
-                _buildLocationLine(context),
-                const SizedBox(height: 12),
-                _buildOwnerAttribution(context), // owner attribution row
-                const SizedBox(height: 12),
-                // Tabs removed - now using navigation drawer
-              ],
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    _buildTitleSection(context),     // title + stars
+                    if (widget.mode == AdventureMode.trip) ...[
+                      const SizedBox(height: 8),
+                      _buildTripDatesRow(context),
+                    ],
+                    const SizedBox(height: 4),      // tight gap to location line
+                    _buildLocationLine(context),
+                    const SizedBox(height: 12),
+                    _buildOwnerAttribution(context), // owner attribution row
+                    const SizedBox(height: 12),
+                    // Tabs removed - now using navigation drawer
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -7040,11 +7045,14 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Main column — canonical order: Tags → Image → Stats → Description → About Creator → …
+                  // Main column — centered and constrained for readability (desktop)
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 900),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                         const SizedBox(height: 12),
 
                         // 1. Tags (before image; location in header, so no location chip)
@@ -7159,6 +7167,8 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                                   : 24),
                         ),
                       ],
+                        ),
+                      ),
                     ),
                   ),
 

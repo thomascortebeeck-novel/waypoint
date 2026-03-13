@@ -195,6 +195,11 @@ Future<void> main() async {
         final mapsKey = _kGoogleMapsApiKey.trim();
         final key = mapsKey.isNotEmpty ? mapsKey : DefaultFirebaseOptions.web.apiKey;
         google_maps_loader.ensureGoogleMapsScriptLoaded(key);
+        if (mapsKey.isEmpty) {
+          Log.i('bootstrap', 'Maps: using Firebase web apiKey. For local dev, run with --dart-define=GOOGLE_MAPS_API_KEY=... to avoid ApiTargetBlockedMapError.');
+        } else {
+          Log.i('bootstrap', 'Maps: using GOOGLE_MAPS_API_KEY from dart-define.');
+        }
       }
     } catch (e) {
       if (e.toString().contains('duplicate-app')) {

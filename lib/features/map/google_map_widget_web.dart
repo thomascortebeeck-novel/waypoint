@@ -61,6 +61,10 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
   Timer? _scaleDebounce;
   double? _currentZoom;
 
+  /// Defer building the GoogleMap until after layout so the platform view host
+  /// element is in the DOM. Avoids "IntersectionObserver: parameter 1 is not of type 'Element'".
+  bool _mapHostReady = false;
+
   /// Markers kept small: max ~18px (0.39×46). Higher zoom = larger; lower zoom = smaller. Reference 700px width.
   double _markerScale() {
     final zoom = _currentZoom ?? widget.configuration?.initialZoom ?? 12.0;
@@ -82,6 +86,14 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
     MapMarkerService.clearCache(); // Avoid serving stale full-size rasters after scale formula changes
     // Pre-warm marker cache for common types to improve initial load
     _preWarmMarkerCache();
+    // Defer building the actual GoogleMap until the host element can be attached to the DOM.
+    // This avoids IntersectionObserver.observe() receiving a non-Element when the
+    // platform view is created before layout completes.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_mapHostReady) {
+        setState(() => _mapHostReady = true);
+      }
+    });
     // Don't call _updateMarkers() here - MediaQuery isn't available yet
     // Will be called in didChangeDependencies()
   }
@@ -303,8 +315,27 @@ class _GoogleMapWidgetWebState extends State<GoogleMapWidget> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_mapHostReady) {
+      return Container(
+        color: Colors.grey.shade200,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 12),
+              Text(
+                'Loading map...',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final config = widget.configuration ?? MapConfiguration.mainMap();
-    
+
     return Stack(
       children: [
         gmaps.GoogleMap(

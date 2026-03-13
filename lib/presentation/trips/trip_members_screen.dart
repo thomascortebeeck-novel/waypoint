@@ -10,11 +10,11 @@ import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/services/invite_service.dart';
 import 'package:waypoint/services/plan_service.dart';
 import 'package:waypoint/services/trip_analytics_service.dart';
+import 'package:waypoint/services/trip_insight_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/services/waypoint_vote_service.dart';
 import 'package:waypoint/theme.dart';
 import 'package:waypoint/core/constants/app_terms.dart';
-import 'package:waypoint/core/constants/level_names.dart';
 import 'package:waypoint/presentation/trips/invite_share_sheet.dart';
 
 /// Screen for managing trip members and inviting adventurers.
@@ -41,6 +41,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
   bool _isLoading = true;
   int? _footprinterPoints;
   int? _getDirectionsCount;
+  Map<String, int> _insightCountByUserId = const {};
 
   @override
   void initState() {
@@ -56,6 +57,13 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
       final analytics = TripAnalyticsService();
       final footprinterPoints = await analytics.getFootprinterPoints(trip.id);
       final getDirectionsCount = await analytics.getGetDirectionsCount(trip.id);
+      final insights = await TripInsightService().getTripInsights(trip.id);
+      final insightCountByUserId = <String, int>{};
+      for (final i in insights) {
+        if (i.createdBy != null && i.createdBy!.isNotEmpty) {
+          insightCountByUserId[i.createdBy!] = (insightCountByUserId[i.createdBy!] ?? 0) + 1;
+        }
+      }
       if (mounted) {
         setState(() {
           _trip = trip;
@@ -63,6 +71,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           _members = members;
           _footprinterPoints = footprinterPoints;
           _getDirectionsCount = getDirectionsCount;
+          _insightCountByUserId = insightCountByUserId;
           _isLoading = false;
         });
       }
@@ -694,21 +703,6 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                             color: BrandColors.secondaryDark,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: context.colors.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            getUserLevelName(member.completedTripCount),
-                            style: context.textStyles.labelSmall?.copyWith(
-                              color: context.colors.onSurfaceVariant,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                     if (_memberRoleStatLine(member) != null) ...[
@@ -723,7 +717,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                   ],
                 ),
               ),
-              if (isOwner && !isSelf && !isMemberOwner)
+              if (isOwner)
                 FilledButton(
                   onPressed: () => _showMemberMenu(member),
                   style: FilledButton.styleFrom(
@@ -742,7 +736,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
     );
   }
 
-  /// Returns a short stat line for the member card when the member has a role with a stat (e.g. Footprinter, Navigator), or null.
+  /// Returns a short stat line for the member card when the member has a role with a stat (e.g. Footprinter, Navigator, Insider), or null.
   String? _memberRoleStatLine(UserModel member) {
     final role = _trip?.memberRoles?[member.id] ?? kTripRoleMember;
     if (role == kTripRoleFootprinter && _footprinterPoints != null) {
@@ -750,6 +744,10 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
     }
     if (role == kTripRoleNavigator && _getDirectionsCount != null) {
       return 'Get directions: $_getDirectionsCount';
+    }
+    if (role == kTripRoleInsider) {
+      final count = _insightCountByUserId[member.id] ?? 0;
+      return 'Insights: $count';
     }
     return null;
   }
@@ -838,16 +836,18 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                   },
                 );
                 }),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.person_remove_outlined),
-              title: const Text('Remove from trip'),
-              textColor: Theme.of(context).colorScheme.error,
-              onTap: () {
-                Navigator.pop(context);
-                _removeMember(member);
-              },
-            ),
+            if (member.id != FirebaseAuth.instance.currentUser?.uid) ...[
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.person_remove_outlined),
+                title: const Text('Remove from trip'),
+                textColor: Theme.of(context).colorScheme.error,
+                onTap: () {
+                  Navigator.pop(context);
+                  _removeMember(member);
+                },
+              ),
+            ],
           ],
         ),
       ),

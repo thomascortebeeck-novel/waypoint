@@ -192,7 +192,13 @@ class _ContactPageState extends State<ContactPage> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => context.pop(),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/');
+              }
+            },
           ),
           title: const Text('Contact us'),
         ),
@@ -234,123 +240,141 @@ class _ContactPageState extends State<ContactPage> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/');
+            }
+          },
         ),
         title: const Text('Contact us'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Send us a message',
-                style: context.textStyles.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Questions about a plan or trip? We\'re here to help.',
-                style: context.textStyles.bodyMedium?.copyWith(
-                  color: context.colors.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name of request *',
-                  hintText: 'e.g. Payment issue, Bug report',
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.sentences,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
-                    return 'Please enter a name for your request';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              if (_loadingOptions)
-                const Center(child: CircularProgressIndicator())
-              else
-                DropdownButtonFormField<_RelatedOption>(
-                  value: _selectedRelated ?? _relatedOptions.first,
-                  decoration: const InputDecoration(
-                    labelText: 'Related plan or trip (optional)',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _relatedOptions
-                      .map((o) => DropdownMenuItem(
-                            value: o,
-                            child: Text(
-                              o.label,
-                              overflow: TextOverflow.ellipsis,
+      body: _loadingOptions
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      WaypointBreakpoints.isDesktop(MediaQuery.of(context).size.width) ? WaypointSpacing.xl : WaypointSpacing.md,
+                      24,
+                      WaypointBreakpoints.isDesktop(MediaQuery.of(context).size.width) ? WaypointSpacing.xl : WaypointSpacing.md,
+                      24,
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Send us a message',
+                            style: context.textStyles.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
                             ),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setState(() => _selectedRelated = v),
-                ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description *',
-                  hintText: 'Describe your question or issue...',
-                  border: OutlineInputBorder(),
-                  alignLabelWithHint: true,
-                ),
-                maxLines: 5,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
-                    return 'Please enter a description';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _pickScreenshot,
-                icon: const Icon(Icons.upload_file, size: 20),
-                label: Text(_screenshot == null
-                    ? 'Upload screenshot (optional)'
-                    : 'Screenshot attached'),
-              ),
-              if (_screenshot != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle, size: 20, color: context.colors.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Screenshot ready',
-                        style: context.textStyles.bodySmall?.copyWith(
-                          color: context.colors.primary,
-                        ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Questions about a plan or trip? We\'re here to help.',
+                            style: context.textStyles.bodyMedium?.copyWith(
+                              color: context.colors.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          TextFormField(
+                            controller: _nameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Name of request *',
+                              hintText: 'e.g. Payment issue, Bug report',
+                              border: OutlineInputBorder(),
+                            ),
+                            textCapitalization: TextCapitalization.sentences,
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Please enter a name for your request';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<_RelatedOption>(
+                            value: _selectedRelated ?? _relatedOptions.first,
+                            decoration: const InputDecoration(
+                              labelText: 'Related plan or trip (optional)',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _relatedOptions
+                                .map((o) => DropdownMenuItem(
+                                      value: o,
+                                      child: Text(
+                                        o.label,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (v) => setState(() => _selectedRelated = v),
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _descriptionController,
+                            decoration: const InputDecoration(
+                              labelText: 'Description *',
+                              hintText: 'Describe your question or issue...',
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                            ),
+                            maxLines: 5,
+                            validator: (v) {
+                              if (v == null || v.trim().isEmpty) {
+                                return 'Please enter a description';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: _pickScreenshot,
+                            icon: const Icon(Icons.upload_file, size: 20),
+                            label: Text(_screenshot == null
+                                ? 'Upload screenshot (optional)'
+                                : 'Screenshot attached'),
+                          ),
+                          if (_screenshot != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.check_circle, size: 20, color: context.colors.primary),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Screenshot ready',
+                                    style: context.textStyles.bodySmall?.copyWith(
+                                      color: context.colors.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 32),
+                          FilledButton(
+                            onPressed: _submitting ? null : _submit,
+                            child: _submitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Text('Send request'),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              const SizedBox(height: 32),
-              FilledButton(
-                onPressed: _submitting ? null : _submit,
-                child: _submitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Send request'),
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 }

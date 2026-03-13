@@ -29,13 +29,15 @@ class ResponsiveContentLayout extends StatelessWidget {
             ? Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Main content — constrained to 900px max
+                  // Main content — constrained to contentMaxWidth, centered in expanded space
                   Expanded(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: WaypointSpacing.contentMaxWidth,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: WaypointSpacing.contentMaxWidth,
+                        ),
+                        child: content,
                       ),
-                      child: content,
                     ),
                   ),
                   const SizedBox(width: 40),
@@ -50,7 +52,14 @@ class ResponsiveContentLayout extends StatelessWidget {
                   ),
                 ],
               )
-            : content,
+            : Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: WaypointSpacing.contentMaxWidth,
+                  ),
+                  child: content,
+                ),
+              ),
       ),
     );
 
