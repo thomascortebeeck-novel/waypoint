@@ -46,9 +46,17 @@ jobs:
       - name: Build web
         env:
           MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
         run: |
           EXTRA_DEFINES=""
-          if [ -n "$MAPBOX_PUBLIC_TOKEN" ]; then EXTRA_DEFINES="--dart-define=MAPBOX_PUBLIC_TOKEN=$MAPBOX_PUBLIC_TOKEN"; fi
+          if [ -n "$MAPBOX_PUBLIC_TOKEN" ]; then EXTRA_DEFINES="$EXTRA_DEFINES --dart-define=MAPBOX_PUBLIC_TOKEN=$MAPBOX_PUBLIC_TOKEN"; fi
+          MAPS_KEY="$GOOGLE_MAPS_API_KEY"
+          if [ -z "$MAPS_KEY" ] && [ -n "$GOOGLE_PLACES_API_KEY" ]; then MAPS_KEY="$GOOGLE_PLACES_API_KEY"; fi
+          if [ -n "$MAPS_KEY" ]; then
+            EXTRA_DEFINES="$EXTRA_DEFINES --dart-define=GOOGLE_MAPS_API_KEY=$MAPS_KEY"
+            echo "Building web with GOOGLE_MAPS_API_KEY (dart-define) so Dart loader uses the same key."
+          fi
           flutter build web $EXTRA_DEFINES
 
       - name: Substitute Google Maps API key in built web

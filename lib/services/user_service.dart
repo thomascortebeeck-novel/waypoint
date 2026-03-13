@@ -25,8 +25,7 @@ class UserService {
       return UserModel.fromJson(doc.data()!);
     } on FirebaseException catch (e) {
       if (e.code == 'permission-denied') {
-        // Expected when not signed in or rules deny read; avoid noisy log
-        if (kDebugMode) debugPrint('UserService: permission-denied reading user (e.g. not signed in)');
+        // Expected when not signed in or rules deny read; do not log (reduces console noise)
         return null;
       }
       debugPrint('Error getting user: $e');

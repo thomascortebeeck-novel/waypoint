@@ -130,12 +130,16 @@
         if (!message || typeof message !== 'string') return false;
         return message.indexOf('@firebase/firestore') !== -1;
       }
+      function isNotoFontsWarning(message) {
+        if (!message || typeof message !== 'string') return false;
+        return message.indexOf('Noto fonts') !== -1 && message.indexOf('missing characters') !== -1;
+      }
       function shouldSuppress(args) {
         const message = args.map(function(a) {
           if (a && typeof a === 'object' && a.message) return a.message;
           return String(a);
         }).join(' ');
-        return shouldSuppressAssetError(message) || isFirebaseFirestoreLog(message);
+        return shouldSuppressAssetError(message) || isFirebaseFirestoreLog(message) || isNotoFontsWarning(message);
       }
       console.log = function(...args) {
         if (shouldSuppress(args)) return;
