@@ -1166,6 +1166,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
                 onItemSelected: _onNavigationItemSelected,
                 title: displayName,
                 isPlanMode: widget.mode != AdventureMode.trip,
+                showReviewStep: widget.mode == AdventureMode.builder,
                 onShare: () {
                   if (_plan != null) {
                     ShareBottomSheet.show(context, _plan!);
@@ -7021,17 +7022,20 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   
   Widget _buildOverviewTab() {
     if (_adventureData == null || _plan == null) return const SizedBox.shrink();
-    
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           minHeight: MediaQuery.of(context).size.height,
         ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1240),
-            child: Padding(
+        child: SizedBox(
+          width: viewportWidth,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1240),
+              child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: WaypointSpacing.pagePaddingDesktop),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -7174,6 +7178,7 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
             ),
           ),
         ),
+        ),
       ),
     );
   }
@@ -7219,40 +7224,45 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
           decoration: BoxDecoration(
             color: context.colors.surface,
           ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isMobile ? WaypointSpacing.pagePaddingMobile : WaypointSpacing.pagePaddingDesktop,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // ---- Hamburger menu ----
-                if (!_isLoading && _errorMessage == null)
-                  IconButton(
-                    icon: Icon(Icons.menu, size: 24, color: context.colors.onSurface),
-                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                    tooltip: 'Menu',
-                  )
-                else
-                  const SizedBox(width: 48),
-                const SizedBox(width: WaypointSpacing.fieldGap),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1240),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? WaypointSpacing.pagePaddingMobile : WaypointSpacing.pagePaddingDesktop,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // ---- Hamburger menu ----
+                    if (!_isLoading && _errorMessage == null)
+                      IconButton(
+                        icon: Icon(Icons.menu, size: 24, color: context.colors.onSurface),
+                        onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+                        tooltip: 'Menu',
+                      )
+                    else
+                      const SizedBox(width: 48),
+                    const SizedBox(width: WaypointSpacing.fieldGap),
 
-                // ---- Desktop: breadcrumbs only (no logo) | Mobile: spacer (no title in nav bar) ----
-                if (!isMobile) ...[
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) => SizedBox(
-                        width: constraints.maxWidth,
-                        child: _buildBreadcrumbs(context),
+                    // ---- Desktop: breadcrumbs only (no logo) | Mobile: spacer (no title in nav bar) ----
+                    if (!isMobile) ...[
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => SizedBox(
+                            width: constraints.maxWidth,
+                            child: _buildBreadcrumbs(context),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ] else
-                  const Spacer(),
+                    ] else
+                      const Spacer(),
 
-                // ---- Save status (top-right) ----
-                _buildSaveStatus(),
-              ],
+                    // ---- Save status (top-right) ----
+                    _buildSaveStatus(),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

@@ -72,7 +72,7 @@ class Trip {
     required this.updatedAt,
   }) : inviteCode = inviteCode ?? generateInviteCode();
 
-  bool get isWaypointVoteMode => waypointDecisionMode == 'vote';
+  bool get isWaypointVoteMode => waypointDecisionMode != 'owner';
 
   /// Check if the trip is ready for invites (customization complete)
   bool get isReadyForInvites => customizationStatus == TripCustomizationStatus.ready;

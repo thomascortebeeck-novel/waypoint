@@ -301,7 +301,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
   Future<Map<String, dynamic>> _loadNavigatorData() async {
     final overrides = await _tripService.getWaypointOverrides(widget.tripId);
     final getDirectionsCount = await TripAnalyticsService().getGetDirectionsCount(widget.tripId);
-    final footprinterPoints = await TripAnalyticsService().getFootprinterPoints(widget.tripId);
     final travelModeCounts = <String, int>{};
     for (final o in overrides) {
       if (o.travelMode != null && o.travelMode!.isNotEmpty) {
@@ -311,7 +310,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
     return {
       'travelModeCounts': travelModeCounts,
       'getDirectionsCount': getDirectionsCount,
-      'footprinterPoints': footprinterPoints,
       'segmentsWithTransport': overrides.where((o) => o.travelMode != null && o.travelMode!.isNotEmpty).length,
     };
   }
@@ -329,7 +327,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
         final data = snapshot.data!;
         final travelModeCounts = data['travelModeCounts'] as Map<String, int>;
         final getDirectionsCount = data['getDirectionsCount'] as int;
-        final footprinterPoints = data['footprinterPoints'] as int;
         final segmentsWithTransport = data['segmentsWithTransport'] as int;
 
         final modeLabels = <String, String>{
@@ -361,13 +358,6 @@ class _RoleDashboardScreenState extends State<RoleDashboardScreen> {
               '$segmentsWithTransport',
               'Segments with transport mode set',
               Icons.route,
-            ),
-            const SizedBox(height: 12),
-            _navigatorStatCard(
-              'Footprinter green points',
-              '$footprinterPoints',
-              'Times you chose lower-footprint transport than suggested',
-              Icons.eco,
             ),
             const SizedBox(height: 20),
             Text(

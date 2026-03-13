@@ -69,7 +69,7 @@ String tripRoleDisplayLabel(String role) {
 String tripRoleDescription(String role) {
   switch (role) {
     case kTripRoleOwner:
-      return 'Trip leader; can assign roles and manage the trip.';
+      return 'Organizer; can assign roles and manage the trip.';
     case kTripRoleNavigator:
       return 'Responsible for navigation and timing; can edit transport between waypoints.';
     case kTripRoleQuartermaster:

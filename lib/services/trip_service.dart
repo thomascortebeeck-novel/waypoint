@@ -71,6 +71,7 @@ class TripService {
         isActive: true,
         inviteCode: inviteCode ?? Trip.generateInviteCode(),
         inviteEnabled: true,
+        waypointDecisionMode: 'vote',
         createdAt: now,
         updatedAt: now,
       );

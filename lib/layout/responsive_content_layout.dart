@@ -17,43 +17,51 @@ class ResponsiveContentLayout extends StatelessWidget {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = WaypointBreakpoints.isDesktop(width);
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: WaypointSpacing.layoutMaxWidth),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isDesktop
-                ? WaypointSpacing.contentHPadding
-                : WaypointSpacing.pagePaddingMobile.horizontal,
-          ),
-          child: isDesktop && sidebar != null
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Main content — constrained to 900px max
-                    Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: WaypointSpacing.contentMaxWidth,
-                        ),
-                        child: content,
-                      ),
-                    ),
-                    const SizedBox(width: 40),
-                    // Sidebar — fixed 280px, sticky via SliverPersistentHeader
-                    // For now: plain top-aligned
-                    SizedBox(
-                      width: WaypointSpacing.sidebarWidth,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 32),
-                        child: sidebar!,
-                      ),
-                    ),
-                  ],
-                )
-              : content,
+    final centeredContent = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: WaypointSpacing.layoutMaxWidth),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop
+              ? WaypointSpacing.contentHPadding
+              : WaypointSpacing.pagePaddingMobile.horizontal,
         ),
+        child: isDesktop && sidebar != null
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Main content — constrained to 900px max
+                  Expanded(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: WaypointSpacing.contentMaxWidth,
+                      ),
+                      child: content,
+                    ),
+                  ),
+                  const SizedBox(width: 40),
+                  // Sidebar — fixed 280px, sticky via SliverPersistentHeader
+                  // For now: plain top-aligned
+                  SizedBox(
+                    width: WaypointSpacing.sidebarWidth,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 32),
+                      child: sidebar!,
+                    ),
+                  ),
+                ],
+              )
+            : content,
       ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportWidth = constraints.maxWidth.isFinite ? constraints.maxWidth : width;
+        return SizedBox(
+          width: viewportWidth,
+          child: Center(child: centeredContent),
+        );
+      },
     );
   }
 }

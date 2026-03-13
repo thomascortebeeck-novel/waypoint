@@ -9,6 +9,7 @@ import 'package:waypoint/models/trip_model.dart';
 import 'package:waypoint/models/user_model.dart';
 import 'package:waypoint/services/invite_service.dart';
 import 'package:waypoint/services/plan_service.dart';
+import 'package:waypoint/services/trip_analytics_service.dart';
 import 'package:waypoint/services/trip_service.dart';
 import 'package:waypoint/services/waypoint_vote_service.dart';
 import 'package:waypoint/theme.dart';
@@ -38,6 +39,8 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
   Plan? _plan;
   List<UserModel> _members = [];
   bool _isLoading = true;
+  int? _footprinterPoints;
+  int? _getDirectionsCount;
 
   @override
   void initState() {
@@ -50,11 +53,16 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
     if (trip != null) {
       final members = await _inviteService.getMembersDetails(trip.id);
       final plan = await _planService.getPlanById(trip.planId);
+      final analytics = TripAnalyticsService();
+      final footprinterPoints = await analytics.getFootprinterPoints(trip.id);
+      final getDirectionsCount = await analytics.getGetDirectionsCount(trip.id);
       if (mounted) {
         setState(() {
           _trip = trip;
           _plan = plan;
           _members = members;
+          _footprinterPoints = footprinterPoints;
+          _getDirectionsCount = getDirectionsCount;
           _isLoading = false;
         });
       }
@@ -159,10 +167,10 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
 
   void _copyInviteCode() {
     if (_trip == null) return;
-    Clipboard.setData(ClipboardData(text: _trip!.inviteCode));
+    Clipboard.setData(ClipboardData(text: _trip!.shareLink));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Trip code copied'),
+        content: Text('Invite link copied'),
         duration: Duration(seconds: 2),
       ),
     );
@@ -256,13 +264,6 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           ],
         ),
         titleSpacing: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () {},
-            tooltip: 'Settings',
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -342,9 +343,6 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           // Role dashboard entry (if user has a special role) or empty state
           _buildRoleDashboardEntry(currentUserId),
           const SizedBox(height: 20),
-          // Share options row
-          _buildShareOptions(),
-          const SizedBox(height: 28),
           if (isOwner) ...[
             _buildWaypointChoiceSection(),
             const SizedBox(height: 20),
@@ -408,7 +406,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Text(
-        'You don\'t have a role yet — the trip leader can assign one.',
+        'You don\'t have a role yet — the organizer can assign one.',
         style: context.textStyles.bodySmall?.copyWith(
           color: context.colors.onSurfaceVariant,
         ),
@@ -542,6 +540,10 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           onSelectionChanged: (Set<String> selected) async {
             final mode = selected.first;
             if (_trip == null) return;
+            final previousMode = _trip!.waypointDecisionMode;
+            setState(() {
+              _trip = _trip!.copyWith(waypointDecisionMode: mode);
+            });
             try {
               if (mode == 'vote') {
                 final hasState = await _voteService.hasVoteState(_trip!.id);
@@ -554,51 +556,18 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                 }
               }
               await _tripService.updateWaypointDecisionMode(tripId: _trip!.id, mode: mode);
-              await _loadData();
+              if (mounted) await _loadData();
             } catch (e) {
               if (mounted) {
+                setState(() {
+                  _trip = _trip?.copyWith(waypointDecisionMode: previousMode);
+                });
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Could not update: $e'), behavior: SnackBarBehavior.floating),
                 );
               }
             }
           },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildShareOptions() {
-    return Row(
-      children: [
-        Expanded(
-          child: _ShareOptionTile(
-            icon: Icons.link_rounded,
-            label: 'Share Link',
-            color: const Color(0xFF4A90A4),
-            onTap: () {
-              _copyShareLink();
-              _shareLink();
-            },
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _ShareOptionTile(
-            icon: Icons.qr_code_2_rounded,
-            label: 'QR Code',
-            color: const Color(0xFF7C3AED),
-            onTap: _showQrCode,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _ShareOptionTile(
-            icon: Icons.email_outlined,
-            label: 'Email',
-            color: BrandColors.secondaryDark,
-            onTap: _shareEmail,
-          ),
         ),
       ],
     );
@@ -707,7 +676,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Trip Leader',
+                            'Organizer',
                             style: context.textStyles.labelSmall?.copyWith(
                               color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.w600,
@@ -742,13 +711,24 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
                         ),
                       ],
                     ),
+                    if (_memberRoleStatLine(member) != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _memberRoleStatLine(member)!,
+                        style: context.textStyles.labelSmall?.copyWith(
+                          color: context.colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
               if (isOwner && !isSelf && !isMemberOwner)
-                FilledButton.tonal(
+                FilledButton(
                   onPressed: () => _showMemberMenu(member),
                   style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -760,6 +740,18 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
         );
       },
     );
+  }
+
+  /// Returns a short stat line for the member card when the member has a role with a stat (e.g. Footprinter, Navigator), or null.
+  String? _memberRoleStatLine(UserModel member) {
+    final role = _trip?.memberRoles?[member.id] ?? kTripRoleMember;
+    if (role == kTripRoleFootprinter && _footprinterPoints != null) {
+      return 'Green points: $_footprinterPoints';
+    }
+    if (role == kTripRoleNavigator && _getDirectionsCount != null) {
+      return 'Get directions: $_getDirectionsCount';
+    }
+    return null;
   }
 
   Color _avatarColor(String userId) {
@@ -863,6 +855,11 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
   }
 
   Widget _buildInfoBox() {
+    final hasAnyAssignedRole = _trip != null &&
+        _members.any((m) => m.id != _trip!.ownerId && _trip!.hasSpecialRole(m.id));
+    final message = hasAnyAssignedRole
+        ? 'Only the Organizer can remove members or change the trip code.'
+        : 'Add roles so your crew can contribute.';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -884,8 +881,7 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Only the Trip Leader can remove members or change the trip code. '
-              'New members need to use the invite link or code to join.',
+              message,
               style: context.textStyles.bodySmall?.copyWith(
                 color: context.colors.onSurfaceVariant,
                 height: 1.4,
@@ -893,56 +889,6 @@ class _TripMembersScreenState extends State<TripMembersScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ShareOptionTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _ShareOptionTile({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: BrandingLightTokens.surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: BrandingLightTokens.surfaceVariant,
-              width: 1,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 28, color: color),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w500,
-                    ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

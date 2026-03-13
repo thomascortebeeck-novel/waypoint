@@ -42,6 +42,7 @@ import 'package:waypoint/presentation/trips/role_dashboard_screen.dart';
 import 'package:waypoint/presentation/trips/waypoint_vote_screen.dart';
 import 'package:waypoint/presentation/trips/trip_day_map_fullscreen.dart';
 import 'package:waypoint/presentation/admin/admin_screen.dart';
+import 'package:waypoint/presentation/contact/contact_page.dart';
 import 'package:waypoint/presentation/marketplace/location_search_results_page.dart';
 import 'package:waypoint/presentation/auth/auth_screen.dart';
 import 'package:waypoint/services/plan_service.dart';
@@ -83,6 +84,7 @@ class AppRoutes {
   static const String tripMembers = '/trip/:tripId/members';
   static const String admin = '/admin';
   static const String adminMigration = '/admin/migration';
+  static const String contact = '/contact';
   static const String locationSearch = '/search/location/:location';
   /// Login/register screen for iOS/Android when user is not signed in. No bottom nav.
   static const String login = '/login';
@@ -545,6 +547,11 @@ class AppRouter {
         path: AppRoutes.adminMigration,
         redirect: (context, state) => AppRoutes.admin,
         builder: (context, state) => const AdminScreen(), // Shown only if redirect is skipped
+      ),
+      GoRoute(
+        parentNavigatorKey: _rootNavigatorKey,
+        path: AppRoutes.contact,
+        builder: (context, state) => const ContactPage(),
       ),
       // Onboarding routes without nav bar
       GoRoute(

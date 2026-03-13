@@ -258,6 +258,15 @@ service cloud.firestore {
     }
     
     // ============================================
+    // CONTACT_REQUESTS COLLECTION (contact us form)
+    // ============================================
+    match /contact_requests/{requestId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+    
+    // ============================================
     // CONFIG COLLECTION (app/config, e.g. Stripe mode)
     // ============================================
     match /config/{configId} {

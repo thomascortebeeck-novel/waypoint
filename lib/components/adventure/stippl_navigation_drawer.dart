@@ -27,7 +27,10 @@ class StipplNavigationDrawer extends StatelessWidget {
   final VoidCallback? onLike;
   final VoidCallback? onInvite; // Only for trip mode
   final bool isLiked;
-  
+
+  /// When true, shows the Review nav item (builder-only step to review and publish).
+  final bool showReviewStep;
+
   /// When true, renders a loading placeholder instead of nav content.
   /// This avoids swapping the drawer widget type (which causes DrawerController
   /// to hit-test an unlaid-out child during the loading→loaded transition).
@@ -43,6 +46,7 @@ class StipplNavigationDrawer extends StatelessWidget {
     this.onLike,
     this.onInvite,
     this.isLiked = false,
+    this.showReviewStep = false,
     this.isLoading = false,
   }) : super(key: key);
 
@@ -210,11 +214,12 @@ class StipplNavigationDrawer extends StatelessWidget {
         label: 'Comments',
         icon: Icons.comment_outlined,
       ),
-      _NavigationItemData(
-        item: NavigationItem.review,
-        label: 'Review',
-        icon: Icons.rate_review_outlined,
-      ),
+      if (showReviewStep)
+        _NavigationItemData(
+          item: NavigationItem.review,
+          label: 'Review',
+          icon: Icons.rate_review_outlined,
+        ),
     ];
 
     return ListView(
@@ -288,20 +293,41 @@ class StipplNavigationDrawer extends StatelessWidget {
           ),
         ),
       ),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton(
-          onPressed: () {
-            Navigator.of(context).pop(); // Close drawer
-            context.go('/');
-          },
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            side: BorderSide(color: colorScheme.outline),
-            foregroundColor: colorScheme.onSurface,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Close drawer
+                context.go('/');
+              },
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                side: BorderSide(color: colorScheme.outline),
+                foregroundColor: colorScheme.onSurface,
+              ),
+              child: const Text('Back to home'),
+            ),
           ),
-          child: const Text('Back to home'),
-        ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Close drawer
+                context.go('/contact');
+              },
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                side: BorderSide(color: colorScheme.outline),
+                foregroundColor: colorScheme.onSurface,
+              ),
+              child: const Text('Contact us'),
+            ),
+          ),
+        ],
       ),
     );
   }

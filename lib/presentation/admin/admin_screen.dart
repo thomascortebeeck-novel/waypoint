@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waypoint/models/user_model.dart';
+import 'package:waypoint/models/contact_request_model.dart';
 import 'package:waypoint/nav.dart';
 import 'package:waypoint/presentation/admin/admin_migration_content.dart';
+import 'package:waypoint/services/contact_service.dart';
 import 'package:waypoint/services/admin_service.dart';
 import 'package:waypoint/services/notification_config_service.dart';
 import 'package:waypoint/services/user_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:waypoint/theme.dart';
 
 /// Admin hub: Dashboard, Push notifications, Migration. Guarded by isAdmin; redirects to login or profile when not allowed.
@@ -30,7 +33,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _checkAdmin();
   }
 
@@ -110,6 +113,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             Tab(icon: Icon(Icons.dashboard_outlined), text: 'Dashboard'),
             Tab(icon: Icon(Icons.notifications_active_outlined), text: 'Push'),
             Tab(icon: Icon(Icons.storage_outlined), text: 'Migration'),
+            Tab(icon: Icon(Icons.contact_mail_outlined), text: 'Contact'),
           ],
         ),
       ),
@@ -119,6 +123,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           _AdminDashboardTab(adminService: _adminService),
           _AdminPushNotificationsTab(notificationConfig: _notificationConfig),
           const AdminMigrationContent(),
+          _AdminContactTab(contactService: ContactService()),
         ],
       ),
     );
@@ -214,6 +219,157 @@ class _AdminDashboardTabState extends State<_AdminDashboardTab> {
           value: stats.userCount.toString(),
         ),
       ],
+    );
+  }
+}
+
+class _AdminContactTab extends StatelessWidget {
+  final ContactService contactService;
+
+  const _AdminContactTab({required this.contactService});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<ContactRequest>>(
+      stream: contactService.streamContactRequests(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: AppSpacing.paddingLg,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 64, color: context.colors.error),
+                  const SizedBox(height: 16),
+                  Text('Failed to load contact requests', style: context.textStyles.titleMedium?.copyWith(color: context.colors.error)),
+                  const SizedBox(height: 8),
+                  Text(snapshot.error.toString(), style: context.textStyles.bodySmall?.copyWith(color: context.colors.onSurfaceVariant), textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+          );
+        }
+        final requests = snapshot.data ?? [];
+        if (requests.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.inbox_outlined, size: 64, color: context.colors.onSurfaceVariant),
+                const SizedBox(height: 16),
+                Text('No contact requests yet', style: context.textStyles.titleMedium?.copyWith(color: context.colors.onSurfaceVariant)),
+              ],
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: AppSpacing.paddingMd,
+          itemCount: requests.length,
+          itemBuilder: (context, index) {
+            final r = requests[index];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _ContactRequestCard(request: r),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _ContactRequestCard extends StatelessWidget {
+  final ContactRequest request;
+
+  const _ContactRequestCard({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    final created = request.createdAt;
+    final dateStr = '${created.year}-${created.month.toString().padLeft(2, '0')}-${created.day.toString().padLeft(2, '0')} ${created.hour.toString().padLeft(2, '0')}:${created.minute.toString().padLeft(2, '0')}';
+    return Container(
+      padding: AppSpacing.paddingMd,
+      decoration: BoxDecoration(
+        color: context.colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: context.colors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  request.name,
+                  style: context.textStyles.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                dateStr,
+                style: context.textStyles.bodySmall?.copyWith(color: context.colors.onSurfaceVariant),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            request.description,
+            style: context.textStyles.bodyMedium,
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              if (request.userEmail != null && request.userEmail!.isNotEmpty)
+                Chip(
+                  avatar: const Icon(Icons.email_outlined, size: 16, color: Colors.grey),
+                  label: Text(request.userEmail!, style: context.textStyles.bodySmall),
+                  padding: EdgeInsets.zero,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              Chip(
+                avatar: const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                label: Text(request.userId, style: context.textStyles.bodySmall, overflow: TextOverflow.ellipsis),
+                padding: EdgeInsets.zero,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              if (request.relatedPlanId != null)
+                Chip(
+                  label: Text('Plan: ${request.relatedPlanId}', style: context.textStyles.bodySmall, overflow: TextOverflow.ellipsis),
+                  padding: EdgeInsets.zero,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              if (request.relatedTripId != null)
+                Chip(
+                  label: Text('Trip: ${request.relatedTripId}', style: context.textStyles.bodySmall, overflow: TextOverflow.ellipsis),
+                  padding: EdgeInsets.zero,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+            ],
+          ),
+          if (request.screenshotUrl != null && request.screenshotUrl!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () => launchUrl(Uri.parse(request.screenshotUrl!), mode: LaunchMode.externalApplication),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.image_outlined, size: 18, color: context.colors.primary),
+                  const SizedBox(width: 6),
+                  Text('View screenshot', style: context.textStyles.bodySmall?.copyWith(color: context.colors.primary, decoration: TextDecoration.underline)),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

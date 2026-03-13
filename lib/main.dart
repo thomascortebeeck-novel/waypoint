@@ -184,9 +184,14 @@ Future<void> main() async {
     try {
       await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
       Log.i('bootstrap', 'Firebase initialized (fresh)');
-      // Web: inject Google Maps script so the map displays (index.html key is placeholder for CI only)
+      // Web: inject Google Maps script so the map displays.
+      // Prefer GOOGLE_MAPS_API_KEY (--dart-define=GOOGLE_MAPS_API_KEY=...) so a key with
+      // "Maps JavaScript API" enabled can be used; Firebase web apiKey often has API
+      // restrictions that exclude Maps and cause ApiTargetBlockedMapError.
       if (kIsWeb) {
-        google_maps_loader.ensureGoogleMapsScriptLoaded(DefaultFirebaseOptions.web.apiKey);
+        final mapsKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY', defaultValue: '').trim();
+        final key = mapsKey.isNotEmpty ? mapsKey : DefaultFirebaseOptions.web.apiKey;
+        google_maps_loader.ensureGoogleMapsScriptLoaded(key);
       }
     } catch (e) {
       if (e.toString().contains('duplicate-app')) {

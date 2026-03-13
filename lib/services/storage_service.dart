@@ -243,6 +243,22 @@ class StorageService {
       contentType: 'image/jpeg',
     );
   }
+
+  /// Upload a contact request screenshot. Returns download URL.
+  Future<String> uploadContactScreenshot({
+    required String userId,
+    required String requestId,
+    required Uint8List bytes,
+    String contentType = 'image/jpeg',
+    String extension = 'jpg',
+  }) async {
+    final path = 'contact/$userId/$requestId.$extension';
+    return await uploadFile(
+      path: path,
+      bytes: bytes,
+      contentType: contentType,
+    );
+  }
 }
 
 /// Result of picking an image
