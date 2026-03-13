@@ -95,16 +95,32 @@
     }
   </style>
   
-  <!-- Google Maps JavaScript API: only load when key is set (CI substitutes YOUR_GOOGLE_MAPS_API_KEY in build; local dev skips to avoid InvalidKey) -->
+  <!-- Google Maps: production uses key from deploy (sed); local dev uses web/maps_key_local.txt if present (gitignored) -->
   <script>
     (function() {
-      var key = 'YOUR_GOOGLE_MAPS_API_KEY';
-      if (key && key !== 'YOUR_GOOGLE_MAPS_API_KEY') {
+      var buildKey = 'YOUR_GOOGLE_MAPS_API_KEY';
+      function redact(k) {
+        if (!k || k === 'YOUR_GOOGLE_MAPS_API_KEY') return '(empty or placeholder)';
+        if (k.length <= 12) return '***';
+        return k.substring(0, 8) + '…' + k.substring(k.length - 4);
+      }
+      function loadWithKey(key) {
+        if (!key || key === 'YOUR_GOOGLE_MAPS_API_KEY') return;
+        console.log('[Waypoint Maps] index.html loading Maps API with key prefix: ' + redact(key) + '.');
         var s = document.createElement('script');
         s.src = 'https://maps.googleapis.com/maps/api/js?key=' + key + '&libraries=places,geometry,marker&loading=async';
         s.async = true;
         s.defer = true;
         document.head.appendChild(s);
+      }
+      if (buildKey && buildKey !== 'YOUR_GOOGLE_MAPS_API_KEY') {
+        loadWithKey(buildKey);
+      } else {
+        fetch('/maps_key_local.txt').then(function(r) { return r.ok ? r.text() : ''; }).catch(function() { return ''; }).then(function(t) {
+          var key = (t && t.trim()) ? t.trim() : '';
+          if (key) loadWithKey(key);
+          else console.log('[Waypoint Maps] For local map: add web/maps_key_local.txt with your Google Maps API key (one line), or run with GOOGLE_MAPS_API_KEY set. See .github/DEPLOYMENT_HOSTING.md');
+        });
       }
     })();
   </script>

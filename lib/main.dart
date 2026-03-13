@@ -194,11 +194,14 @@ Future<void> main() async {
       if (kIsWeb) {
         final mapsKey = _kGoogleMapsApiKey.trim();
         final key = mapsKey.isNotEmpty ? mapsKey : DefaultFirebaseOptions.web.apiKey;
+        final keyPreview = key.isEmpty || key.contains('REPLACE') || key == 'YOUR_GOOGLE_MAPS_API_KEY'
+            ? '(empty or placeholder)'
+            : (key.length <= 12 ? '***' : '${key.substring(0, 8)}…${key.substring(key.length - 4)}');
         google_maps_loader.ensureGoogleMapsScriptLoaded(key);
         if (mapsKey.isEmpty) {
-          Log.i('bootstrap', 'Maps: using Firebase web apiKey. For local dev, run with --dart-define=GOOGLE_MAPS_API_KEY=... to avoid ApiTargetBlockedMapError.');
+          Log.i('bootstrap', 'Maps: using Firebase web apiKey; prefix=$keyPreview. For local/prod, set GOOGLE_MAPS_API_KEY (dart-define or deploy secret) so a key with Maps JavaScript API enabled is used.');
         } else {
-          Log.i('bootstrap', 'Maps: using GOOGLE_MAPS_API_KEY from dart-define.');
+          Log.i('bootstrap', 'Maps: using GOOGLE_MAPS_API_KEY from dart-define; prefix=$keyPreview. Verify this matches your key in Google Cloud Console (APIs & Services → Credentials).');
         }
       }
     } catch (e) {

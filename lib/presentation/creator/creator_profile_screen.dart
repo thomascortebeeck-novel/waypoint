@@ -62,8 +62,9 @@ class _CreatorProfileScreenState extends State<CreatorProfileScreen> {
         return;
       }
 
-      // Load creator's plans
-      final plans = await _planService.getPlansByCreator(widget.creatorId);
+      // Load creator's plans (only published unless viewing own profile)
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      final plans = await _planService.getPlansByCreator(widget.creatorId, currentUserId: currentUserId);
 
       // Calculate stats
       final stats = CreatorStats(

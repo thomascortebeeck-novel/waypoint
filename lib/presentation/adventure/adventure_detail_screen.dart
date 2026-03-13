@@ -2529,10 +2529,11 @@ class _AdventureDetailScreenState extends State<AdventureDetailScreen> with Tick
   Future<_CreatorOverviewData> _getCreatorOverview(String creatorId) async {
     if (creatorId.isEmpty) return const _CreatorOverviewData(null, CreatorStats.empty, []);
     try {
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
       final results = await Future.wait([
         _userService.getUserById(creatorId),
-        _planService.getCreatorStats(creatorId),
-        _planService.getPlansByCreator(creatorId),
+        _planService.getCreatorStats(creatorId, currentUserId: currentUserId),
+        _planService.getPlansByCreator(creatorId, currentUserId: currentUserId),
       ]);
 
       final user = results[0] as UserModel?;

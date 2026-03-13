@@ -57,3 +57,6 @@ lib/config/api_keys.dart
 # Firebase / Google config with API keys — download from Firebase Console per app; do not commit
 ios/Runner/GoogleService-Info.plist
 android/app/google-services.json
+
+# Local Google Maps key for web (one line, key only). Copy from maps_key_local.example.txt.
+web/maps_key_local.txt

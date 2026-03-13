@@ -526,12 +526,20 @@ class PlanService {
     }
   }
 
-  /// Get plans by creator (legacy format)
-  Future<List<Plan>> getPlansByCreator(String creatorId) async {
+  /// Get plans by creator (legacy format).
+  /// When [currentUserId] is null or not the creator, only published plans are returned
+  /// (required by Firestore rules for unauthenticated and other users).
+  /// When [currentUserId] == creatorId, all plans are returned (creator sees their own unpublished).
+  Future<List<Plan>> getPlansByCreator(String creatorId, {String? currentUserId}) async {
     try {
-      final snapshot = await _firestore
+      final isCreator = currentUserId != null && currentUserId == creatorId;
+      var query = _firestore
           .collection(_collection)
-          .where('creator_id', isEqualTo: creatorId)
+          .where('creator_id', isEqualTo: creatorId);
+      if (!isCreator) {
+        query = query.where('is_published', isEqualTo: true);
+      }
+      final snapshot = await query
           .orderBy('created_at', descending: true)
           .limit(50)
           .get();
@@ -543,9 +551,10 @@ class PlanService {
   }
 
   /// Aggregated review stats for a creator (across all their plans).
-  Future<CreatorStats> getCreatorStats(String creatorId) async {
+  /// [currentUserId] is passed through so the creator sees stats including unpublished; others only see published.
+  Future<CreatorStats> getCreatorStats(String creatorId, {String? currentUserId}) async {
     try {
-      final plans = await getPlansByCreator(creatorId);
+      final plans = await getPlansByCreator(creatorId, currentUserId: currentUserId);
       int totalReviews = 0;
       double weightedSum = 0.0;
       for (final plan in plans) {
