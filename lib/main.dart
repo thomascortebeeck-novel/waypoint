@@ -19,6 +19,9 @@ import 'package:waypoint/services/stripe_config_service.dart';
 import 'package:waypoint/utils/google_maps_loader_stub.dart'
     if (dart.library.html) 'package:waypoint/utils/google_maps_loader_web.dart' as google_maps_loader;
 
+/// Maps API key from --dart-define=GOOGLE_MAPS_API_KEY=... (must be const for web).
+const String _kGoogleMapsApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY', defaultValue: '');
+
 /// Configure global image cache for better performance
 void _configureImageCache() {
   // Set maximum number of images to keep in memory cache
@@ -189,7 +192,7 @@ Future<void> main() async {
       // "Maps JavaScript API" enabled can be used; Firebase web apiKey often has API
       // restrictions that exclude Maps and cause ApiTargetBlockedMapError.
       if (kIsWeb) {
-        final mapsKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY', defaultValue: '').trim();
+        final mapsKey = _kGoogleMapsApiKey.trim();
         final key = mapsKey.isNotEmpty ? mapsKey : DefaultFirebaseOptions.web.apiKey;
         google_maps_loader.ensureGoogleMapsScriptLoaded(key);
       }
